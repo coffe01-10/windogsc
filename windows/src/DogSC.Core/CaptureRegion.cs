@@ -56,6 +56,9 @@ public static class CaptureRegion
         var bottom = Math.Min(y + height, monitor.Y + monitor.Height);
         var cropWidth = Math.Max(64, right - left) & ~1;
         var cropHeight = Math.Max(64, bottom - top) & ~1;
+        // 监视器比 64 还窄/矮时，保底宽本身就越界：先收口到监视器内再 clamp 位置。
+        cropWidth = Math.Max(2, Math.Min(cropWidth, monitor.Width) & ~1);
+        cropHeight = Math.Max(2, Math.Min(cropHeight, monitor.Height) & ~1);
         // 宽高被 clamp 放大时不要越过监视器边界。
         left = Math.Min(left, monitor.X + Math.Max(0, monitor.Width - cropWidth));
         top = Math.Min(top, monitor.Y + Math.Max(0, monitor.Height - cropHeight));

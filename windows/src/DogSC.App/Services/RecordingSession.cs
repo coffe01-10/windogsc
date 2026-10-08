@@ -371,6 +371,8 @@ public sealed class RecordingSession : IAsyncDisposable
         }
 
         _followCrop = crop;
+        // 窗口移动后，画面矩形变了：回写 Area，让之后采样的光标按新矩形归一化。
+        take.Area = new CaptureRegion.Box(_followMonitor.X + crop.X, _followMonitor.Y + crop.Y, crop.Width, crop.Height);
         video.SendFilterCommand("crop@pos", "x", crop.X.ToString());
         video.SendFilterCommand("crop@pos", "y", crop.Y.ToString());
         video.SendFilterCommand("crop@pos", "w", crop.Width.ToString());

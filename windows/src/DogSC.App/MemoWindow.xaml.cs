@@ -4,10 +4,12 @@ public partial class MemoWindow : Window
 {
     static MemoWindow? _current;
     bool _ready;
+    readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
 
     public MemoWindow()
     {
         InitializeComponent();
+        _saveTimer.Tick += (_, _) => { _saveTimer.Stop(); SettingsStore.Save(); };
         Body.Text = SettingsStore.Current.MemoText;
         SizeSlider.Value = SettingsStore.Current.MemoSize;
         OpacitySlider.Value = SettingsStore.Current.MemoOpacity;
@@ -21,6 +23,7 @@ public partial class MemoWindow : Window
         }
 
         _ready = true;
+        Loaded += (_, _) => WindowPlacement.KeepInWorkArea(this);
     }
 
     public static void Toggle()
@@ -43,6 +46,7 @@ public partial class MemoWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _saveTimer.Stop();
         SettingsStore.Current.MemoLeft = Left;
         SettingsStore.Current.MemoTop = Top;
         SettingsStore.Save();
@@ -50,21 +54,12 @@ public partial class MemoWindow : Window
         {
             _current = null;
         }
+        base.OnClosed(e);
     }
 
     void Drag(object sender, MouseButtonEventArgs e)
     {
-        if (e.ButtonState == MouseButtonState.Pressed)
-        {
-            try
-            {
-                DragMove();
-            }
-            catch
-            {
-                // The pointer already left the window.
-            }
-        }
+        WindowPlacement.Drag(this, e);
     }
 
     void Close_Click(object sender, RoutedEventArgs e) => Close();
@@ -77,7 +72,7 @@ public partial class MemoWindow : Window
         }
 
         SettingsStore.Current.MemoText = Body.Text;
-        SettingsStore.Save();
+        QueueSave();
     }
 
     void Size_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -89,7 +84,7 @@ public partial class MemoWindow : Window
 
         Body.FontSize = e.NewValue;
         SettingsStore.Current.MemoSize = e.NewValue;
-        SettingsStore.Save();
+        QueueSave();
     }
 
     void Opacity_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -101,6 +96,12 @@ public partial class MemoWindow : Window
 
         Shell.Opacity = e.NewValue;
         SettingsStore.Current.MemoOpacity = e.NewValue;
-        SettingsStore.Save();
+        QueueSave();
+    }
+
+    void QueueSave()
+    {
+        _saveTimer.Stop();
+        _saveTimer.Start();
     }
 }

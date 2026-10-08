@@ -17,8 +17,27 @@ public static class SelfTest
 
         var root = Path.Combine(Path.GetTempPath(), "DogSC-selftest-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(root, "media"));
+        try
+        {
+            return await RunInDirectoryAsync(ffmpeg, ffprobe, root);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("SELFTEST_NOTE 临时目录未删除：" + root + "；" + ex.Message);
+            }
+        }
+    }
+
+    static async Task<int> RunInDirectoryAsync(string ffmpeg, string ffprobe, string root)
+    {
         var source = Path.Combine(root, "media", "screen.mp4");
-        var generated = FfmpegProcess.Start(ffmpeg, [
+        using var generated = FfmpegProcess.Start(ffmpeg, [
             "-y", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=30:duration=2",
             "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", source,
@@ -30,7 +49,6 @@ public static class SelfTest
             return 1;
         }
 
-        generated.Dispose();
         var asset = new MediaAsset
         {
             Video = "media/screen.mp4",
@@ -48,14 +66,20 @@ public static class SelfTest
             Clips = [new ClipSegment { AssetId = asset.Id, SourceStart = 0, SourceEnd = 2 }],
             Canvas = new CanvasSettings { Padding = 36, Corner = 20, Shadow = 24, Background = "#F3F1EC" },
         };
-        TimelineEdits.AddZoom(project, 0.4);
+        var zoom = TimelineEdits.AddZoom(project, 0.2)!;
+        zoom.Duration = 0.6;
+        if (TimelineEdits.PasteZoom(project, zoom, 1, 0, out var pasteError) is null)
+        {
+            Console.Error.WriteLine("SELFTEST_FAIL 缩放复制失败：" + pasteError);
+            return 1;
+        }
         ProjectFile.Save(root, project);
         var output = Path.Combine(root, "out.mp4");
         var exporter = new ExportService(ffmpeg);
         try
         {
             using var exportCancel = new CancellationTokenSource(TimeSpan.FromSeconds(40));
-        await exporter.ExportAsync(project, root, new ExportOptions { Resolution = "source", Fps = 30 }, output, exportCancel.Token);
+            await exporter.ExportAsync(project, root, new ExportOptions { Resolution = "source", Fps = 30 }, output, exportCancel.Token);
         }
         catch (Exception ex)
         {
@@ -75,7 +99,7 @@ public static class SelfTest
         var monitor = Native.Monitors().First();
         var grabPath = Path.Combine(root, "grab.mp4");
         var region = Native.EvenRegion(monitor.Left, monitor.Top, Math.Min(640, monitor.Width), Math.Min(360, monitor.Height));
-        var grab = FfmpegProcess.Start(ffmpeg, [
+        using var grab = FfmpegProcess.Start(ffmpeg, [
             "-y", "-f", "gdigrab", "-framerate", "15",
             "-offset_x", region.X.ToString(), "-offset_y", region.Y.ToString(),
             "-video_size", region.Width + "x" + region.Height,
@@ -84,7 +108,6 @@ public static class SelfTest
         ]);
         var grabCode = await grab.WaitAsync();
         var grabInfo = grabCode == 0 ? await FfmpegTools.Probe(ffprobe, grabPath) : null;
-        grab.Dispose();
         if (grabInfo is null || grabInfo.Width < 64)
         {
             Console.Error.WriteLine("SELFTEST_FAIL 屏幕采集失败。");
@@ -93,15 +116,6 @@ public static class SelfTest
         }
 
         Console.WriteLine($"SELFTEST_OK capture {grabInfo.Width}x{grabInfo.Height}");
-        try
-        {
-            Directory.Delete(root, recursive: true);
-        }
-        catch
-        {
-            Console.WriteLine("SELFTEST_NOTE 临时目录未删除：" + root);
-        }
-
         return 0;
     }
 }

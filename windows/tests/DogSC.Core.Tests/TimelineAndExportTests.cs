@@ -413,6 +413,14 @@ public class TimelineAndExportTests
         TimelineEdits.AddZoom(project, 1);
         project.Canvas.Background = "#1E1F22";
         project.Canvas.Corner = 40;
+        project.Canvas.Wallpaper = "media/wall.png";
+        project.Canvas.WallpaperBlur = 0.6;
+        project.Canvas.Cursor = new CursorFx { Mode = "dot", ClickRipple = false, IdleHide = true };
+        project.Canvas.Sticker = new StickerImage { Path = "media/st.png", X = 0.2, Y = 0.3, Width = 0.4, Opacity = 0.8 };
+        project.Canvas.SoftRegion = new SoftRegion { Enabled = true, X = 0.1, Y = 0.2, Width = 0.3, Height = 0.4, Strength = 0.9 };
+        project.Camera.Shape = "square";
+        project.Camera.Entry = "rise";
+        project.Camera.Corner = 0.3;
         project.MicrophoneGain = 1.8;
 
         var bundle = TimelineEdits.CopyEffect(project, source.Id);
@@ -426,6 +434,19 @@ public class TimelineAndExportTests
         Assert.Equal(bundle.SourceLength, restored.SourceLength, 3);
         Assert.Equal(bundle.Zooms[0].Scale, restored.Zooms[0].Scale, 3);
         Assert.Equal("#1E1F22", restored.Canvas.Background);
+        Assert.Equal("media/wall.png", restored.Canvas.Wallpaper);
+        Assert.Equal(0.6, restored.Canvas.WallpaperBlur, 3);
+        Assert.Equal("dot", restored.Canvas.Cursor.Mode);
+        Assert.False(restored.Canvas.Cursor.ClickRipple);
+        Assert.True(restored.Canvas.Cursor.IdleHide);
+        Assert.NotNull(restored.Canvas.Sticker);
+        Assert.Equal("media/st.png", restored.Canvas.Sticker!.Path);
+        Assert.Equal(0.4, restored.Canvas.Sticker.Width, 3);
+        Assert.True(restored.Canvas.SoftRegion.Enabled);
+        Assert.Equal(0.9, restored.Canvas.SoftRegion.Strength, 3);
+        Assert.Equal("square", restored.Camera.Shape);
+        Assert.Equal("rise", restored.Camera.Entry);
+        Assert.Equal(0.3, restored.Camera.Corner, 3);
 
         // 全量粘贴：目标片段的速度、时长与缩放段一起带走。
         Assert.True(TimelineEdits.PasteEffect(project, target.Id, restored, includeTiming: true));
@@ -433,6 +454,19 @@ public class TimelineAndExportTests
         Assert.Equal(source.SourceEnd - source.SourceStart, target.SourceEnd - target.SourceStart, 3);
         Assert.Equal(2, project.Zooms.Count);
         Assert.Equal("#1E1F22", project.Canvas.Background);
+        Assert.Equal("media/wall.png", project.Canvas.Wallpaper);
+        Assert.Equal(0.6, project.Canvas.WallpaperBlur, 3);
+        Assert.Equal("dot", project.Canvas.Cursor.Mode);
+        Assert.False(project.Canvas.Cursor.ClickRipple);
+        Assert.True(project.Canvas.Cursor.IdleHide);
+        Assert.NotNull(project.Canvas.Sticker);
+        Assert.Equal("media/st.png", project.Canvas.Sticker!.Path);
+        Assert.Equal(0.8, project.Canvas.Sticker.Opacity, 3);
+        Assert.True(project.Canvas.SoftRegion.Enabled);
+        Assert.Equal(0.9, project.Canvas.SoftRegion.Strength, 3);
+        Assert.Equal("square", project.Camera.Shape);
+        Assert.Equal("rise", project.Camera.Entry);
+        Assert.Equal(0.3, project.Camera.Corner, 3);
         Assert.Equal(1.8, project.MicrophoneGain, 3);
     }
 
@@ -577,6 +611,21 @@ public class TimelineAndExportTests
         Assert.True(outside.X + outside.Width <= monitor.Width);
         Assert.True(outside.Y + outside.Height <= monitor.Height);
         Assert.True(outside.Width >= 64 && outside.Height >= 64);
+    }
+
+    [Fact]
+    public void CaptureRegion_TinyMonitor_ClampsInsideBounds()
+    {
+        // 监视器比保底 64 还窄：crop 宽收口到监视器内，不越界且仍是偶数。
+        var monitor = new CaptureRegion.Box(0, 0, 32, 20);
+        var crop = CaptureRegion.Crop(new CaptureRegion.Box(0, 0, 800, 600), monitor);
+        Assert.Equal(0, crop.X);
+        Assert.Equal(0, crop.Y);
+        Assert.True(crop.Width <= monitor.Width && crop.Width % 2 == 0);
+        Assert.True(crop.Height <= monitor.Height && crop.Height % 2 == 0);
+        Assert.True(crop.X + crop.Width <= monitor.Width);
+        Assert.True(crop.Y + crop.Height <= monitor.Height);
+        Assert.True(crop.Width >= 2 && crop.Height >= 2);
     }
 
     [Fact]

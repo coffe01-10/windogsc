@@ -20,6 +20,29 @@ public partial class RecorderBarWindow : Window
     public RecorderBarWindow()
     {
         InitializeComponent();
+        KeyboardNavigation.SetTabNavigation(ListItems, KeyboardNavigationMode.Cycle);
+        ListPopup.Opened += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Input,
+            new Action(() => ListItems.Children.OfType<Button>().FirstOrDefault()?.Focus()));
+        ListPopup.Closed += (_, _) => (ListPopup.PlacementTarget as UIElement)?.Focus();
+        ListItems.PreviewKeyDown += (_, args) =>
+        {
+            if (args.Key == Key.Escape)
+            {
+                ListPopup.IsOpen = false;
+                args.Handled = true;
+            }
+            else if (args.Key is Key.Up or Key.Down)
+            {
+                var buttons = ListItems.Children.OfType<Button>().ToList();
+                var index = buttons.FindIndex(button => button.IsKeyboardFocusWithin);
+                if (buttons.Count > 0)
+                {
+                    var next = index < 0 ? 0 : (index + (args.Key == Key.Down ? 1 : buttons.Count - 1)) % buttons.Count;
+                    buttons[next].Focus();
+                }
+                args.Handled = true;
+            }
+        };
         _hook = WndProc;
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/AppIconMaster.png"));
         FolderLabel.Text = Path.GetFileName(SettingsStore.Current.ProjectsDirectory);
@@ -35,20 +58,8 @@ public partial class RecorderBarWindow : Window
             TimerLabel.Text = elapsed.ToString(elapsed.TotalHours >= 1 ? @"h\:mm\:ss" : @"mm\:ss");
         };
         Loaded += async (_, _) => await LoadDevicesAsync();
-        MouseLeftButtonDown += (_, args) =>
-        {
-            if (args.ButtonState == MouseButtonState.Pressed && args.OriginalSource is not Button)
-            {
-                try
-                {
-                    DragMove();
-                }
-                catch
-                {
-                    // DragMove throws if the mouse button is already up.
-                }
-            }
-        };
+        MouseLeftButtonDown += DragBar;
+        Loaded += (_, _) => WindowPlacement.KeepInWorkArea(this);
         if (!double.IsNaN(SettingsStore.Current.BarLeft))
         {
             WindowStartupLocation = WindowStartupLocation.Manual;
@@ -60,6 +71,8 @@ public partial class RecorderBarWindow : Window
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
         }
     }
+
+    void DragBar(object sender, MouseButtonEventArgs args) => WindowPlacement.Drag(this, args);
 
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -284,6 +297,7 @@ public partial class RecorderBarWindow : Window
                 await _session.ResumeAsync();
                 _paused = false;
                 PauseLabel.Text = "暂停";
+                PauseIcon.Kind = IconKind.Pause;
                 _timer.Start();
             }
             else
@@ -291,6 +305,7 @@ public partial class RecorderBarWindow : Window
                 await _session.PauseAsync();
                 _paused = true;
                 PauseLabel.Text = "继续";
+                PauseIcon.Kind = IconKind.Play;
                 _timer.Stop();
             }
         }
@@ -347,6 +362,7 @@ public partial class RecorderBarWindow : Window
             _directory = directory;
             _paused = false;
             PauseLabel.Text = "暂停";
+            PauseIcon.Kind = IconKind.Pause;
             RecordingLabel.Text = target.Label;
             SetupPanel.Visibility = Visibility.Collapsed;
             RecordingPanel.Visibility = Visibility.Visible;
@@ -488,11 +504,17 @@ public partial class RecorderBarWindow : Window
         try
         {
             Mouse.OverrideCursor = Cursors.Wait;
-            var (directory, result) = await ProjectFactory.ImportMacAsync(ffprobe, dialog.FolderName);
+            var (directory, result) = await ProjectFactory.ImportMacAsync(ffmpeg, ffprobe, dialog.FolderName);
             EditorWindow.Open(directory);
             if (result.DroppedFields.Count > 0)
             {
                 AppPaths.Log("macOS 导入丢弃字段：" + string.Join("；", result.DroppedFields));
+            }
+
+            var videos = result.Project.Assets.SelectMany(a => new[] { a.Video, a.Camera });
+            if (ffmpeg is null && videos.Any(v => v?.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) == true))
+            {
+                ShowError("已导入，但摄像头/屏幕是 .mov：预览可能黑屏，导出不受影响。装 ffmpeg 可自动转码。");
             }
         }
         catch (Exception ex)
@@ -519,6 +541,7 @@ public partial class RecorderBarWindow : Window
             }
 
             button.Content = stack;
+            System.Windows.Automation.AutomationProperties.SetName(button, item.Title);
             var run = item.Run;
             button.Click += (_, _) =>
             {
@@ -537,14 +560,19 @@ public partial class RecorderBarWindow : Window
         MicDot.Visibility = SettingsStore.Current.RecordMicrophone ? Visibility.Visible : Visibility.Collapsed;
         CameraDot.Visibility = SettingsStore.Current.RecordCamera ? Visibility.Visible : Visibility.Collapsed;
         AudioDot.Visibility = SettingsStore.Current.RecordSystemAudio ? Visibility.Visible : Visibility.Collapsed;
+        MicButton.ToolTip = SettingsStore.Current.RecordMicrophone ? "麦克风已开启，点击关闭" : "麦克风已关闭，点击选择并开启";
+        CameraButton.ToolTip = SettingsStore.Current.RecordCamera ? "摄像头画中画已开启，点击关闭" : "摄像头画中画已关闭，点击选择并开启";
+        AudioButton.ToolTip = SettingsStore.Current.RecordSystemAudio ? "系统声音已开启，点击关闭" : "系统声音已关闭，点击选择并开启";
     }
 
     void ShowError(string message)
     {
+        UpdateText.Visibility = Visibility.Collapsed;
         ErrorText.Text = message.ReplaceLineEndings(" ");
     }
 
-    /// <summary>录制条角落提示新版本；点击用默认浏览器打开 release 页。</summary>
+    /// <summary>录制条角落提示新版本；点击用默认浏览器打开 release 页。
+    /// 用独立的 UpdateText，不改 ErrorText 的样式/事件，避免污染错误文本。</summary>
     public void ShowUpdateNotice(UpdateInfo info)
     {
         if (!info.HasUpdate || info.Url.Length == 0)
@@ -552,10 +580,10 @@ public partial class RecorderBarWindow : Window
             return;
         }
 
-        ErrorText.Text = $"发现新版本 {info.Latest} — 点击查看";
-        ErrorText.Foreground = (Brush)FindResource("AccentBrush");
-        ErrorText.Cursor = System.Windows.Input.Cursors.Hand;
-        ErrorText.MouseLeftButtonDown += (_, _) =>
+        ErrorText.Text = "";
+        UpdateText.Text = $"发现新版本 {info.Latest} — 点击查看";
+        UpdateText.Visibility = Visibility.Visible;
+        UpdateText.MouseLeftButtonDown += (_, _) =>
         {
             try
             {

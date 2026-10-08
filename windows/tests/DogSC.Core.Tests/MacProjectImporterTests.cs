@@ -109,6 +109,10 @@ public class MacProjectImporterTests
         // 媒体引用清单供调用方拷文件。
         Assert.Contains("media/screen.mp4", result.MediaReferences);
         Assert.Contains("media/camera.mp4", result.MediaReferences);
+        // pointerEvents 是 mac 的光标轨迹（events/pointer.jsonl），不该被拷进 media/。
+        Assert.DoesNotContain("media/pointer.json", result.MediaReferences);
+        Assert.DoesNotContain(result.MediaReferences, r => r.Contains("pointer"));
+        Assert.Contains(result.DroppedFields, f => f.StartsWith("media.pointerEvents"));
     }
 
     [Fact]

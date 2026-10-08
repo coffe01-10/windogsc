@@ -50,14 +50,18 @@ public static class UpdateChecker
     }
 
     /// <summary>
-    /// 从 GitHub releases 的 JSON 响应里取最新一条非 draft 的 release。
-    /// 传入的是 /releases 数组（不是 /latest 单对象），跳过 draft。
+    /// 从 GitHub releases 的 JSON 响应里取版本最大的一条非 draft release。
+    /// 传入的是 /releases 数组（按 created_at 倒序，不是 /latest 单对象）：
+    /// 旧线补丁发布会排在前面，所以遍历全部挑出真正的最高版本。
     /// </summary>
     public static UpdateInfo ParseReleases(string json, string current)
     {
         try
         {
             using var document = JsonDocument.Parse(json);
+            string? bestTag = null;
+            var bestUrl = "";
+            (Version Core, string PreRelease) best = default;
             foreach (var release in document.RootElement.EnumerateArray())
             {
                 if (release.TryGetProperty("draft", out var draft) && draft.GetBoolean())
@@ -67,20 +71,54 @@ public static class UpdateChecker
 
                 var tag = release.TryGetProperty("tag_name", out var t) ? t.GetString() ?? "" : "";
                 var url = release.TryGetProperty("html_url", out var u) ? u.GetString() ?? "" : "";
-                if (tag.Length == 0)
+                if (tag.Length == 0 || !TryParse(tag, out var parsed))
                 {
                     continue;
                 }
 
-                return new UpdateInfo { Latest = tag, Url = url, HasUpdate = IsNewer(tag, current) };
+                if (bestTag is null || Compare(parsed, best) > 0)
+                {
+                    bestTag = tag;
+                    bestUrl = url;
+                    best = parsed;
+                }
             }
 
-            return new UpdateInfo { Error = "release 列表为空。" };
+            return bestTag is null
+                ? new UpdateInfo { Error = "release 列表为空。" }
+                : new UpdateInfo { Latest = bestTag, Url = bestUrl, HasUpdate = IsNewer(bestTag, current) };
         }
         catch (JsonException ex)
         {
             return new UpdateInfo { Error = "解析失败：" + ex.Message };
         }
+    }
+
+    /// <summary>比较两个已解析版本：核心版本先行，同核心正式版 &gt; 预发布，预发布按序号。</summary>
+    static int Compare((Version Core, string PreRelease) a, (Version Core, string PreRelease) b)
+    {
+        var core = a.Core.CompareTo(b.Core);
+        if (core != 0)
+        {
+            return core;
+        }
+
+        if (a.PreRelease.Length == 0 && b.PreRelease.Length == 0)
+        {
+            return 0;
+        }
+
+        if (a.PreRelease.Length == 0)
+        {
+            return 1;
+        }
+
+        if (b.PreRelease.Length == 0)
+        {
+            return -1;
+        }
+
+        return string.Compare(a.PreRelease, b.PreRelease, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>解析 "v1.2.3-beta.4" / "1.2.3" 形式的版本号。</summary>

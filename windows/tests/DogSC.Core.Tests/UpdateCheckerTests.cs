@@ -61,6 +61,25 @@ public class UpdateCheckerTests
     }
 
     [Fact]
+    public void ParseReleases_PicksHighestVersion_NotFirstEntry()
+    {
+        // /releases 按创建时间倒序：旧线补丁 v0.1.9 晚于 v0.2.0 发布会排前面，
+        // 但应取更高的 v0.2.0，否则 HasUpdate 误判。
+        var json = """
+            [
+              { "tag_name": "v0.1.9", "draft": false, "html_url": "https://x/v019" },
+              { "tag_name": "v0.2.0", "draft": false, "html_url": "https://x/v020" },
+              { "tag_name": "garbage", "draft": false, "html_url": "https://x/bad" }
+            ]
+            """;
+        var info = UpdateChecker.ParseReleases(json, "0.2.0");
+        Assert.Null(info.Error);
+        Assert.Equal("v0.2.0", info.Latest);
+        Assert.Equal("https://x/v020", info.Url);
+        Assert.False(info.HasUpdate);
+    }
+
+    [Fact]
     public void ParseReleases_EmptyOrBad_ReportsError()
     {
         Assert.NotNull(UpdateChecker.ParseReleases("[]", "0.1.0").Error);

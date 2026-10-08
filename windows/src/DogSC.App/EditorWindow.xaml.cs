@@ -10,6 +10,8 @@ public partial class EditorWindow : Window
     readonly PreviewPlayer _player = new();
     readonly Stack<string> _undo = new();
     readonly Stack<string> _redo = new();
+    readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
+    bool _pendingSave;
     ProjectDocument _project = new();
     string _directory = "";
     string _tool = "layout";
@@ -21,10 +23,17 @@ public partial class EditorWindow : Window
     double _dragX;
     double _dragY;
     string? _dragTarget;
+    (int W, int H, int X, int Y, int MW, int MH)? _softMaskKey;
 
     public EditorWindow()
     {
         InitializeComponent();
+        _saveTimer.Tick += (_, _) => FlushPendingSave();
+        Loaded += (_, _) => WindowPlacement.KeepInWorkArea(this, center: true);
+        Closing += (_, _) => FlushPendingSave();
+        SetToolContent(ToolLayout, IconKind.Layout, "画面");
+        SetToolContent(ToolZoom, IconKind.Zoom, "缩放");
+        SetToolContent(ToolAudio, IconKind.Speaker, "声音");
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/AppIconMaster.png"));
         FrameRect.Fill = new DrawingBrush { Drawing = _player.ScreenDrawing, Stretch = Stretch.Fill };
         CameraBubble.Fill = new DrawingBrush { Drawing = _player.CameraDrawing, Stretch = Stretch.Fill };
@@ -37,8 +46,9 @@ public partial class EditorWindow : Window
         _player.Changed += () => Dispatcher.Invoke(SyncPlayback);
         _player.Failed += message => Dispatcher.Invoke(() => TimeLabel.Text = "预览失败：" + message);
         Timeline.SeekRequested += (_, time) => _player.Seek(time, _player.IsPlaying);
-        Timeline.ClipSelected += (_, id) => { _selectedClip = id; _selectedZoom = null; SyncSelection(); };
-        Timeline.ZoomSelected += (_, id) => { _selectedZoom = id; _tool = "zoom"; RebuildInspector(); SyncSelection(); };
+        Timeline.InteractionStarted += (_, _) => { if (_player.IsPlaying) _player.Pause(); };
+        Timeline.ClipSelected += (_, id) => { _selectedClip = id; _selectedZoom = null; RebuildInspector(); SyncSelection(); };
+        Timeline.ZoomSelected += (_, id) => { _selectedZoom = id; _selectedClip = null; _tool = "zoom"; RebuildInspector(); SyncSelection(); };
         Timeline.TrimFinished += (_, trim) =>
         {
             Push();
@@ -71,7 +81,7 @@ public partial class EditorWindow : Window
                 _undo.Pop();
             }
         };
-        Closed += (_, _) => _player.Dispose();
+        Closed += (_, _) => { _saveTimer.Stop(); _player.Dispose(); };
     }
 
     public static void Open(string directory)
@@ -95,7 +105,7 @@ public partial class EditorWindow : Window
         _selectedClip = _project.Clips.FirstOrDefault()?.Id;
         NameBox.Text = _project.Name;
         Title = "DogSC — " + _project.Name;
-        ThemeButton.Content = SettingsStore.Current.Theme == "dark" ? "浅色" : "深色";
+        UpdateThemeButton();
         FillAspects();
         Timeline.Project = _project;
         _player.Open(_project, directory);
@@ -145,6 +155,28 @@ public partial class EditorWindow : Window
             button.Background = (Brush)FindResource(selected ? "AccentBrush" : "WellBrush");
             button.Foreground = (Brush)FindResource(selected ? "OnAccentBrush" : "InkBrush");
         }
+    }
+
+    void SetToolContent(Button button, IconKind kind, string label)
+    {
+        var content = new Grid();
+        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(24) });
+        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
+        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(18) });
+        content.Children.Add(new Icon { Kind = kind, Width = 22, Height = 22, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+        var text = new TextBlock { Text = label, FontSize = 12, LineHeight = 18, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetRow(text, 2);
+        text.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding(nameof(Button.Foreground)) { Source = button });
+        content.Children.Add(text);
+        button.Content = content;
+        System.Windows.Automation.AutomationProperties.SetName(button, label);
+    }
+
+    void UpdateThemeButton()
+    {
+        var dark = SettingsStore.Current.Theme == "dark";
+        ThemeIcon.Kind = dark ? IconKind.Sun : IconKind.Moon;
+        ThemeButton.ToolTip = dark ? "切换到浅色主题" : "切换到深色主题";
     }
 
     void RebuildInspector()
@@ -514,6 +546,7 @@ public partial class EditorWindow : Window
             }
 
             _selectedZoom = zoom.Id;
+            _selectedClip = null;
             Commit();
         };
         Inspector.Children.Add(add);
@@ -597,7 +630,7 @@ public partial class EditorWindow : Window
     Slider Slider(double min, double max, double value, Action<double> apply, bool refresh = false)
     {
         var slider = new Slider { Minimum = min, Maximum = max, Value = value, Margin = new Thickness(0, 0, 0, 4) };
-        slider.PreviewMouseLeftButtonDown += (_, _) => Push();
+        var changing = false;
         slider.ValueChanged += (_, args) =>
         {
             if (_lock)
@@ -605,17 +638,27 @@ public partial class EditorWindow : Window
                 return;
             }
 
+            if (!changing)
+            {
+                Push();
+                changing = true;
+            }
             apply(args.NewValue);
             Commit(rebuild: false);
         };
-        if (refresh)
-        {
-            // 拖完再重建检查器，让「超过 100% 以导出为准」之类的提示跟着刷新。
-            slider.AddHandler(System.Windows.Controls.Primitives.Thumb.DragCompletedEvent,
-                new System.Windows.Controls.Primitives.DragCompletedEventHandler((_, _) => RebuildInspector()));
-        }
-
+        slider.PreviewMouseLeftButtonUp += (_, _) => Finish();
+        slider.LostMouseCapture += (_, _) => Finish();
+        slider.PreviewKeyUp += (_, _) => Finish();
+        slider.LostKeyboardFocus += (_, _) => Finish();
         return slider;
+
+        void Finish()
+        {
+            if (!changing) return;
+            changing = false;
+            FlushPendingSave();
+            if (refresh) RebuildInspector();
+        }
     }
 
     void AddPreset(Panel panel, string name, double padding, double corner, double shadow, string background)
@@ -655,6 +698,8 @@ public partial class EditorWindow : Window
         var viewHeight = outputHeight * scale;
         PreviewCanvas.Width = viewWidth;
         PreviewCanvas.Height = viewHeight;
+        SceneCanvas.Width = viewWidth;
+        SceneCanvas.Height = viewHeight;
         StageRect.Width = viewWidth;
         StageRect.Height = viewHeight;
         StageRect.Fill = Brush(_project.Canvas.Background);
@@ -911,21 +956,28 @@ public partial class EditorWindow : Window
         Canvas.SetTop(SoftLayer, 0);
         SoftBlur.Radius = 4 + soft.Strength * 18;
         // 生成矩形 mask 位图（画布像素坐标）做 OpacityMask。
-        var mw = Math.Max(2, (int)Math.Round(soft.Width * outputWidth));
-        var mh = Math.Max(2, (int)Math.Round(soft.Height * outputHeight));
-        var mx = (int)Math.Round(soft.X * outputWidth);
-        var my = (int)Math.Round(soft.Y * outputHeight);
-        var pixels = MaskImage.CreateRectMask(outputWidth, outputHeight, mx, my, mw, mh, Math.Max(4, mw / 12));
-        var mask = new WriteableBitmap(outputWidth, outputHeight, 96, 96, PixelFormats.Bgra32, null);
-        mask.WritePixels(new Int32Rect(0, 0, outputWidth, outputHeight), pixels, outputWidth * 4, 0);
-        mask.Freeze();
+        var width = Math.Max(2, (int)Math.Round(viewWidth));
+        var height = Math.Max(2, (int)Math.Round(viewHeight));
+        var mw = Math.Max(2, (int)Math.Round(soft.Width * width));
+        var mh = Math.Max(2, (int)Math.Round(soft.Height * height));
+        var mx = (int)Math.Round(soft.X * width);
+        var my = (int)Math.Round(soft.Y * height);
+        var key = (width, height, mx, my, mw, mh);
+        if (_softMaskKey != key)
+        {
+            var pixels = MaskImage.CreateRectMask(width, height, mx, my, mw, mh, Math.Max(4, mw / 12));
+            var mask = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, pixels, width * 4);
+            mask.Freeze();
+            SoftLayer.OpacityMask = new ImageBrush(mask) { Stretch = Stretch.Fill };
+            _softMaskKey = key;
+        }
         // 用整屏 VisualBrush 做模糊副本，对齐画布坐标，柔化的是背景+画面整体。
         if (SoftLayer.Fill is not VisualBrush)
         {
-            SoftLayer.Fill = new VisualBrush(PreviewCanvas) { Stretch = Stretch.None };
+            // 只引用底层场景，避免把柔化层自身再次采样进来。
+            SoftLayer.Fill = new VisualBrush(SceneCanvas) { Stretch = Stretch.Fill };
         }
 
-        SoftLayer.OpacityMask = new ImageBrush(mask) { Stretch = Stretch.Fill };
         SoftLayer.Visibility = Visibility.Visible;
     }
 
@@ -1007,7 +1059,9 @@ public partial class EditorWindow : Window
     {
         Timeline.Playhead = _player.Time;
         TimeLabel.Text = Clock(_player.Time) + " / " + Clock(TimelineMath.Duration(_project));
-        PlayButton.Content = _player.IsPlaying ? "暂停" : "播放";
+        PlayIcon.Kind = _player.IsPlaying ? IconKind.Pause : IconKind.Play;
+        PlayButton.ToolTip = _player.IsPlaying ? "暂停（Space）" : "播放（Space）";
+        System.Windows.Automation.AutomationProperties.SetName(PlayButton, _player.IsPlaying ? "暂停" : "播放");
         ApplyZoomVisual();
     }
 
@@ -1017,17 +1071,23 @@ public partial class EditorWindow : Window
         Timeline.SelectedZoomId = _selectedZoom;
         _lock = true;
         var clip = _project.Clips.FirstOrDefault(item => item.Id == _selectedClip);
+        SpeedBox.IsEnabled = clip is not null;
         var label = (clip?.Speed ?? 1).ToString("0.##", CultureInfo.InvariantCulture) + "×";
         SpeedBox.SelectedItem = label;
         _lock = false;
-        LayoutPreview();
+        UndoButton.IsEnabled = _undo.Count > 0;
+        RedoButton.IsEnabled = _redo.Count > 0;
     }
 
     void Commit(bool rebuild = true)
     {
         ProjectFile.Normalize(_project);
-        ProjectFile.Save(_directory, _project);
+        _pendingSave = true;
+        _saveTimer.Stop();
+        _saveTimer.Start();
         Timeline.Project = _project;
+        _player.UpdateProject(_project);
+        SyncSelection();
         if (rebuild)
         {
             RebuildInspector();
@@ -1038,9 +1098,17 @@ public partial class EditorWindow : Window
         SyncPlayback();
     }
 
-    void Push()
+    void FlushPendingSave()
     {
-        _undo.Push(JsonSerializer.Serialize(_project, ProjectSchema.Json));
+        _saveTimer.Stop();
+        if (!_pendingSave) return;
+        ProjectFile.Save(_directory, _project);
+        _pendingSave = false;
+    }
+
+    void Push(string? snapshot = null)
+    {
+        _undo.Push(snapshot ?? JsonSerializer.Serialize(_project, ProjectSchema.Json));
         if (_undo.Count > 40)
         {
             var kept = _undo.Take(40).Reverse().ToArray();
@@ -1058,8 +1126,10 @@ public partial class EditorWindow : Window
     {
         _project = JsonSerializer.Deserialize<ProjectDocument>(json, ProjectSchema.Json) ?? _project;
         ProjectFile.Normalize(_project);
-        _selectedClip = _project.Clips.FirstOrDefault(item => item.Id == _selectedClip)?.Id ?? _project.Clips.FirstOrDefault()?.Id;
         _selectedZoom = _project.Zooms.FirstOrDefault(item => item.Id == _selectedZoom)?.Id;
+        _selectedClip = _selectedZoom is null
+            ? _project.Clips.FirstOrDefault(item => item.Id == _selectedClip)?.Id ?? _project.Clips.FirstOrDefault()?.Id
+            : null;
         Commit();
         _player.Seek(Math.Min(_player.Time, TimelineMath.Duration(_project)), play: false);
     }
@@ -1107,15 +1177,18 @@ public partial class EditorWindow : Window
         Restore(_redo.Pop());
     }
 
-    void Export_Click(object sender, RoutedEventArgs e) =>
+    void Export_Click(object sender, RoutedEventArgs e)
+    {
+        FlushPendingSave();
         new ExportWindow(_project, _directory) { Owner = this }.ShowDialog();
+    }
 
     void Theme_Click(object sender, RoutedEventArgs e)
     {
         var next = SettingsStore.Current.Theme == "dark" ? "light" : "dark";
         ThemeService.Apply(next);
         SettingsStore.Save();
-        ThemeButton.Content = next == "dark" ? "浅色" : "深色";
+        UpdateThemeButton();
         PaintAspects();
         RebuildInspector();
     }
@@ -1161,11 +1234,18 @@ public partial class EditorWindow : Window
         Commit(rebuild: false);
     }
 
-    // 效果包剪贴板：项目内复用，序列化 JSON 存内存（也支持以后跨窗口）。
+    // 素材效果包含项目内图片路径；独立缩放不引用媒体，可跨窗口复用。
     string? _effectClipboard;
+    static ZoomSpan? _zoomClipboard;
 
     void CopyEffect_Click(object sender, RoutedEventArgs e)
     {
+        if (_project.Zooms.FirstOrDefault(zoom => zoom.Id == _selectedZoom) is { } zoom)
+        {
+            _zoomClipboard = TimelineEdits.CopyZoom(zoom);
+            TimeLabel.Text = "已复制缩放；Ctrl+V 粘贴完整副本，Ctrl+Shift+V 只粘属性。";
+            return;
+        }
         if (_selectedClip is null)
         {
             return;
@@ -1173,6 +1253,7 @@ public partial class EditorWindow : Window
 
         var bundle = TimelineEdits.CopyEffect(_project, _selectedClip);
         _effectClipboard = bundle is null ? null : JsonSerializer.Serialize(bundle, ProjectSchema.Json);
+        _zoomClipboard = null;
     }
 
     void PasteEffect_Click(object sender, RoutedEventArgs e) => PasteEffect(includeTiming: true);
@@ -1181,6 +1262,11 @@ public partial class EditorWindow : Window
 
     void PasteEffect(bool includeTiming)
     {
+        if (_zoomClipboard is { } zoom)
+        {
+            PasteZoom(zoom, includeTiming);
+            return;
+        }
         if (_selectedClip is null || _effectClipboard is null)
         {
             return;
@@ -1201,6 +1287,32 @@ public partial class EditorWindow : Window
         {
             _undo.Pop();
         }
+    }
+
+    void PasteZoom(ZoomSpan source, bool includeTiming)
+    {
+        // 校验成功后再记撤销，失败粘贴不会清空重做历史。
+        var before = JsonSerializer.Serialize(_project, ProjectSchema.Json);
+        if (includeTiming)
+        {
+            var copy = TimelineEdits.PasteZoom(_project, source, Timeline.PasteTime,
+                Timeline.SnapThreshold, out var error);
+            if (copy is null)
+            {
+                TimeLabel.Text = error;
+                return;
+            }
+            _selectedZoom = copy.Id;
+            _selectedClip = null;
+            _tool = "zoom";
+        }
+        else if (_selectedZoom is null || !TimelineEdits.PasteZoomAttributes(_project, _selectedZoom, source))
+        {
+            TimeLabel.Text = "请先选中一段缩放，再粘贴属性。";
+            return;
+        }
+        Push(before);
+        Commit();
     }
 
     void Speed_Changed(object sender, SelectionChangedEventArgs e)
@@ -1333,12 +1445,39 @@ public partial class EditorWindow : Window
 
     void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.OriginalSource is TextBox)
+        if (Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase
+            || Keyboard.FocusedElement is PasswordBox)
         {
             return;
         }
 
-        if (e.Key == Key.Space)
+        var modifiers = Keyboard.Modifiers;
+        if (modifiers == ModifierKeys.Control && e.Key == Key.C)
+        {
+            CopyEffect_Click(sender, e);
+        }
+        else if (modifiers == ModifierKeys.Control && e.Key == Key.V)
+        {
+            PasteEffect_Click(sender, e);
+        }
+        else if (modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.V)
+        {
+            PasteAttributes_Click(sender, e);
+        }
+        else if (modifiers == ModifierKeys.Control && e.Key == Key.Z)
+        {
+            Undo_Click(sender, e);
+        }
+        else if ((modifiers == ModifierKeys.Control && e.Key == Key.Y)
+            || (modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.Z))
+        {
+            Redo_Click(sender, e);
+        }
+        else if (modifiers != ModifierKeys.None)
+        {
+            return;
+        }
+        else if (e.Key == Key.Space)
         {
             _player.Toggle();
             e.Handled = true;
@@ -1358,16 +1497,11 @@ public partial class EditorWindow : Window
             Marker_Click(sender, e);
             e.Handled = true;
         }
-        else if (e.Key == Key.Z && Keyboard.Modifiers == ModifierKeys.Control)
+        else
         {
-            Undo_Click(sender, e);
-            e.Handled = true;
+            return;
         }
-        else if (e.Key == Key.Y && Keyboard.Modifiers == ModifierKeys.Control)
-        {
-            Redo_Click(sender, e);
-            e.Handled = true;
-        }
+        e.Handled = true;
     }
 
     async Task LoadFramesAsync()

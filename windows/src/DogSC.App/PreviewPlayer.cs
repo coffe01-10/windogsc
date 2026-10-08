@@ -10,6 +10,7 @@ public sealed class PreviewPlayer : IDisposable
     readonly MediaPlayer _system = new() { Volume = 1 };
     readonly DispatcherTimer _timer;
     ProjectDocument? _project;
+    (string Id, string AssetId, double Start, double End, double Speed)[] _timeline = [];
     string _directory = "";
     string? _clipId;
     bool _wantPlay;
@@ -45,7 +46,24 @@ public sealed class PreviewPlayer : IDisposable
         _project = project;
         _directory = directory;
         _clipId = null;
-        Seek(0, play: false);
+        Time = 0;
+        IsPlaying = false;
+        _timeline = [];
+        UpdateProject(project);
+    }
+
+    public void UpdateProject(ProjectDocument project)
+    {
+        var timeline = project.Clips.Select(clip =>
+            (clip.Id, clip.AssetId, clip.SourceStart, clip.SourceEnd, clip.Speed)).ToArray();
+        var changed = !ReferenceEquals(_project, project) || !_timeline.SequenceEqual(timeline);
+        _project = project;
+        SetGains(project.MicrophoneGain, project.SystemGain);
+        if (changed)
+        {
+            _timeline = timeline;
+            Seek(Time, IsPlaying);
+        }
     }
 
     public void Toggle()

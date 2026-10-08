@@ -81,7 +81,7 @@ public static class MacProjectImporter
         if (screenPath is not null)
         {
             var r = new Result { Project = project };
-            CollectRefs(media, r.MediaReferences);
+            CollectRefs(media, r.MediaReferences, dropped);
             r.DroppedFields.AddRange(dropped);
             MapCanvas(root, project, r.DroppedFields);
             MapCamera(root, project, r.DroppedFields);
@@ -97,20 +97,27 @@ public static class MacProjectImporter
         throw new InvalidDataException("macOS 项目里没有屏幕录制文件（media.screen.relativePath 缺失）。");
     }
 
-    static void CollectRefs(JsonElement? media, List<string> refs)
+    static void CollectRefs(JsonElement? media, List<string> refs, List<string> dropped)
     {
         if (media is null)
         {
             return;
         }
 
-        foreach (var key in new[] { "screen", "camera", "microphone", "pointerEvents" })
+        // 只收 screen/camera/microphone：pointerEvents 是 mac 的光标轨迹
+        // （events/pointer.jsonl），Windows 端不消费，拷进 media/ 只会变成垃圾文件。
+        foreach (var key in new[] { "screen", "camera", "microphone" })
         {
             var path = Text(media.Value, key, "relativePath");
             if (path is not null)
             {
                 refs.Add(path);
             }
+        }
+
+        if (Text(media.Value, "pointerEvents", "relativePath") is not null)
+        {
+            dropped.Add("media.pointerEvents（Windows 不读取光标轨迹文件）");
         }
     }
 

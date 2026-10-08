@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace DogSC;
 
-public sealed record MediaInfo(int Width, int Height, double Duration, bool HasAudio);
+public sealed record MediaInfo(int Width, int Height, double Duration, bool HasAudio, string? VideoCodec = null);
 
 public sealed class FfmpegProcess : IDisposable
 {
@@ -260,6 +260,7 @@ public static class FfmpegTools
         var width = 0;
         var height = 0;
         var hasAudio = false;
+        string? videoCodec = null;
         if (document.RootElement.TryGetProperty("streams", out var streams))
         {
             foreach (var stream in streams.EnumerateArray())
@@ -269,6 +270,7 @@ public static class FfmpegTools
                 {
                     width = w.GetInt32();
                     height = stream.TryGetProperty("height", out var h) ? h.GetInt32() : 0;
+                    videoCodec = stream.TryGetProperty("codec_name", out var cn) ? cn.GetString() : null;
                 }
 
                 if (type == "audio")
@@ -285,7 +287,7 @@ public static class FfmpegTools
             double.TryParse(durationValue.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out duration);
         }
 
-        return new MediaInfo(width, height, duration, hasAudio);
+        return new MediaInfo(width, height, duration, hasAudio, videoCodec);
     }
 
     static IEnumerable<string> Candidates(string file)

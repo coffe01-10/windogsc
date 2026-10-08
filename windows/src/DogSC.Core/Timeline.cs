@@ -232,7 +232,7 @@ public static class TimelineEdits
             .Select(zoom => new ZoomSpan
             {
                 Start = Math.Max(0, zoom.Start - placed.Start),
-                Duration = zoom.Duration,
+                Duration = Math.Min(zoom.Start + zoom.Duration, placed.End) - Math.Max(zoom.Start, placed.Start),
                 Scale = zoom.Scale,
                 FocusX = zoom.FocusX,
                 FocusY = zoom.FocusY,
@@ -274,15 +274,53 @@ public static class TimelineEdits
             }
         }
 
-        // 目标片段时间窗里的旧缩放清掉，按复制的相对偏移重建。
-        project.Zooms.RemoveAll(zoom =>
-            zoom.Start < placed.End - 0.02 && zoom.Start + zoom.Duration > placed.Start + 0.02);
+        // 替换片段内的效果，片段外的缩放保留；时长改变时后续效果随素材平移。
+        var newDuration = TimelineMath.ClipDuration(placed.Clip);
+        var delta = newDuration - placed.Duration;
+        var retained = new List<ZoomSpan>();
+        foreach (var zoom in project.Zooms)
+        {
+            var end = zoom.Start + zoom.Duration;
+            if (end <= placed.Start)
+            {
+                retained.Add(zoom);
+            }
+            else if (zoom.Start >= placed.End)
+            {
+                zoom.Start += delta;
+                retained.Add(zoom);
+            }
+            else
+            {
+                var before = placed.Start - zoom.Start;
+                var after = end - placed.End;
+                if (after >= 0.12)
+                {
+                    var tail = CopyZoom(zoom);
+                    tail.Start = placed.Start + newDuration;
+                    tail.Duration = after;
+                    retained.Add(tail);
+                }
+                if (before >= 0.12)
+                {
+                    zoom.Duration = before;
+                    retained.Add(zoom);
+                }
+            }
+        }
+        project.Zooms = retained;
         foreach (var zoom in bundle.Zooms)
         {
+            var start = Math.Max(0, zoom.Start);
+            var end = Math.Min(newDuration, zoom.Start + zoom.Duration);
+            if (end - start < 0.12)
+            {
+                continue;
+            }
             project.Zooms.Add(new ZoomSpan
             {
-                Start = placed.Start + zoom.Start,
-                Duration = zoom.Duration,
+                Start = placed.Start + start,
+                Duration = end - start,
                 Scale = zoom.Scale,
                 FocusX = zoom.FocusX,
                 FocusY = zoom.FocusY,
@@ -295,6 +333,57 @@ public static class TimelineEdits
         project.MicrophoneGain = bundle.MicrophoneGain;
         project.SystemGain = bundle.SystemGain;
         ProjectFile.Normalize(project);
+        return true;
+    }
+
+    public static ZoomSpan CopyZoom(ZoomSpan source) => new()
+    {
+        Start = source.Start,
+        Duration = source.Duration,
+        Scale = source.Scale,
+        FocusX = source.FocusX,
+        FocusY = source.FocusY,
+    };
+
+    /// <summary>完整复制缩放段；只吸附同轨边缘，不覆盖已有段或截短副本。</summary>
+    public static ZoomSpan? PasteZoom(ProjectDocument project, ZoomSpan source, double time,
+        double snapThreshold, out string? error)
+    {
+        var targets = project.Zooms.SelectMany(zoom => new[]
+        {
+            zoom.Start, zoom.Start + zoom.Duration,
+            zoom.Start - source.Duration, zoom.Start + zoom.Duration - source.Duration,
+        });
+        time = TimelineMath.Snap(time, targets, snapThreshold);
+        error = null;
+        if (time < 0 || time + source.Duration > TimelineMath.Duration(project) + 0.000001)
+        {
+            error = "此位置的剩余时长不足，请在更靠前的位置粘贴。";
+            return null;
+        }
+        if (project.Zooms.Any(zoom => time < zoom.Start + zoom.Duration - 0.000001
+            && time + source.Duration > zoom.Start + 0.000001))
+        {
+            error = "此处已有缩放，请在足够长的空白处粘贴。";
+            return null;
+        }
+        var copy = CopyZoom(source);
+        copy.Start = time;
+        project.Zooms.Add(copy);
+        project.Zooms.Sort((a, b) => a.Start.CompareTo(b.Start));
+        return copy;
+    }
+
+    public static bool PasteZoomAttributes(ProjectDocument project, string zoomId, ZoomSpan source)
+    {
+        var target = project.Zooms.FirstOrDefault(zoom => zoom.Id == zoomId);
+        if (target is null)
+        {
+            return false;
+        }
+        target.Scale = source.Scale;
+        target.FocusX = source.FocusX;
+        target.FocusY = source.FocusY;
         return true;
     }
 
@@ -312,6 +401,33 @@ public static class TimelineEdits
         TiltY = source.TiltY,
         FocusBlur = source.FocusBlur,
         Intro = source.Intro,
+        Cursor = new CursorFx
+        {
+            Mode = source.Cursor.Mode,
+            ClickRipple = source.Cursor.ClickRipple,
+            IdleHide = source.Cursor.IdleHide,
+        },
+        Wallpaper = source.Wallpaper,
+        WallpaperBlur = source.WallpaperBlur,
+        Sticker = source.Sticker is null
+            ? null
+            : new StickerImage
+            {
+                Path = source.Sticker.Path,
+                X = source.Sticker.X,
+                Y = source.Sticker.Y,
+                Width = source.Sticker.Width,
+                Opacity = source.Sticker.Opacity,
+            },
+        SoftRegion = new SoftRegion
+        {
+            Enabled = source.SoftRegion.Enabled,
+            X = source.SoftRegion.X,
+            Y = source.SoftRegion.Y,
+            Width = source.SoftRegion.Width,
+            Height = source.SoftRegion.Height,
+            Strength = source.SoftRegion.Strength,
+        },
     };
 
     static CameraBubble Copy(CameraBubble source) => new()
@@ -319,6 +435,9 @@ public static class TimelineEdits
         CenterX = source.CenterX,
         CenterY = source.CenterY,
         Size = source.Size,
+        Shape = source.Shape,
+        Entry = source.Entry,
+        Corner = source.Corner,
     };
 
 

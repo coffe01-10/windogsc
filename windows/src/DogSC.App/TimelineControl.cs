@@ -22,6 +22,7 @@ public sealed class TimelineControl : FrameworkElement
     string? _selectedClip;
     string? _selectedZoom;
     Drag? _drag;
+    readonly DrawingVisual _playheadVisual = new();
 
     public event EventHandler<double>? SeekRequested;
     public event EventHandler? InteractionStarted;
@@ -34,8 +35,14 @@ public sealed class TimelineControl : FrameworkElement
     public TimelineControl()
     {
         MinHeight = 136;
+        Focusable = true;
         Cursor = Cursors.Arrow;
+        ClipToBounds = true;
+        AddVisualChild(_playheadVisual);
     }
+
+    protected override int VisualChildrenCount => 1;
+    protected override Visual GetVisualChild(int index) => index == 0 ? _playheadVisual : throw new ArgumentOutOfRangeException(nameof(index));
 
     public ProjectDocument? Project
     {
@@ -53,7 +60,7 @@ public sealed class TimelineControl : FrameworkElement
         set
         {
             _playhead = value;
-            InvalidateVisual();
+            DrawPlayhead();
         }
     }
 
@@ -62,6 +69,7 @@ public sealed class TimelineControl : FrameworkElement
         get => _selectedClip;
         set
         {
+            if (_selectedClip == value) return;
             _selectedClip = value;
             InvalidateVisual();
         }
@@ -72,6 +80,7 @@ public sealed class TimelineControl : FrameworkElement
         get => _selectedZoom;
         set
         {
+            if (_selectedZoom == value) return;
             _selectedZoom = value;
             InvalidateVisual();
         }
@@ -86,6 +95,12 @@ public sealed class TimelineControl : FrameworkElement
             InvalidateVisual();
         }
     }
+
+    public double PasteTime => IsMouseOver
+        ? Math.Max(0, XToTime(Mouse.GetPosition(this).X, PixelsPerSecond(ActualWidth)))
+        : _playhead;
+
+    public double SnapThreshold => 6 / PixelsPerSecond(ActualWidth);
 
     public void SetFrames(IEnumerable<FilmFrame> frames)
     {
@@ -119,6 +134,9 @@ public sealed class TimelineControl : FrameworkElement
         var zoomBrush = BrushOf("ZoomBrush", Brushes.Tan);
         var zoomInk = BrushOf("ZoomInkBrush", Brushes.SaddleBrown);
         var pixels = PixelsPerSecond(width);
+        _scroll = Math.Clamp(_scroll, 0, Math.Max(0, TimelineMath.Duration(_project) * pixels - width + 16));
+        // 空白轨道也要参与命中测试，才能定位播放头和鼠标粘贴位置。
+        drawing.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, width, height));
         drawing.DrawRectangle(well, null, new Rect(0, ClipTop, width, ClipHeight));
         DrawRuler(drawing, width, pixels, muted);
         foreach (var clip in VisualClips())
@@ -138,9 +156,18 @@ public sealed class TimelineControl : FrameworkElement
                 continue;
             }
 
-            drawing.DrawRoundedRectangle(card, new Pen(clip.Id == _selectedClip ? accent : line, clip.Id == _selectedClip ? 1.6 : 1), rect, 8, 8);
+            drawing.DrawRoundedRectangle(card, null, rect, 8, 8);
             DrawFrames(drawing, clip, rect);
             DrawWave(drawing, clip, rect, muted);
+            drawing.DrawRoundedRectangle(null, new Pen(clip.Id == _selectedClip ? accent : line, clip.Id == _selectedClip ? 2 : 1), rect, 8, 8);
+            if (clip.Id == _selectedClip && w > 28)
+            {
+                foreach (var edge in new[] { rect.Left + 3, rect.Right - 9 })
+                {
+                    drawing.DrawRoundedRectangle(accent, null, new Rect(edge, rect.Top + 12, 6, rect.Height - 24), 2, 2);
+                    drawing.DrawLine(new Pen(BrushOf("OnAccentBrush", Brushes.White), 1), new Point(edge + 3, rect.Top + 20), new Point(edge + 3, rect.Bottom - 20));
+                }
+            }
             var label = clip.Speed == 1 ? "" : clip.Speed.ToString("0.##", CultureInfo.InvariantCulture) + "×";
             if (label.Length > 0 && w > 36)
             {
@@ -176,9 +203,17 @@ public sealed class TimelineControl : FrameworkElement
             }
         }
 
-        var playX = TimeToX(_playhead, pixels);
-        drawing.DrawLine(new Pen(accent, 1.5), new Point(playX, 4), new Point(playX, height - 4));
-        drawing.DrawEllipse(accent, null, new Point(playX, 6), 4, 4);
+        DrawPlayhead();
+    }
+
+    void DrawPlayhead()
+    {
+        using var drawing = _playheadVisual.RenderOpen();
+        if (_project is null || ActualWidth < 10 || ActualHeight < 10) return;
+        var accent = BrushOf("AccentBrush", Brushes.Black);
+        var x = TimeToX(_playhead, PixelsPerSecond(ActualWidth));
+        drawing.DrawLine(new Pen(accent, 1.5), new Point(x, 4), new Point(x, ActualHeight - 4));
+        drawing.DrawEllipse(accent, null, new Point(x, 6), 4, 4);
     }
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
@@ -188,6 +223,8 @@ public sealed class TimelineControl : FrameworkElement
             return;
         }
 
+        Focus();
+        InteractionStarted?.Invoke(this, EventArgs.Empty);
         var point = e.GetPosition(this);
         var pixels = PixelsPerSecond(ActualWidth);
         var time = XToTime(point.X, pixels);
@@ -197,7 +234,6 @@ public sealed class TimelineControl : FrameworkElement
             _selectedZoom = zoomHit.Value.Zoom.Id;
             _selectedClip = null;
             ZoomSelected?.Invoke(this, zoomHit.Value.Zoom.Id);
-            InteractionStarted?.Invoke(this, EventArgs.Empty);
             _drag = new Drag(zoomHit.Value.Edge == 0 ? DragKind.MoveZoom : zoomHit.Value.Edge < 0 ? DragKind.ZoomStart : DragKind.ZoomEnd, zoomHit.Value.Zoom.Id, time);
             CaptureMouse();
             InvalidateVisual();
@@ -211,7 +247,6 @@ public sealed class TimelineControl : FrameworkElement
             _selectedClip = clipHit.Value.Clip.Id;
             _selectedZoom = null;
             ClipSelected?.Invoke(this, clipHit.Value.Clip.Id);
-            InteractionStarted?.Invoke(this, EventArgs.Empty);
             var kind = clipHit.Value.Edge < 0 ? DragKind.TrimStart
                 : clipHit.Value.Edge > 0 ? DragKind.TrimEnd
                 : DragKind.MoveClip;
@@ -230,13 +265,20 @@ public sealed class TimelineControl : FrameworkElement
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        if (_drag is null || _project is null)
+        if (_project is null)
         {
             return;
         }
 
         var pixels = PixelsPerSecond(ActualWidth);
-        var time = XToTime(e.GetPosition(this).X, pixels);
+        var point = e.GetPosition(this);
+        if (_drag is null)
+        {
+            var edge = HitZoom(point, pixels)?.Edge ?? HitClip(point, pixels)?.Edge;
+            Cursor = edge is < 0 or > 0 ? Cursors.SizeWE : edge == 0 ? Cursors.Hand : Cursors.Arrow;
+            return;
+        }
+        var time = XToTime(point.X, pixels);
         var delta = time - _drag.Origin;
         switch (_drag.Kind)
         {
@@ -249,6 +291,7 @@ public sealed class TimelineControl : FrameworkElement
             case DragKind.MoveZoom:
             case DragKind.ZoomStart:
             case DragKind.ZoomEnd:
+                if (!_drag.Moved && Math.Abs(delta * pixels) < SystemParameters.MinimumHorizontalDragDistance) break;
                 _drag.Delta = SnapDelta(_drag, delta, pixels);
                 _drag.Moved = true;
                 InvalidateVisual();
@@ -271,6 +314,11 @@ public sealed class TimelineControl : FrameworkElement
             return;
         }
 
+        if (!drag.Moved && drag.Kind != DragKind.Seek)
+        {
+            InvalidateVisual();
+            return;
+        }
         switch (drag.Kind)
         {
             case DragKind.TrimStart:
@@ -287,7 +335,8 @@ public sealed class TimelineControl : FrameworkElement
                 // 只是点了一下（没真的拖）不算重排。
                 if (drag.Moved)
                 {
-                    var index = MoveTargetIndex(drag, XToTime(e.GetPosition(this).X, PixelsPerSecond(ActualWidth)));
+                    var placed = TimelineMath.Place(_project).First(item => item.Clip.Id == drag.Id);
+                    var index = MoveTargetIndex(drag, placed.Start + drag.Delta + placed.Duration / 2);
                     if (index >= 0)
                     {
                         ClipMoved?.Invoke(this, new ClipMove(drag.Id, index));
@@ -313,9 +362,29 @@ public sealed class TimelineControl : FrameworkElement
 
     protected override void OnMouseWheel(MouseWheelEventArgs e)
     {
-        _scroll = Math.Max(0, _scroll - e.Delta * 0.15);
+        var max = Math.Max(0, TimelineMath.Duration(_project ?? new ProjectDocument()) * PixelsPerSecond(ActualWidth) - ActualWidth + 16);
+        _scroll = Math.Clamp(_scroll - e.Delta * 0.25, 0, max);
         InvalidateVisual();
         e.Handled = true;
+    }
+
+    protected override void OnLostMouseCapture(MouseEventArgs e)
+    {
+        base.OnLostMouseCapture(e);
+        _drag = null;
+        InvalidateVisual();
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && _drag is not null)
+        {
+            _drag = null;
+            ReleaseMouseCapture();
+            InvalidateVisual();
+            e.Handled = true;
+        }
+        base.OnKeyDown(e);
     }
 
     /// <summary>
@@ -614,7 +683,8 @@ public sealed class TimelineControl : FrameworkElement
 
         drawing.PushClip(new RectangleGeometry(rect, 8, 8));
         var slot = Math.Max(46, rect.Height * 1.4);
-        for (var x = rect.X; x < rect.Right; x += slot)
+        var first = rect.X + Math.Max(0, Math.Floor(-rect.X / slot)) * slot;
+        for (var x = first; x < Math.Min(rect.Right, ActualWidth); x += slot)
         {
             var ratio = rect.Width <= 1 ? 0 : (x - rect.X) / rect.Width;
             var sourceTime = clip.SourceStart + (clip.SourceEnd - clip.SourceStart) * ratio;
@@ -642,7 +712,7 @@ public sealed class TimelineControl : FrameworkElement
         var midY = rect.Bottom - band / 2 - 2;
         drawing.PushClip(new RectangleGeometry(rect, 8, 8));
         var pen = new Pen(brush, 1);
-        for (var x = rect.X + 2; x < rect.Right - 2; x += 2)
+        for (var x = Math.Max(0, rect.X + 2); x < Math.Min(ActualWidth, rect.Right - 2); x += 2)
         {
             var ratio = (x - rect.X) / rect.Width;
             var sourceTime = clip.SourceStart + (clip.SourceEnd - clip.SourceStart) * ratio;
@@ -658,7 +728,9 @@ public sealed class TimelineControl : FrameworkElement
     {
         var step = pixels > 140 ? 1 : pixels > 70 ? 2 : 5;
         var duration = TimelineMath.Duration(_project!);
-        for (double time = 0; time <= duration + 0.01; time += step)
+        var first = Math.Max(0, Math.Floor(_scroll / pixels / step) * step);
+        var last = Math.Min(duration, (_scroll + width) / pixels);
+        for (double time = first; time <= last + 0.01; time += step)
         {
             var x = TimeToX(time, pixels);
             if (x < 0 || x > width)

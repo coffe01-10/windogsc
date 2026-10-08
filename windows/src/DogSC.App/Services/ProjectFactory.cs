@@ -88,7 +88,8 @@ public static class ProjectFactory
     /// 对不上的字段记录在返回值的 DroppedFields 里。
     /// </summary>
     /// <summary>返回新项目的目录 + 映射结果（含丢弃字段清单）。</summary>
-    public static async Task<(string Directory, MacProjectImporter.Result Result)> ImportMacAsync(string ffprobe, string packagePath)
+    /// <param name="ffmpeg">用于把 Windows 预览放不了的 .mov（HEVC/ProRes）转成 mp4；为 null 时跳过转码。</param>
+    public static async Task<(string Directory, MacProjectImporter.Result Result)> ImportMacAsync(string? ffmpeg, string ffprobe, string packagePath)
     {
         var jsonPath = Path.Combine(packagePath, "project.json");
         if (!File.Exists(jsonPath))
@@ -130,10 +131,19 @@ public static class ProjectFactory
 
             asset.Camera = Relocate(asset.Camera, mediaDir);
             asset.Microphone = Relocate(asset.Microphone, mediaDir);
-            // fullRecording 时长未知：用 ffprobe 探测补齐。
-            if (asset.Duration <= 1.01 && File.Exists(copiedScreen))
+            // mac 的 screen/camera 常是 .mov：HEVC 要装扩展、ProRes 无解，
+            // Media Foundation 预览会黑屏。转成 h264 mp4，导出/预览都走它。
+            if (ffmpeg is not null)
             {
-                var info = await FfmpegTools.Probe(ffprobe, copiedScreen);
+                asset.Video = await ToMp4(ffmpeg, ffprobe, directory, asset.Video) ?? asset.Video;
+                asset.Camera = await ToMp4(ffmpeg, ffprobe, directory, asset.Camera);
+            }
+
+            var screenFile = Path.Combine(directory, asset.Video.Replace('/', Path.DirectorySeparatorChar));
+            // fullRecording 时长未知：用 ffprobe 探测补齐。
+            if (asset.Duration <= 1.01 && File.Exists(screenFile))
+            {
+                var info = await FfmpegTools.Probe(ffprobe, screenFile);
                 if (info is not null)
                 {
                     asset.Duration = Math.Max(info.Duration, 0.1);
@@ -164,6 +174,47 @@ public static class ProjectFactory
 
             var name = Path.GetFileName(relative.Replace('/', Path.DirectorySeparatorChar));
             return File.Exists(Path.Combine(mediaDir, name)) ? "media/" + name : null;
+        }
+
+        /// <summary>
+        /// .mov 容器或 codec 不是 h264 时转成 h264/yuv420p 的 mp4，
+        /// 返回新的项目相对路径；不需要转或转失败时保留原路径。
+        /// </summary>
+        static async Task<string?> ToMp4(string ffmpeg, string ffprobe, string directory, string? relative)
+        {
+            if (string.IsNullOrWhiteSpace(relative))
+            {
+                return relative;
+            }
+
+            var source = Path.Combine(directory, relative.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(source))
+            {
+                return relative;
+            }
+
+            var needsContainer = relative.EndsWith(".mov", StringComparison.OrdinalIgnoreCase);
+            var info = await FfmpegTools.Probe(ffprobe, source);
+            var needsCodec = info?.VideoCodec is not null and not "h264";
+            if (!needsContainer && !needsCodec)
+            {
+                return relative;
+            }
+
+            var target = Path.Combine(Path.GetDirectoryName(source)!, Path.GetFileNameWithoutExtension(source) + ".mp4");
+            var run = FfmpegProcess.Start(ffmpeg, [
+                "-y", "-i", source, "-map", "0:v:0", "-an",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", target,
+            ]);
+            var code = await run.WaitAsync();
+            run.Dispose();
+            if (code != 0 || !File.Exists(target))
+            {
+                return relative;
+            }
+
+            TryDelete(source);
+            return "media/" + Path.GetFileName(target);
         }
     }
 
