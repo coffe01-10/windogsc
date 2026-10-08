@@ -1,0 +1,92 @@
+<Window x:Class="DogSC.EditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DogSC"
+        Title="DogSC" Width="1440" Height="920" MinWidth="1100" MinHeight="720"
+        Background="{DynamicResource BgBrush}" FontFamily="{DynamicResource FontRegular}"
+        PreviewKeyDown="Window_PreviewKeyDown">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="56"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="248"/>
+        </Grid.RowDefinitions>
+        <Grid Grid.Row="0" Margin="16,0">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Image Source="pack://application:,,,/Assets/AppIconMaster.png" Width="22" Height="22" Margin="0,0,8,0"/>
+                <TextBox x:Name="NameBox" MinWidth="180" BorderThickness="0" Background="Transparent" FontFamily="{DynamicResource FontMedium}" FontSize="15" LostFocus="Name_LostFocus"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button Content="撤销" Style="{StaticResource QuietButton}" Click="Undo_Click"/>
+                <Button Content="重做" Style="{StaticResource QuietButton}" Click="Redo_Click"/>
+                <Button Content="导出" Style="{StaticResource PrimaryButton}" Click="Export_Click" Margin="8,0"/>
+                <Button x:Name="ThemeButton" Content="深色" Style="{StaticResource QuietButton}" Click="Theme_Click"/>
+            </StackPanel>
+        </Grid>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="88"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="320"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="10,12,0,0">
+                <Button x:Name="ToolLayout" Content="画面" Style="{StaticResource QuietButton}" Click="Tool_Click" Tag="layout" Margin="0,2"/>
+                <Button x:Name="ToolZoom" Content="缩放" Style="{StaticResource QuietButton}" Click="Tool_Click" Tag="zoom" Margin="0,2"/>
+                <Button x:Name="ToolAudio" Content="声音" Style="{StaticResource QuietButton}" Click="Tool_Click" Tag="audio" Margin="0,2"/>
+            </StackPanel>
+            <Grid Grid.Column="1" Margin="8,0,8,8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <StackPanel x:Name="AspectRow" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,8,0,8"/>
+                <Grid x:Name="PreviewSlot" Grid.Row="1" SizeChanged="Preview_SizeChanged">
+                    <Canvas x:Name="PreviewCanvas" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Rectangle x:Name="StageRect" IsHitTestVisible="False"/>
+                        <Rectangle x:Name="ShadowRect" Fill="#55000000" IsHitTestVisible="False">
+                            <Rectangle.Effect>
+                                <BlurEffect Radius="12"/>
+                            </Rectangle.Effect>
+                        </Rectangle>
+                        <Grid x:Name="FrameHost" Background="Transparent" MouseLeftButtonDown="Frame_Down" MouseMove="Frame_Move" MouseLeftButtonUp="Frame_Up">
+                            <Rectangle x:Name="FrameRect"/>
+                        </Grid>
+                        <Ellipse x:Name="CameraBubble" Visibility="Collapsed" StrokeThickness="2" MouseLeftButtonDown="Camera_Down" MouseMove="Camera_Move" MouseLeftButtonUp="Camera_Up"/>
+                    </Canvas>
+                </Grid>
+            </Grid>
+            <Border Grid.Column="2" Margin="0,12,16,12" Background="{DynamicResource CardBrush}" CornerRadius="16" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="Inspector"/>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+        <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+            <Grid Margin="12,8,12,8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="40"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Grid>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Content="分割" Style="{StaticResource QuietButton}" Click="Split_Click"/>
+                        <Button Content="删除" Style="{StaticResource QuietButton}" Click="Delete_Click"/>
+                        <Button Content="标记" Style="{StaticResource QuietButton}" Click="Marker_Click"/>
+                        <ComboBox x:Name="SpeedBox" Width="88" Margin="8,0,0,0" VerticalAlignment="Center" SelectionChanged="Speed_Changed"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Button Content="开头" Style="{StaticResource QuietButton}" Click="SkipStart_Click"/>
+                        <Button x:Name="PlayButton" Content="播放" Style="{StaticResource QuietButton}" Click="Play_Click"/>
+                        <Button Content="结尾" Style="{StaticResource QuietButton}" Click="SkipEnd_Click"/>
+                        <TextBlock x:Name="TimeLabel" VerticalAlignment="Center" Margin="8,0,0,0" FontFamily="{DynamicResource FontMedium}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <TextBlock Text="时间线" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}" Margin="0,0,8,0"/>
+                        <Slider x:Name="TimelineZoom" Width="110" Minimum="1" Maximum="6" Value="1" ValueChanged="TimelineZoom_Changed"/>
+                    </StackPanel>
+                </Grid>
+                <local:TimelineControl x:Name="Timeline" Grid.Row="1"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

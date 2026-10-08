@@ -1,0 +1,14 @@
+<Window x:Class="DogSC.CountdownWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize" IsHitTestVisible="False">
+    <Grid>
+        <TextBlock x:Name="Number" Text="3" FontSize="120" FontFamily="{DynamicResource FontSemi}"
+                   Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock.Effect>
+                <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.45" Color="Black"/>
+            </TextBlock.Effect>
+        </TextBlock>
+    </Grid>
+</Window>

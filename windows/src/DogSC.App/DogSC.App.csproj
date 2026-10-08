@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>DogSC</RootNamespace>
+    <AssemblyName>DogSC</AssemblyName>
+    <Version>0.1.0</Version>
+    <Product>DogSC</Product>
+    <Company>laogou717</Company>
+    <Description>DogSC for Windows — screen capture and lightweight editing.</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <LangVersion>12</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DogSC.Core\DogSC.Core.csproj" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="..\..\..\Resources\Fonts\AlibabaPuHuiTi-3-55-Regular.otf">
+      <Link>Fonts\AlibabaPuHuiTi-3-55-Regular.otf</Link>
+    </Resource>
+    <Resource Include="..\..\..\Resources\Fonts\AlibabaPuHuiTi-3-65-Medium.otf">
+      <Link>Fonts\AlibabaPuHuiTi-3-65-Medium.otf</Link>
+    </Resource>
+    <Resource Include="..\..\..\Resources\Fonts\AlibabaPuHuiTi-3-75-SemiBold.otf">
+      <Link>Fonts\AlibabaPuHuiTi-3-75-SemiBold.otf</Link>
+    </Resource>
+    <Resource Include="..\..\..\Resources\AppIconMaster.png">
+      <Link>Assets\AppIconMaster.png</Link>
+    </Resource>
+  </ItemGroup>
+</Project>

@@ -12,3 +12,7 @@ DerivedData/
 *.keychain-db
 *.dogscproject/
 *.silkyproject/
+bin/
+obj/
+.vs/
+TestResults/

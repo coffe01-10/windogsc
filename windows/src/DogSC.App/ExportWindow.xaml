@@ -1,0 +1,38 @@
+<Window x:Class="DogSC.ExportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="导出作品" Width="760" Height="560" WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource PanelBrush}" ResizeMode="NoResize"
+        FontFamily="{DynamicResource FontRegular}">
+    <DockPanel Margin="24">
+        <StackPanel DockPanel.Dock="Top">
+            <TextBlock Text="导出作品" FontFamily="{DynamicResource FontSemi}" FontSize="22"/>
+            <TextBlock x:Name="ProjectName" Margin="0,4,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
+        </StackPanel>
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,18,0,0">
+            <Button x:Name="ExportButton" DockPanel.Dock="Right" Content="开始导出视频" Style="{StaticResource PrimaryButton}" Click="Export_Click"/>
+            <Button x:Name="CancelButton" DockPanel.Dock="Right" Content="取消" Style="{StaticResource QuietButton}" Click="Cancel_Click" Margin="0,0,8,0"/>
+            <TextBlock x:Name="Estimate" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}"/>
+        </DockPanel>
+        <StackPanel Margin="0,18,0,0">
+            <TextBlock Text="文件名" Foreground="{DynamicResource InkSecondaryBrush}"/>
+            <TextBox x:Name="FileName" Margin="0,6,0,8"/>
+            <Button x:Name="FolderButton" Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Click="Folder_Click"/>
+            <TextBlock Text="导出内容" Margin="0,16,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="VideoChoice" Content="视频成片" Style="{StaticResource ChipButton}" Click="Video_Click"/>
+                <Button x:Name="AudioChoice" Content="仅音频" Style="{StaticResource ChipButton}" Click="Audio_Click"/>
+            </StackPanel>
+            <TextBlock Text="分辨率" Margin="0,16,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
+            <StackPanel x:Name="ResolutionRow" Orientation="Horizontal"/>
+            <TextBlock Text="帧率" Margin="0,16,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="Fps30" Content="30 FPS" Style="{StaticResource ChipButton}" Click="Fps_Click" Tag="30"/>
+                <Button x:Name="Fps60" Content="60 FPS" Style="{StaticResource ChipButton}" Click="Fps_Click" Tag="60"/>
+            </StackPanel>
+            <ProgressBar x:Name="Bar" Height="6" Margin="0,20,0,6" Minimum="0" Maximum="1"/>
+            <TextBlock x:Name="Status" Foreground="{DynamicResource InkSecondaryBrush}"/>
+            <TextBlock x:Name="Summary" Margin="0,12,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+    </DockPanel>
+</Window>
