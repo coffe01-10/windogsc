@@ -70,6 +70,29 @@ public sealed class FfmpegProcess : IDisposable
         return new FfmpegProcess(process);
     }
 
+    /// <summary>
+    /// 通过 stdin 给滤镜图发运行命令（ffmpeg 交互式 'c' 命令，
+    /// 例如 c -1 crop@pos x 100）。失败静默——录制不能因此中断。
+    /// </summary>
+    public bool SendFilterCommand(string target, string command, string argument)
+    {
+        if (_process.HasExited)
+        {
+            return false;
+        }
+
+        try
+        {
+            _process.StandardInput.WriteLine("c -1 " + target + " " + command + " " + argument);
+            _process.StandardInput.Flush();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<int> StopAsync(bool graceful)
     {
         if (graceful && !_process.HasExited)

@@ -15,6 +15,7 @@ public sealed class TimelineControl : FrameworkElement
 
     ProjectDocument? _project;
     readonly List<FilmFrame> _frames = [];
+    readonly Dictionary<string, float[]> _waves = new(StringComparer.Ordinal);
     double _playhead;
     double _zoom = 1;
     double _scroll;
@@ -26,6 +27,7 @@ public sealed class TimelineControl : FrameworkElement
     public event EventHandler? InteractionStarted;
     public event EventHandler<ClipTrim>? TrimFinished;
     public event EventHandler<ZoomMove>? ZoomFinished;
+    public event EventHandler<ClipMove>? ClipMoved;
     public event EventHandler<string>? ClipSelected;
     public event EventHandler<string>? ZoomSelected;
 
@@ -92,6 +94,13 @@ public sealed class TimelineControl : FrameworkElement
         InvalidateVisual();
     }
 
+    /// <summary>某个素材的简化波形峰值（0..1，等距桶），异步算好后调一次。</summary>
+    public void SetWaveform(string assetId, float[] peaks)
+    {
+        _waves[assetId] = peaks;
+        InvalidateVisual();
+    }
+
     protected override void OnRender(DrawingContext drawing)
     {
         var width = ActualWidth;
@@ -117,8 +126,21 @@ public sealed class TimelineControl : FrameworkElement
             var x = TimeToX(clip.Start, pixels);
             var w = Math.Max(8, clip.Duration * pixels);
             var rect = new Rect(x, ClipTop + 4, w, ClipHeight - 8);
+            var moving = _drag is { Kind: DragKind.MoveClip } && _drag.Id == clip.Id;
+            if (moving)
+            {
+                // 拖动的片段画在跟随鼠标的位置，原位置留个空槽轮廓。
+                drawing.DrawRoundedRectangle(null, new Pen(line, 1) { DashStyle = DashStyles.Dash }, rect, 8, 8);
+                var preview = new Rect(rect.X + _drag!.Delta * pixels, rect.Y, rect.Width, rect.Height);
+                drawing.PushOpacity(0.65);
+                drawing.DrawRoundedRectangle(card, new Pen(accent, 1.6), preview, 8, 8);
+                drawing.Pop();
+                continue;
+            }
+
             drawing.DrawRoundedRectangle(card, new Pen(clip.Id == _selectedClip ? accent : line, clip.Id == _selectedClip ? 1.6 : 1), rect, 8, 8);
             DrawFrames(drawing, clip, rect);
+            DrawWave(drawing, clip, rect, muted);
             var label = clip.Speed == 1 ? "" : clip.Speed.ToString("0.##", CultureInfo.InvariantCulture) + "×";
             if (label.Length > 0 && w > 36)
             {
@@ -189,13 +211,12 @@ public sealed class TimelineControl : FrameworkElement
             _selectedClip = clipHit.Value.Clip.Id;
             _selectedZoom = null;
             ClipSelected?.Invoke(this, clipHit.Value.Clip.Id);
-            if (clipHit.Value.Edge != 0)
-            {
-                InteractionStarted?.Invoke(this, EventArgs.Empty);
-                _drag = new Drag(clipHit.Value.Edge < 0 ? DragKind.TrimStart : DragKind.TrimEnd, clipHit.Value.Clip.Id, time);
-                CaptureMouse();
-            }
-
+            InteractionStarted?.Invoke(this, EventArgs.Empty);
+            var kind = clipHit.Value.Edge < 0 ? DragKind.TrimStart
+                : clipHit.Value.Edge > 0 ? DragKind.TrimEnd
+                : DragKind.MoveClip;
+            _drag = new Drag(kind, clipHit.Value.Clip.Id, time);
+            CaptureMouse();
             InvalidateVisual();
             e.Handled = true;
             return;
@@ -214,19 +235,22 @@ public sealed class TimelineControl : FrameworkElement
             return;
         }
 
-        var time = XToTime(e.GetPosition(this).X, PixelsPerSecond(ActualWidth));
+        var pixels = PixelsPerSecond(ActualWidth);
+        var time = XToTime(e.GetPosition(this).X, pixels);
         var delta = time - _drag.Origin;
         switch (_drag.Kind)
         {
             case DragKind.Seek:
                 SeekRequested?.Invoke(this, Math.Clamp(time, 0, TimelineMath.Duration(_project)));
                 break;
+            case DragKind.MoveClip:
             case DragKind.TrimStart:
             case DragKind.TrimEnd:
             case DragKind.MoveZoom:
             case DragKind.ZoomStart:
             case DragKind.ZoomEnd:
-                _drag.Delta = delta;
+                _drag.Delta = SnapDelta(_drag, delta, pixels);
+                _drag.Moved = true;
                 InvalidateVisual();
                 break;
         }
@@ -254,8 +278,20 @@ public sealed class TimelineControl : FrameworkElement
                 var clip = _project.Clips.FirstOrDefault(item => item.Id == drag.Id);
                 if (clip is not null)
                 {
-                    var (start, end) = TrimValues(clip, drag);
+                    var (start, end) = TrimValues(clip, drag.Kind, drag.Delta);
                     TrimFinished?.Invoke(this, new ClipTrim(drag.Id, start, end));
+                }
+
+                break;
+            case DragKind.MoveClip:
+                // 只是点了一下（没真的拖）不算重排。
+                if (drag.Moved)
+                {
+                    var index = MoveTargetIndex(drag, XToTime(e.GetPosition(this).X, PixelsPerSecond(ActualWidth)));
+                    if (index >= 0)
+                    {
+                        ClipMoved?.Invoke(this, new ClipMove(drag.Id, index));
+                    }
                 }
 
                 break;
@@ -280,6 +316,141 @@ public sealed class TimelineControl : FrameworkElement
         _scroll = Math.Max(0, _scroll - e.Delta * 0.15);
         InvalidateVisual();
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// 吸附：把拖拽 delta 调整到最近的候选点（其它片段边界、缩放边界、
+    /// 标记点）。阈值 6 个屏幕像素换算成秒。
+    /// </summary>
+    double SnapDelta(Drag drag, double delta, double pixels)
+    {
+        if (_project is null)
+        {
+            return delta;
+        }
+
+        var threshold = 6 / pixels;
+        // 正在拖的那条边当前落在时间线上的位置。
+        double? edge = drag.Kind switch
+        {
+            DragKind.TrimStart or DragKind.TrimEnd => ClipDragEdge(drag, delta),
+            DragKind.MoveZoom => ZoomOrigin(drag) + delta,
+            DragKind.ZoomStart => ZoomOrigin(drag) + delta,
+            DragKind.ZoomEnd => ZoomOrigin(drag) + ZoomDuration(drag) + delta,
+            DragKind.MoveClip => MoveClipEdge(drag, delta),
+            _ => null,
+        };
+        if (edge is null)
+        {
+            return delta;
+        }
+
+        var snapped = TimelineMath.Snap(edge.Value, SnapTargets(drag.Id), threshold);
+        return delta + (snapped - edge.Value);
+    }
+
+    double ClipDragEdge(Drag drag, double delta)
+    {
+        var clip = _project?.Clips.FirstOrDefault(item => item.Id == drag.Id);
+        if (clip is null)
+        {
+            return 0;
+        }
+
+        var (start, end) = TrimValues(clip, drag.Kind, delta);
+        var placed = TimelineMath.Place(_project!).FirstOrDefault(item => item.Clip.Id == drag.Id);
+        // 拖的是「会动的那条边」：左缘拖动改变时长→右缘动；右缘同理。
+        return (placed?.Start ?? 0) + Math.Max(0, (end - start) / clip.Speed);
+    }
+
+    double ZoomOrigin(Drag drag) =>
+        _project?.Zooms.FirstOrDefault(item => item.Id == drag.Id)?.Start ?? 0;
+
+    double ZoomDuration(Drag drag) =>
+        _project?.Zooms.FirstOrDefault(item => item.Id == drag.Id)?.Duration ?? 0;
+
+    double? MoveClipEdge(Drag drag, double delta)
+    {
+        var clip = _project?.Clips.FirstOrDefault(item => item.Id == drag.Id);
+        if (clip is null)
+        {
+            return null;
+        }
+
+        var placed = TimelineMath.Place(_project!).FirstOrDefault(item => item.Clip.Id == drag.Id);
+        return placed is null ? null : placed.Start + delta;
+    }
+
+    IEnumerable<double> SnapTargets(string excludeId)
+    {
+        if (_project is null)
+        {
+            yield break;
+        }
+
+        foreach (var placed in TimelineMath.Place(_project))
+        {
+            if (placed.Clip.Id == excludeId)
+            {
+                continue;
+            }
+
+            yield return placed.Start;
+            yield return placed.End;
+        }
+
+        foreach (var zoom in _project.Zooms)
+        {
+            if (zoom.Id == excludeId)
+            {
+                continue;
+            }
+
+            yield return zoom.Start;
+            yield return zoom.Start + zoom.Duration;
+        }
+
+        foreach (var marker in _project.Markers)
+        {
+            var time = TimelineMath.MarkerTime(_project, marker);
+            if (time is not null)
+            {
+                yield return time.Value;
+            }
+        }
+    }
+
+    /// <summary>松手时按鼠标落点算片段应插入的位置（跳过自身）。</summary>
+    int MoveTargetIndex(Drag drag, double time)
+    {
+        if (_project is null)
+        {
+            return -1;
+        }
+
+        var placed = TimelineMath.Place(_project);
+        var from = placed.ToList().FindIndex(item => item.Clip.Id == drag.Id);
+        if (from < 0)
+        {
+            return -1;
+        }
+
+        // 用鼠标点落到哪个片段的中点之前来决定插入位。
+        var index = 0;
+        for (var i = 0; i < placed.Count; i++)
+        {
+            if (i == from)
+            {
+                continue;
+            }
+
+            if (time > placed[i].Start + placed[i].Duration / 2)
+            {
+                index = i > from ? i : i + 1;
+            }
+        }
+
+        return Math.Clamp(index, 0, _project.Clips.Count - 1);
     }
 
     double PixelsPerSecond(double width) =>
@@ -307,9 +478,9 @@ public sealed class TimelineControl : FrameworkElement
 
             var sourceStart = clip.SourceStart;
             var sourceEnd = clip.SourceEnd;
-            if (_drag is { } drag && drag.Id == clip.Id)
+            if (_drag is { } drag && drag.Id == clip.Id && drag.Kind is DragKind.TrimStart or DragKind.TrimEnd)
             {
-                (sourceStart, sourceEnd) = TrimValues(clip, drag);
+                (sourceStart, sourceEnd) = TrimValues(clip, drag.Kind, drag.Delta);
             }
 
             var duration = Math.Max(0, (sourceEnd - sourceStart) / clip.Speed);
@@ -339,18 +510,18 @@ public sealed class TimelineControl : FrameworkElement
         }
     }
 
-    (double Start, double End) TrimValues(ClipSegment clip, Drag drag)
+    (double Start, double End) TrimValues(ClipSegment clip, DragKind kind, double delta)
     {
         var asset = _project?.Asset(clip.AssetId);
         var limit = asset?.Duration ?? clip.SourceEnd;
         var start = clip.SourceStart;
         var end = clip.SourceEnd;
-        var sourceDelta = drag.Delta * clip.Speed;
-        if (drag.Kind == DragKind.TrimStart)
+        var sourceDelta = delta * clip.Speed;
+        if (kind == DragKind.TrimStart)
         {
             start = Math.Clamp(clip.SourceStart + sourceDelta, 0, end - 0.2 * clip.Speed);
         }
-        else if (drag.Kind == DragKind.TrimEnd)
+        else if (kind == DragKind.TrimEnd)
         {
             end = Math.Clamp(clip.SourceEnd + sourceDelta, start + 0.2 * clip.Speed, limit);
         }
@@ -457,6 +628,32 @@ public sealed class TimelineControl : FrameworkElement
         drawing.Pop();
     }
 
+    /// <summary>在片段底部画简化波形：峰值来自 EditorWindow 异步填充的 _waves。</summary>
+    void DrawWave(DrawingContext drawing, DrawnClip clip, Rect rect, Brush brush)
+    {
+        if (!_waves.TryGetValue(clip.AssetId, out var peaks) || peaks.Length == 0)
+        {
+            return;
+        }
+
+        var asset = _project?.Asset(clip.AssetId);
+        var span = Math.Max(0.01, asset?.Duration ?? clip.SourceEnd);
+        var band = Math.Min(14, rect.Height / 3);
+        var midY = rect.Bottom - band / 2 - 2;
+        drawing.PushClip(new RectangleGeometry(rect, 8, 8));
+        var pen = new Pen(brush, 1);
+        for (var x = rect.X + 2; x < rect.Right - 2; x += 2)
+        {
+            var ratio = (x - rect.X) / rect.Width;
+            var sourceTime = clip.SourceStart + (clip.SourceEnd - clip.SourceStart) * ratio;
+            var bucket = (int)Math.Clamp(sourceTime / span * peaks.Length, 0, peaks.Length - 1);
+            var half = Math.Max(0.8, peaks[bucket] * band / 2);
+            drawing.DrawLine(pen, new Point(x, midY - half), new Point(x, midY + half));
+        }
+
+        drawing.Pop();
+    }
+
     void DrawRuler(DrawingContext drawing, double width, double pixels, Brush muted)
     {
         var step = pixels > 140 ? 1 : pixels > 70 ? 2 : 5;
@@ -489,6 +686,7 @@ public sealed class TimelineControl : FrameworkElement
     enum DragKind
     {
         Seek,
+        MoveClip,
         TrimStart,
         TrimEnd,
         MoveZoom,
@@ -502,11 +700,14 @@ public sealed class TimelineControl : FrameworkElement
         public string Id { get; } = id;
         public double Origin { get; } = origin;
         public double Delta { get; set; }
+        public bool Moved { get; set; }
     }
 
     readonly record struct DrawnClip(string Id, string AssetId, double Start, double Duration, double SourceStart, double SourceEnd, double Speed);
 }
 
 public readonly record struct ClipTrim(string ClipId, double SourceStart, double SourceEnd);
+
+public readonly record struct ClipMove(string ClipId, int Index);
 
 public readonly record struct ZoomMove(string ZoomId, double Start, double Duration);

@@ -10,7 +10,11 @@ public enum CaptureKind
     Device,
 }
 
-public sealed record CaptureTarget(CaptureKind Kind, string Label, int X, int Y, int Width, int Height, string? DeviceName);
+public sealed record CaptureTarget(CaptureKind Kind, string Label, int X, int Y, int Width, int Height, string? DeviceName)
+{
+    /// <summary>窗口采集的目标句柄；非窗口来源为 Zero。</summary>
+    public IntPtr WindowHandle { get; init; }
+}
 
 public sealed class RecordingOptions
 {
@@ -37,6 +41,11 @@ public sealed class RecordingSession : IAsyncDisposable
     WavRecorder? _microphone;
     WavRecorder? _system;
     readonly System.Diagnostics.Stopwatch _clock = new();
+    Timer? _follower;
+    Timer? _cursorTimer;
+    CaptureRegion.Box _followMonitor;
+    CaptureRegion.Box _followCrop;
+    bool _followLost;
     int _index;
 
     public RecordingSession(string ffmpeg, string ffprobe, CaptureTarget target, RecordingOptions options, string directory)
@@ -122,6 +131,7 @@ public sealed class RecordingSession : IAsyncDisposable
                 Duration = probed?.Duration > 0.2 ? probed.Duration : take.Duration,
                 Width = probed?.Width > 0 ? probed.Width : project.Width,
                 Height = probed?.Height > 0 ? probed.Height : project.Height,
+                Cursor = take.Cursor.Where(p => p.Time <= (probed?.Duration > 0.2 ? probed.Duration : take.Duration)).ToList(),
             };
             project.Assets.Add(asset);
             project.Clips.Add(new ClipSegment
@@ -174,13 +184,44 @@ public sealed class RecordingSession : IAsyncDisposable
                 "-i", "video=" + (_target.DeviceName ?? ""),
             ]);
         }
-        else
+        else if (_target.Kind == CaptureKind.Window && _target.WindowHandle != IntPtr.Zero)
         {
-            var region = Native.EvenRegion(_target.X, _target.Y, _target.Width, _target.Height);
+            // 录窗口所在的整个监视器，再用 crop@pos 裁到窗口矩形；
+            // 窗口移动时通过 stdin 命令改 crop 参数实现跟随。
+            var monitors = Native.Monitors()
+                .Select(m => new CaptureRegion.Box(m.Left, m.Top, m.Width, m.Height))
+                .ToList();
+            var live = Native.WindowRect(_target.WindowHandle);
+            var windowBox = live is null
+                ? new CaptureRegion.Box(_target.X, _target.Y, _target.Width, _target.Height)
+                : new CaptureRegion.Box(live.Left, live.Top, live.Width, live.Height);
+            var monitor = CaptureRegion.MonitorFor(windowBox, monitors) ?? monitors[0];
+            var crop = CaptureRegion.Crop(windowBox, monitor);
+            _followMonitor = monitor;
+            _followCrop = crop;
+            _followLost = false;
+            // 视频帧内容在屏幕上的物理矩形（光标归一化基准）。
+            take.Area = new CaptureRegion.Box(monitor.X + crop.X, monitor.Y + crop.Y, crop.Width, crop.Height);
             videoArgs.AddRange([
                 "-f", "gdigrab",
                 "-framerate", _options.FrameRate.ToString(),
-                "-draw_mouse", "1",
+                // 不录系统光标：轨迹已单独记录，编辑期按 CursorFx 重绘。
+                "-draw_mouse", "0",
+                "-offset_x", monitor.X.ToString(),
+                "-offset_y", monitor.Y.ToString(),
+                "-video_size", monitor.Width + "x" + monitor.Height,
+                "-i", "desktop",
+                "-vf", "crop@pos=" + crop.Width + ":" + crop.Height + ":" + crop.X + ":" + crop.Y,
+            ]);
+        }
+        else
+        {
+            var region = Native.EvenRegion(_target.X, _target.Y, _target.Width, _target.Height);
+            take.Area = new CaptureRegion.Box(region.X, region.Y, region.Width, region.Height);
+            videoArgs.AddRange([
+                "-f", "gdigrab",
+                "-framerate", _options.FrameRate.ToString(),
+                "-draw_mouse", "0",
                 "-offset_x", region.X.ToString(),
                 "-offset_y", region.Y.ToString(),
                 "-video_size", region.Width + "x" + region.Height,
@@ -255,6 +296,85 @@ public sealed class RecordingSession : IAsyncDisposable
             _current = null;
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "画面录制没有开始。" : Tail(error));
         }
+
+        if (_target.Kind == CaptureKind.Window && _target.WindowHandle != IntPtr.Zero)
+        {
+            _follower = new Timer(FollowWindow, null, TimeSpan.FromMilliseconds(120), TimeSpan.FromMilliseconds(120));
+        }
+
+        // 低频记录光标位置与点击，供编辑器自动运镜。
+        _cursorTimer = new Timer(SampleCursor, null, TimeSpan.FromMilliseconds(80), TimeSpan.FromMilliseconds(80));
+    }
+
+    void SampleCursor(object? state)
+    {
+        var take = _current;
+        if (take is null || take.Area.Width < 2 || take.Area.Height < 2)
+        {
+            return;
+        }
+
+        var (x, y) = Native.CursorPos();
+        var nx = Math.Clamp((x - take.Area.X) / (double)take.Area.Width, 0, 1);
+        var ny = Math.Clamp((y - take.Area.Y) / (double)take.Area.Height, 0, 1);
+        var down = Native.LeftButtonDown();
+        var click = down && !take.ButtonWasDown;
+        take.ButtonWasDown = down;
+        var last = take.Cursor.LastOrDefault();
+        // 位置没变且没点击就不重复存，省点体积。
+        if (!click && last is not null &&
+            Math.Abs(last.X - nx) < 0.004 && Math.Abs(last.Y - ny) < 0.004)
+        {
+            return;
+        }
+
+        take.Cursor.Add(new CursorPoint
+        {
+            Time = _clock.Elapsed.TotalSeconds,
+            X = nx,
+            Y = ny,
+            Click = click,
+        });
+    }
+
+    /// <summary>
+    /// 间歇跟随目标窗口：矩形变了就更新 crop；窗口最小化或消失时在
+    /// 时间线上打一个标记，画面停在最后位置继续录（那块桌面）。
+    /// </summary>
+    void FollowWindow(object? state)
+    {
+        var video = _video;
+        var take = _current;
+        if (video is null || take is null || video.HasExited)
+        {
+            return;
+        }
+
+        var rect = Native.WindowRect(_target.WindowHandle);
+        if (rect is null)
+        {
+            if (!_followLost)
+            {
+                _followLost = true;
+                take.Marks.Add((_clock.Elapsed.TotalSeconds, "目标窗口已最小化或关闭"));
+            }
+
+            return;
+        }
+
+        _followLost = false;
+        var box = new CaptureRegion.Box(rect.Left, rect.Top, rect.Width, rect.Height);
+        var crop = CaptureRegion.Crop(box, _followMonitor);
+        if (crop == _followCrop)
+        {
+            return;
+        }
+
+        _followCrop = crop;
+        video.SendFilterCommand("crop@pos", "x", crop.X.ToString());
+        video.SendFilterCommand("crop@pos", "y", crop.Y.ToString());
+        video.SendFilterCommand("crop@pos", "w", crop.Width.ToString());
+        video.SendFilterCommand("crop@pos", "h", crop.Height.ToString());
     }
 
     static string Tail(string error)
@@ -283,6 +403,20 @@ public sealed class RecordingSession : IAsyncDisposable
 
     async Task StopProcessesAsync(bool graceful)
     {
+        var follower = _follower;
+        _follower = null;
+        if (follower is not null)
+        {
+            await follower.DisposeAsync();
+        }
+
+        var cursorTimer = _cursorTimer;
+        _cursorTimer = null;
+        if (cursorTimer is not null)
+        {
+            await cursorTimer.DisposeAsync();
+        }
+
         var video = _video;
         var camera = _camera;
         _video = null;
@@ -314,6 +448,10 @@ public sealed class RecordingSession : IAsyncDisposable
         public string? SystemPath { get; set; }
         public string? CameraPath { get; set; }
         public double Duration { get; set; }
+        /// <summary>视频帧内容在屏幕上的物理矩形（光标归一化基准）。</summary>
+        public CaptureRegion.Box Area { get; set; }
+        public List<CursorPoint> Cursor { get; } = [];
+        public bool ButtonWasDown { get; set; }
         public List<(double Time, string? Note)> Marks { get; } = [];
     }
 }

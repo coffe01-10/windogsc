@@ -31,8 +31,41 @@ public sealed class ExportService
             if (plan.CameraMaskIndex >= 0)
             {
                 var mask = Path.Combine(temp, "camera.bmp");
-                MaskImage.WriteBmp(mask, plan.Bubble.Size, plan.Bubble.Size, 0, circle: true);
+                // 形状：circle=圆形 mask；square=圆角矩形；none=直角矩形（radius=0）。
+                var circle = plan.CameraShape == "circle";
+                var radius = plan.CameraShape == "square" ? plan.CameraCorner : 0;
+                MaskImage.WriteBmp(mask, plan.Bubble.Size, plan.Bubble.Size, radius, circle);
                 plan.Inputs[plan.CameraMaskIndex] = mask;
+            }
+
+            if (plan.FocusMaskIndex >= 0)
+            {
+                var mask = Path.Combine(temp, "focus.bmp");
+                MaskImage.WriteRadialBmp(mask, 256, 144);
+                plan.Inputs[plan.FocusMaskIndex] = mask;
+            }
+
+            if (plan.CursorIndex >= 0)
+            {
+                var cursor = Path.Combine(temp, "cursor.bmp");
+                var dot = project.Canvas.Cursor.Mode == "dot";
+                MaskImage.WriteBmp(cursor, MaskImage.CreateCursor(18, dot), 18, dot ? 18 : 27);
+                plan.Inputs[plan.CursorIndex] = cursor;
+            }
+
+            if (plan.RippleIndex >= 0)
+            {
+                var ring = Path.Combine(temp, "ripple.bmp");
+                MaskImage.WriteBmp(ring, MaskImage.CreateRing(36), 36, 36);
+                plan.Inputs[plan.RippleIndex] = ring;
+            }
+
+            if (plan.SoftMaskIndex >= 0)
+            {
+                var mask = Path.Combine(temp, "soft.bmp");
+                var (sx, sy, sw, sh) = plan.SoftRect;
+                MaskImage.WriteBmp(mask, MaskImage.CreateRectMask(plan.Width, plan.Height, sx, sy, sw, sh, Math.Max(8, sw / 12)), plan.Width, plan.Height);
+                plan.Inputs[plan.SoftMaskIndex] = mask;
             }
 
             var graph = string.Join(";", plan.FilterScript.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
@@ -44,7 +77,9 @@ public sealed class ExportService
             var args = new List<string> { "-y", "-hide_banner", "-loglevel", "warning", "-progress", "pipe:1", "-nostats" };
             for (var index = 0; index < plan.Inputs.Count; index++)
             {
-                if (index == plan.FrameMaskIndex || index == plan.CameraMaskIndex)
+                if (index == plan.FrameMaskIndex || index == plan.CameraMaskIndex || index == plan.FocusMaskIndex
+                    || index == plan.CursorIndex || index == plan.RippleIndex || index == plan.SoftMaskIndex
+                    || index == plan.WallpaperIndex || index == plan.StickerIndex)
                 {
                     args.Add("-framerate");
                     args.Add(plan.Fps.ToString());
@@ -114,6 +149,41 @@ public sealed class ExportService
         string? PathOf(string? relative) =>
             string.IsNullOrWhiteSpace(relative) ? null : ProjectFile.Media(projectDirectory, relative);
 
+        // 壁纸/贴图支持项目相对路径和绝对路径两种写法。
+        string? Decoration(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            var trimmed = path.Trim();
+            var absolute = Path.IsPathRooted(trimmed) ? trimmed : ProjectFile.Media(projectDirectory, trimmed);
+            return File.Exists(absolute) ? absolute : null;
+        }
+
+        string? wallpaper = Decoration(project.Canvas.Wallpaper);
+        string? sticker = Decoration(project.Canvas.Sticker?.Path);
+        double stickerAspect = 1;
+        if (sticker is not null)
+        {
+            try
+            {
+                var frame = System.Windows.Media.Imaging.BitmapFrame.Create(
+                    new Uri(sticker), System.Windows.Media.Imaging.BitmapCreateOptions.DelayCreation,
+                    System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+                if (frame.PixelWidth > 0 && frame.PixelHeight > 0)
+                {
+                    stickerAspect = frame.PixelWidth / (double)frame.PixelHeight;
+                }
+            }
+            catch
+            {
+                // 读不出宽高比就当方形，导出端仍可跑。
+            }
+        }
+
+
         var videos = new Dictionary<string, string>();
         var mics = new Dictionary<string, string>();
         var systems = new Dictionary<string, string>();
@@ -145,6 +215,15 @@ public sealed class ExportService
             }
         }
 
-        return new ResolvedMedia { Videos = videos, Microphones = mics, Systems = systems, Cameras = cameras };
+        return new ResolvedMedia
+        {
+            Videos = videos,
+            Microphones = mics,
+            Systems = systems,
+            Cameras = cameras,
+            Wallpaper = wallpaper,
+            Sticker = sticker,
+            StickerAspect = stickerAspect,
+        };
     }
 }

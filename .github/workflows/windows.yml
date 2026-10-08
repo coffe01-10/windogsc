@@ -1,0 +1,124 @@
+name: Windows Release
+
+# 推送 v* tag 或手动触发时构建 Windows 版并出 zip 附件。
+# ffmpeg 不随包分发（GPL 构建体积大且带许可限制）：
+# CI 里下载 essentials build 仅供跑通 self-test；用户按 windows/README.md 自备。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "构建版本号（不带 v，例如 0.2.0-beta.1）"
+        required: false
+        default: "0.0.0-ci"
+
+permissions:
+  contents: write
+
+env:
+  # gyan.dev 的 essentials 静态构建，只取 ffmpeg.exe / ffprobe.exe。
+  FFMPEG_URL: https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $v = $env:GITHUB_REF_NAME -replace '^v', ''
+          } else {
+            $v = '${{ inputs.version }}'
+            if ([string]::IsNullOrWhiteSpace($v)) { $v = '0.0.0-ci' }
+          }
+          if (-not ($v -match '^\d+\.\d+\.\d+')) {
+            Write-Error "版本号必须形如 x.y.z，得到：$v"
+            exit 1
+          }
+          echo "DOGSC_VERSION=$v" >> $env:GITHUB_ENV
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        working-directory: windows
+        run: dotnet restore DogSC.sln
+
+      - name: Build
+        working-directory: windows
+        run: dotnet build DogSC.sln -c Release --no-restore /p:Version=${{ env.DOGSC_VERSION }}
+
+      - name: Test
+        working-directory: windows
+        run: dotnet test tests/DogSC.Core.Tests/DogSC.Core.Tests.csproj -c Release --no-build
+
+      - name: Publish self-contained zip payload
+        working-directory: windows
+        # framework-dependent：目标机装 .NET 8 桌面运行时即可；要单文件/独立运行
+        # 再加 -r win-x64 --self-contained true /p:PublishSingleFile=true。
+        run: dotnet publish src/DogSC.App/DogSC.App.csproj -c Release -r win-x64 --self-contained false /p:Version=${{ env.DOGSC_VERSION }} -o "$env:RUNNER_TEMP/dogsc-publish"
+
+      - name: Fetch ffmpeg essentials for self-test
+        shell: pwsh
+        run: |
+          # 只借 CI 里的 ffmpeg 跑自检，不打进 zip：
+          # FfmpegTools.Candidates 会读 DOGSC_FFMPEG 环境变量指向的 ffmpeg.exe，
+          # ffprobe 默认取同目录下的 ffprobe.exe（见 windows/src/DogSC.App/Services/Ffmpeg.cs）。
+          $zip = "$env:RUNNER_TEMP/ffmpeg.zip"
+          $dest = "$env:RUNNER_TEMP/ffmpeg"
+          Invoke-WebRequest -Uri $env:FFMPEG_URL -OutFile $zip -UseBasicParsing
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          $bin = Get-ChildItem $dest -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          if (-not $bin) { Write-Error "ffmpeg essentials 里没有 ffmpeg.exe"; exit 1 }
+          echo "DOGSC_FFMPEG=$($bin.FullName)" >> $env:GITHUB_ENV
+          echo "Bundled ffmpeg for self-test only: $($bin.FullName)"
+
+      - name: Smoke test published build
+        working-directory: windows
+        run: |
+          $exe = "$env:RUNNER_TEMP/dogsc-publish/DogSC.exe"
+          if (-not (Test-Path $exe)) { Write-Error "publish 没产出 DogSC.exe"; exit 1 }
+          # DOGSC_FFMPEG 已在上一步写进 GITHUB_ENV，self-test 直接命中。
+          & $exe --self-test
+          if ($LASTEXITCODE -ne 0) { Write-Error "self-test 失败"; exit 1 }
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          # zip 里只有 .NET 产物；ffmpeg 由用户按 windows/README.md 自备
+          # （PATH、设置页指定，或放进应用目录）。
+          $zip = "$env:RUNNER_TEMP/DogSC-$env:GITHUB_REF_NAME-win-x64.zip"
+          if ($env:GITHUB_REF_TYPE -ne 'tag') {
+            $zip = "$env:RUNNER_TEMP/DogSC-$env:DOGSC_VERSION-win-x64.zip"
+          }
+          Compress-Archive -Path "$env:RUNNER_TEMP/dogsc-publish/*" -DestinationPath $zip -Force
+          echo "ZIP_PATH=$zip" >> $env:GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DogSC-${{ env.DOGSC_VERSION }}-win-x64
+          path: ${{ env.ZIP_PATH }}
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $notes = ".github/release-notes/$env:GITHUB_REF_NAME.md"
+          if (Test-Path $notes) {
+            gh release create $env:GITHUB_REF_NAME "$env:ZIP_PATH" --draft --notes-file $notes --title "DogSC $env:GITHUB_REF_NAME" --verify-tag
+          } else {
+            # 没有为该 tag 准备的说明就建个占位 draft，别硬失败。
+            gh release create $env:GITHUB_REF_NAME "$env:ZIP_PATH" --draft --generate-notes --title "DogSC $env:GITHUB_REF_NAME" --verify-tag
+          }

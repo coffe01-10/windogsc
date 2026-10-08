@@ -47,6 +47,11 @@ public partial class App : Application
         }
 
         AppHost.ShowBar();
+        if (SettingsStore.Current.CheckUpdates)
+        {
+            // 有新版本就在录制条角落提示，点文字跳浏览器到 release 页。
+            UpdateService.CheckInBackground(info => AppHost.Bar?.ShowUpdateNotice(info));
+        }
     }
 
     static string? Argument(string[] args, string name)

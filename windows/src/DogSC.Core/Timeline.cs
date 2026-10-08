@@ -140,6 +140,27 @@ public static class TimelineMath
         }
     }
 
+    /// <summary>
+    /// 拖动吸附：time 距某个候选点不超过 threshold 时返回最近的候选点，
+    /// 否则原样返回。
+    /// </summary>
+    public static double Snap(double time, IEnumerable<double> targets, double threshold)
+    {
+        var best = time;
+        var gap = threshold;
+        foreach (var target in targets)
+        {
+            var distance = Math.Abs(target - time);
+            if (distance <= gap)
+            {
+                gap = distance;
+                best = target;
+            }
+        }
+
+        return best;
+    }
+
     public static void Retime(IList<ZoomSpan> zooms, double clipStart, double oldDuration, double newDuration)
     {
         if (oldDuration <= 0.0001)
@@ -180,8 +201,127 @@ public static class TimelineMath
     }
 }
 
+/// <summary>
+/// 片段的可复制效果包：速度、source 段长度，以及时间窗内的缩放段
+/// （换成相对片段起点的偏移）与项目级的画布/画中画/音量设置。
+/// </summary>
+public sealed class EffectBundle
+{
+    public double Speed { get; set; } = 1;
+    public double SourceLength { get; set; }
+    public List<ZoomSpan> Zooms { get; set; } = [];
+    public CanvasSettings Canvas { get; set; } = new();
+    public CameraBubble Camera { get; set; } = new();
+    public double MicrophoneGain { get; set; } = 1;
+    public double SystemGain { get; set; } = 1;
+}
+
 public static class TimelineEdits
 {
+    /// <summary>把选中片段的效果属性抽成可序列化的 EffectBundle。</summary>
+    public static EffectBundle? CopyEffect(ProjectDocument project, string clipId)
+    {
+        var placed = TimelineMath.Place(project).FirstOrDefault(item => item.Clip.Id == clipId);
+        if (placed is null)
+        {
+            return null;
+        }
+
+        var zooms = project.Zooms
+            .Where(zoom => zoom.Start < placed.End - 0.02 && zoom.Start + zoom.Duration > placed.Start + 0.02)
+            .Select(zoom => new ZoomSpan
+            {
+                Start = Math.Max(0, zoom.Start - placed.Start),
+                Duration = zoom.Duration,
+                Scale = zoom.Scale,
+                FocusX = zoom.FocusX,
+                FocusY = zoom.FocusY,
+            })
+            .ToList();
+        return new EffectBundle
+        {
+            Speed = placed.Clip.Speed,
+            SourceLength = placed.Clip.SourceEnd - placed.Clip.SourceStart,
+            Zooms = zooms,
+            Canvas = Copy(project.Canvas),
+            Camera = Copy(project.Camera),
+            MicrophoneGain = project.MicrophoneGain,
+            SystemGain = project.SystemGain,
+        };
+    }
+
+    /// <summary>
+    /// 把效果包贴到另一个片段。includeTiming=false 时只粘属性
+    /// （缩放/画布/音量/画中画），不动速度和 source 段长度。
+    /// </summary>
+    public static bool PasteEffect(ProjectDocument project, string clipId, EffectBundle bundle, bool includeTiming)
+    {
+        var placed = TimelineMath.Place(project).FirstOrDefault(item => item.Clip.Id == clipId);
+        if (placed is null)
+        {
+            return false;
+        }
+
+        if (includeTiming)
+        {
+            placed.Clip.Speed = Math.Clamp(bundle.Speed, 0.5, 2);
+            var length = Math.Max(0.2, bundle.SourceLength);
+            placed.Clip.SourceEnd = Math.Clamp(placed.Clip.SourceStart + length, 0, placed.Asset.Duration);
+            if (placed.Clip.SourceEnd - placed.Clip.SourceStart < 0.2)
+            {
+                placed.Clip.SourceStart = Math.Max(0, placed.Asset.Duration - 0.2);
+                placed.Clip.SourceEnd = Math.Min(placed.Asset.Duration, placed.Clip.SourceStart + length);
+            }
+        }
+
+        // 目标片段时间窗里的旧缩放清掉，按复制的相对偏移重建。
+        project.Zooms.RemoveAll(zoom =>
+            zoom.Start < placed.End - 0.02 && zoom.Start + zoom.Duration > placed.Start + 0.02);
+        foreach (var zoom in bundle.Zooms)
+        {
+            project.Zooms.Add(new ZoomSpan
+            {
+                Start = placed.Start + zoom.Start,
+                Duration = zoom.Duration,
+                Scale = zoom.Scale,
+                FocusX = zoom.FocusX,
+                FocusY = zoom.FocusY,
+            });
+        }
+
+        project.Zooms.Sort((a, b) => a.Start.CompareTo(b.Start));
+        project.Canvas = Copy(bundle.Canvas);
+        project.Camera = Copy(bundle.Camera);
+        project.MicrophoneGain = bundle.MicrophoneGain;
+        project.SystemGain = bundle.SystemGain;
+        ProjectFile.Normalize(project);
+        return true;
+    }
+
+    static CanvasSettings Copy(CanvasSettings source) => new()
+    {
+        Aspect = source.Aspect,
+        Background = source.Background,
+        Padding = source.Padding,
+        CenterX = source.CenterX,
+        CenterY = source.CenterY,
+        Scale = source.Scale,
+        Corner = source.Corner,
+        Shadow = source.Shadow,
+        TiltX = source.TiltX,
+        TiltY = source.TiltY,
+        FocusBlur = source.FocusBlur,
+        Intro = source.Intro,
+    };
+
+    static CameraBubble Copy(CameraBubble source) => new()
+    {
+        CenterX = source.CenterX,
+        CenterY = source.CenterY,
+        Size = source.Size,
+    };
+
+
     public static bool TrySplit(ProjectDocument project, double time)
     {
         var hit = TimelineMath.Hit(project, time);
@@ -207,6 +347,29 @@ public static class TimelineEdits
         clip.SourceEnd = cut;
         var index = project.Clips.FindIndex(item => item.Id == clip.Id);
         project.Clips.Insert(index + 1, right);
+        return true;
+    }
+
+    /// <summary>
+    /// 把片段移到 index 位置（重排）。index 是移动前在 Clips 里的目标槽位。
+    /// </summary>
+    public static bool TryMoveClip(ProjectDocument project, string clipId, int index)
+    {
+        var from = project.Clips.FindIndex(item => item.Id == clipId);
+        if (from < 0)
+        {
+            return false;
+        }
+
+        index = Math.Clamp(index, 0, project.Clips.Count - 1);
+        if (index == from)
+        {
+            return false;
+        }
+
+        var clip = project.Clips[from];
+        project.Clips.RemoveAt(from);
+        project.Clips.Insert(index, clip);
         return true;
     }
 
@@ -292,6 +455,71 @@ public static class TimelineEdits
         TimelineMath.Retime(project.Zooms, slot.Start, oldDuration, newDuration);
         clip.Speed = speed;
         return true;
+    }
+
+    /// <summary>
+    /// 自动运镜：按录制时存下的点击事件生成缩放段。点击间隔小于
+    /// minGap 的只保留最新一次；与已有缩放重叠的跳过。返回新加的段数。
+    /// </summary>
+    public static int AutoZoom(ProjectDocument project, double scale = 1.6, double hold = 1.6, double lead = 0.35, double minGap = 1.2)
+    {
+        var total = TimelineMath.Duration(project);
+        var clicks = new List<(double Time, double X, double Y)>();
+        foreach (var clip in TimelineMath.Place(project))
+        {
+            foreach (var point in clip.Asset.Cursor)
+            {
+                if (!point.Click || point.Time < clip.Clip.SourceStart || point.Time > clip.Clip.SourceEnd)
+                {
+                    continue;
+                }
+
+                clicks.Add((clip.Start + (point.Time - clip.Clip.SourceStart) / clip.Clip.Speed,
+                    Math.Clamp(point.X, 0, 1), Math.Clamp(point.Y, 0, 1)));
+            }
+        }
+
+        var added = 0;
+        double last = -minGap;
+        foreach (var click in clicks.OrderBy(item => item.Time))
+        {
+            if (click.Time - last < minGap)
+            {
+                continue;
+            }
+
+            var start = Math.Clamp(click.Time - lead, 0, Math.Max(0, total - 0.3));
+            var length = Math.Min(hold + lead + 0.4, total - start);
+            if (length < 0.3)
+            {
+                continue;
+            }
+
+            // 点击点在画面里的归一化位置 → 缩放窗口的 focus（与
+            // EditorWindow.SetZoomFocus 的逆公式一致）。
+            var divisor = 1 - 1 / scale;
+            var zoom = new ZoomSpan
+            {
+                Start = start,
+                Duration = length,
+                Scale = scale,
+                FocusX = divisor < 0.02 ? 0.5 : Math.Clamp((click.X - 0.5 / scale) / divisor, 0, 1),
+                FocusY = divisor < 0.02 ? 0.5 : Math.Clamp((click.Y - 0.5 / scale) / divisor, 0, 1),
+            };
+            var overlaps = project.Zooms.Any(item =>
+                zoom.Start < item.Start + item.Duration - 0.02 && zoom.Start + zoom.Duration > item.Start + 0.02);
+            if (overlaps)
+            {
+                continue;
+            }
+
+            project.Zooms.Add(zoom);
+            last = click.Time;
+            added++;
+        }
+
+        project.Zooms.Sort((a, b) => a.Start.CompareTo(b.Start));
+        return added;
     }
 
     public static ZoomSpan? AddZoom(ProjectDocument project, double time)

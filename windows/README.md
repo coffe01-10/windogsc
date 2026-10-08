@@ -19,7 +19,7 @@ Windows 桌面版。录制屏幕、剪一段、导出 MP4。界面和流程对�
 
 ## 运行
 
-需要 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) 和 [ffmpeg](https://www.gyan.dev/ffmpeg/builds/)（含 ffprobe）。ffmpeg 要在 PATH 里，或在应用设置中指定 `ffmpeg.exe`。
+需要 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) 和 [ffmpeg](https://www.gyan.dev/ffmpeg/builds/)（含 ffprobe）。ffmpeg 要在 PATH 里，或在应用设置中指定 `ffmpeg.exe`；把 `ffmpeg.exe` / `ffprobe.exe` 放到应用目录下也能被自动找到（`FfmpegTools.Candidates` 会查 `AppContext.BaseDirectory` 与 `DOGSC_FFMPEG` 环境变量）。
 
 ```powershell
 dotnet run --project windows/src/DogSC.App
@@ -35,6 +35,16 @@ dotnet run --project windows/src/DogSC.App -- --self-test
 
 ```powershell
 dotnet test windows/tests/DogSC.Core.Tests
+```
+
+## 发布
+
+推 `v*` tag 会触发 `.github/workflows/windows.yml`：在 `windows-latest` 上 restore → build → test → `dotnet publish`（win-x64、依赖框架），跑发布产物的 `--self-test`，最后把 zip 挂到 release draft。CI 里只借一份 ffmpeg essentials 跑自检，zip 不分发 ffmpeg——发布说明里引导用户自备。本地复现构建：
+
+```powershell
+dotnet publish windows/src/DogSC.App/DogSC.App.csproj -c Release -r win-x64 --self-contained false -o artifacts/publish
+# 验证产物
+& artifacts/publish/DogSC.exe --self-test
 ```
 
 ## 权限

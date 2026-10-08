@@ -1,5 +1,6 @@
 using System.Windows.Interop;
 using System.Windows.Threading;
+using DogSC.Core;
 
 namespace DogSC;
 
@@ -120,7 +121,10 @@ public partial class RecorderBarWindow : Window
         ShowList(sender as FrameworkElement ?? this, windows.Select(window => (window.Title, window.ProcessName, (Action)(() =>
         {
             var region = Native.EvenRegion(window.Left, window.Top, window.Width, window.Height);
-            _ = BeginAsync(new CaptureTarget(CaptureKind.Window, window.Title, region.X, region.Y, region.Width, region.Height, null));
+            _ = BeginAsync(new CaptureTarget(CaptureKind.Window, window.Title, region.X, region.Y, region.Width, region.Height, null)
+            {
+                WindowHandle = window.Handle,
+            });
         }))).ToList());
     }
 
@@ -240,6 +244,7 @@ public partial class RecorderBarWindow : Window
         var items = new List<(string Title, string Detail, Action Run)>
         {
             ("导入视频", "做成可剪辑的项目", () => _ = ImportAsync()),
+            ("导入 macOS 项目", "打开 Mac 版 .dogscproject 包", () => _ = ImportMacAsync()),
             ("打开项目", "打开 .dogscproject 文件夹", () => OpenProject()),
             ("备忘录", "不进入录制画面", () => MemoWindow.Toggle()),
             ("设置", "帧率、ffmpeg、关于", () => new SettingsWindow { Owner = this }.ShowDialog()),
@@ -463,6 +468,43 @@ public partial class RecorderBarWindow : Window
         }
     }
 
+    /// <summary>选一个 macOS .dogscproject 包，转成 Windows 项目并打开。</summary>
+    async Task ImportMacAsync()
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "选择 macOS 的 .dogscproject 包" };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        var ffmpeg = FfmpegTools.LocateFfmpeg();
+        var ffprobe = FfmpegTools.LocateFfprobe(ffmpeg);
+        if (ffprobe is null)
+        {
+            ShowError("需要 ffprobe 才能补全导入项目的媒体信息。");
+            return;
+        }
+
+        try
+        {
+            Mouse.OverrideCursor = Cursors.Wait;
+            var (directory, result) = await ProjectFactory.ImportMacAsync(ffprobe, dialog.FolderName);
+            EditorWindow.Open(directory);
+            if (result.DroppedFields.Count > 0)
+            {
+                AppPaths.Log("macOS 导入丢弃字段：" + string.Join("；", result.DroppedFields));
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError(FirstLine(ex.Message));
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
+    }
+
     void ShowList(FrameworkElement target, IReadOnlyList<(string Title, string Detail, Action Run)> items)
     {
         ListItems.Children.Clear();
@@ -500,6 +542,30 @@ public partial class RecorderBarWindow : Window
     void ShowError(string message)
     {
         ErrorText.Text = message.ReplaceLineEndings(" ");
+    }
+
+    /// <summary>录制条角落提示新版本；点击用默认浏览器打开 release 页。</summary>
+    public void ShowUpdateNotice(UpdateInfo info)
+    {
+        if (!info.HasUpdate || info.Url.Length == 0)
+        {
+            return;
+        }
+
+        ErrorText.Text = $"发现新版本 {info.Latest} — 点击查看";
+        ErrorText.Foreground = (Brush)FindResource("AccentBrush");
+        ErrorText.Cursor = System.Windows.Input.Cursors.Hand;
+        ErrorText.MouseLeftButtonDown += (_, _) =>
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(info.Url) { UseShellExecute = true });
+            }
+            catch
+            {
+                // 打不开浏览器就算了，提示还在。
+            }
+        };
     }
 
     void RegisterHotkeys()

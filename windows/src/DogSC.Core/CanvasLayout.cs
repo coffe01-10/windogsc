@@ -108,6 +108,43 @@ public static class CanvasLayout
         return new BubblePlacement(x, y, size);
     }
 
+    /// <summary>开场动画时长（秒）。</summary>
+    public const double IntroDuration = 0.6;
+
+    /// <summary>开场进度 0→1；none 或无动画时返回 1（已完成）。</summary>
+    public static double IntroProgress(CanvasSettings canvas, double time) =>
+        canvas.Intro is "none" || string.IsNullOrWhiteSpace(canvas.Intro)
+            ? 1
+            : Math.Clamp(time / IntroDuration, 0, 1);
+
+    /// <summary>
+    /// 缩放进出的平滑系数：进入段 0→1、退出段 1→0，其余时间 1。
+    /// 预览与导出共用同一个 ramp，保证两端一致。
+    /// </summary>
+    public static double ZoomRamp(ZoomSpan zoom, double time)
+    {
+        if (zoom.Duration <= 0.001)
+        {
+            return 0;
+        }
+
+        var ease = Math.Min(0.4, zoom.Duration / 3);
+        var into = Math.Clamp((time - zoom.Start) / ease, 0, 1);
+        var outOf = Math.Clamp((zoom.Start + zoom.Duration - time) / ease, 0, 1);
+        return into * outOf;
+    }
+
+    /// <summary>某时刻的实际缩放倍数（含过渡）。</summary>
+    public static double ZoomScaleAt(ZoomSpan zoom, double time) =>
+        1 + (zoom.Scale - 1) * ZoomRamp(zoom, time);
+
+    /// <summary>某时刻的插值焦点：ramp=0 时回到画面中心。</summary>
+    public static (double X, double Y) ZoomFocusAt(ZoomSpan zoom, double time)
+    {
+        var ramp = ZoomRamp(zoom, time);
+        return (0.5 + (zoom.FocusX - 0.5) * ramp, 0.5 + (zoom.FocusY - 0.5) * ramp);
+    }
+
     public static (int Width, int Height, int X, int Y) ZoomCrop(int videoWidth, int videoHeight, double scale, double focusX, double focusY)
     {
         scale = Math.Clamp(scale, 1, 4);

@@ -43,6 +43,11 @@
                 <Grid x:Name="PreviewSlot" Grid.Row="1" SizeChanged="Preview_SizeChanged">
                     <Canvas x:Name="PreviewCanvas" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Rectangle x:Name="StageRect" IsHitTestVisible="False"/>
+                        <Image x:Name="WallpaperImage" Stretch="UniformToFill" Visibility="Collapsed" IsHitTestVisible="False">
+                            <Image.Effect>
+                                <BlurEffect x:Name="WallpaperBlur" Radius="0"/>
+                            </Image.Effect>
+                        </Image>
                         <Rectangle x:Name="ShadowRect" Fill="#55000000" IsHitTestVisible="False">
                             <Rectangle.Effect>
                                 <BlurEffect Radius="12"/>
@@ -50,8 +55,33 @@
                         </Rectangle>
                         <Grid x:Name="FrameHost" Background="Transparent" MouseLeftButtonDown="Frame_Down" MouseMove="Frame_Move" MouseLeftButtonUp="Frame_Up">
                             <Rectangle x:Name="FrameRect"/>
+                            <Rectangle x:Name="FocusBlurLayer" Visibility="Collapsed" IsHitTestVisible="False">
+                                <Rectangle.Effect>
+                                    <BlurEffect Radius="10"/>
+                                </Rectangle.Effect>
+                                <Rectangle.OpacityMask>
+                                    <RadialGradientBrush GradientOrigin="0.5,0.5" RadiusX="0.72" RadiusY="0.72">
+                                        <GradientStop Color="Transparent" Offset="0"/>
+                                        <GradientStop Color="Transparent" Offset="0.55"/>
+                                        <GradientStop Color="Black" Offset="1"/>
+                                    </RadialGradientBrush>
+                                </Rectangle.OpacityMask>
+                            </Rectangle>
+                            <Canvas x:Name="CursorLayer" IsHitTestVisible="False" ClipToBounds="True">
+                                <Ellipse x:Name="ClickRing" Visibility="Collapsed" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" Fill="Transparent"/>
+                                <Path x:Name="CursorShape" Data="M0,0 L0,17 L4.5,13 L7,19 L9.4,18 L7,12.4 L12,12 Z" Fill="White" Stroke="Black" StrokeThickness="1" Visibility="Collapsed"/>
+                                <Ellipse x:Name="CursorDot" Width="10" Height="10" Fill="{DynamicResource AccentBrush}" Stroke="White" StrokeThickness="1.5" Visibility="Collapsed"/>
+                            </Canvas>
                         </Grid>
-                        <Ellipse x:Name="CameraBubble" Visibility="Collapsed" StrokeThickness="2" MouseLeftButtonDown="Camera_Down" MouseMove="Camera_Move" MouseLeftButtonUp="Camera_Up"/>
+                        <!-- 局部柔化：全屏模糊副本，OpacityMask 由代码按 SoftRegion 生成 -->
+                        <Rectangle x:Name="SoftLayer" Visibility="Collapsed" IsHitTestVisible="False">
+                            <Rectangle.Effect>
+                                <BlurEffect x:Name="SoftBlur" Radius="12"/>
+                            </Rectangle.Effect>
+                        </Rectangle>
+                        <!-- 贴图：盖在最上层 -->
+                        <Image x:Name="StickerImage" Visibility="Collapsed" IsHitTestVisible="False"/>
+                        <Rectangle x:Name="CameraBubble" Visibility="Collapsed" StrokeThickness="2" MouseLeftButtonDown="Camera_Down" MouseMove="Camera_Move" MouseLeftButtonUp="Camera_Up"/>
                     </Canvas>
                 </Grid>
             </Grid>
@@ -73,6 +103,10 @@
                         <Button Content="删除" Style="{StaticResource QuietButton}" Click="Delete_Click"/>
                         <Button Content="标记" Style="{StaticResource QuietButton}" Click="Marker_Click"/>
                         <ComboBox x:Name="SpeedBox" Width="88" Margin="8,0,0,0" VerticalAlignment="Center" SelectionChanged="Speed_Changed"/>
+                        <Rectangle Width="1" Height="20" Fill="{DynamicResource LineBrush}" Margin="8,0" VerticalAlignment="Center"/>
+                        <Button Content="复制效果" Style="{StaticResource QuietButton}" Click="CopyEffect_Click"/>
+                        <Button Content="粘贴效果" Style="{StaticResource QuietButton}" Click="PasteEffect_Click"/>
+                        <Button Content="只粘属性" Style="{StaticResource QuietButton}" Click="PasteAttributes_Click"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Button Content="开头" Style="{StaticResource QuietButton}" Click="SkipStart_Click"/>

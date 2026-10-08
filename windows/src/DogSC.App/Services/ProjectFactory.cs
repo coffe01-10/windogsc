@@ -82,6 +82,91 @@ public static class ProjectFactory
         return directory;
     }
 
+    /// <summary>
+    /// 把一个 macOS .dogscproject 包转成 Windows 项目：读它的 project.json，
+    /// 把 media 清单里引用的文件拷到新目录，字段映射走 MacProjectImporter。
+    /// 对不上的字段记录在返回值的 DroppedFields 里。
+    /// </summary>
+    /// <summary>返回新项目的目录 + 映射结果（含丢弃字段清单）。</summary>
+    public static async Task<(string Directory, MacProjectImporter.Result Result)> ImportMacAsync(string ffprobe, string packagePath)
+    {
+        var jsonPath = Path.Combine(packagePath, "project.json");
+        if (!File.Exists(jsonPath))
+        {
+            throw new InvalidDataException("这个文件夹里没有 project.json，不是 DogSC 项目包。");
+        }
+
+        var result = MacProjectImporter.Import(await File.ReadAllTextAsync(jsonPath));
+        var project = result.Project;
+        var directory = CreateDirectory(project.Name);
+        try
+        {
+            // 拷贝 media 引用文件，并把 asset 的相对路径改成 Windows 约定。
+            var mediaDir = Path.Combine(directory, "media");
+            foreach (var reference in result.MediaReferences)
+            {
+                var source = Path.Combine(packagePath, reference.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(source))
+                {
+                    continue;
+                }
+
+                var name = Path.GetFileName(source);
+                var target = Path.Combine(mediaDir, name);
+                File.Copy(source, target, overwrite: true);
+            }
+
+            var asset = project.Assets[0];
+            var screenName = Path.GetFileName(asset.Video.Replace('/', Path.DirectorySeparatorChar));
+            var copiedScreen = Path.Combine(mediaDir, screenName);
+            if (File.Exists(copiedScreen))
+            {
+                asset.Video = "media/" + screenName;
+            }
+            else
+            {
+                throw new InvalidDataException("macOS 项目的屏幕录制文件拷不过来：" + asset.Video);
+            }
+
+            asset.Camera = Relocate(asset.Camera, mediaDir);
+            asset.Microphone = Relocate(asset.Microphone, mediaDir);
+            // fullRecording 时长未知：用 ffprobe 探测补齐。
+            if (asset.Duration <= 1.01 && File.Exists(copiedScreen))
+            {
+                var info = await FfmpegTools.Probe(ffprobe, copiedScreen);
+                if (info is not null)
+                {
+                    asset.Duration = Math.Max(info.Duration, 0.1);
+                    asset.Width = info.Width;
+                    asset.Height = info.Height;
+                    project.Width = Math.Max(info.Width, 2);
+                    project.Height = Math.Max(info.Height, 2);
+                    project.Clips[0].SourceEnd = asset.Duration;
+                }
+            }
+
+            ProjectFile.Save(directory, project);
+            SettingsStore.Remember(directory);
+            return (directory, result);
+        }
+        catch
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { }
+            throw;
+        }
+
+        static string? Relocate(string? relative, string mediaDir)
+        {
+            if (string.IsNullOrWhiteSpace(relative))
+            {
+                return null;
+            }
+
+            var name = Path.GetFileName(relative.Replace('/', Path.DirectorySeparatorChar));
+            return File.Exists(Path.Combine(mediaDir, name)) ? "media/" + name : null;
+        }
+    }
+
     static void TryDelete(string path)
     {
         try

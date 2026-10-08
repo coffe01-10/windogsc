@@ -67,6 +67,19 @@ public static class Native
             ?? Monitors().First(item => item.Primary || true);
     }
 
+    /// <summary>当前光标的物理屏幕坐标。</summary>
+    public static (int X, int Y) CursorPos()
+    {
+        GetCursorPos(out var point);
+        return (point.X, point.Y);
+    }
+
+    /// <summary>鼠标左键此刻是否按着（录制轮询用）。</summary>
+    public static bool LeftButtonDown() => (GetAsyncKeyState(0x01) & 0x8000) != 0;
+
+    [DllImport("user32.dll")]
+    static extern short GetAsyncKeyState(int virtualKey);
+
     public static IReadOnlyList<WindowDesc> Windows()
     {
         var list = new List<WindowDesc>();
@@ -135,6 +148,36 @@ public static class Native
             .ThenBy(item => item.Title)
             .Take(40)
             .ToList();
+    }
+
+    /// <summary>
+    /// 取窗口当前的物理矩形（优先 DWM 扩展边框，与列表时的口径一致）。
+    /// 窗口被关闭、最小化或隐藏时返回 null。
+    /// </summary>
+    public static WindowDesc? WindowRect(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || !IsWindowVisible(hwnd) || IsIconic(hwnd))
+        {
+            return null;
+        }
+
+        var bounds = new RectData();
+        if (DwmGetRect(hwnd, DwmwaExtendedFrameBounds, out bounds, Marshal.SizeOf<RectData>()) != 0)
+        {
+            if (!GetWindowRect(hwnd, out bounds))
+            {
+                return null;
+            }
+        }
+
+        var width = bounds.Right - bounds.Left;
+        var height = bounds.Bottom - bounds.Top;
+        if (width < 2 || height < 2)
+        {
+            return null;
+        }
+
+        return new WindowDesc(hwnd, "", "", bounds.Left, bounds.Top, width, height);
     }
 
     public static (int X, int Y, int Width, int Height) EvenRegion(int x, int y, int width, int height)

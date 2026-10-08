@@ -129,6 +129,11 @@ public sealed class PreviewPlayer : IDisposable
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// MediaPlayer.Volume 上限是 1，增益超过 100% 的部分预览放不出来，
+    /// 由界面提示「以导出为准」（导出走 ffmpeg volume=，上限是
+    /// <see cref="ProjectDocument.MaxGain"/>）。
+    /// </summary>
     public void SetGains(double microphone, double system)
     {
         _microphone.Volume = Math.Clamp(microphone, 0, 1);

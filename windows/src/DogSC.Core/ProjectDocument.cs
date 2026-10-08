@@ -38,6 +38,10 @@ public sealed class ProjectDocument
     public List<SourceMarker> Markers { get; set; } = [];
     public CanvasSettings Canvas { get; set; } = new();
     public CameraBubble Camera { get; set; } = new();
+
+    /// <summary>增益上限：滑杆、预览和导出共用这一个值（200%）。</summary>
+    public const double MaxGain = 2;
+
     public double MicrophoneGain { get; set; } = 1;
     public double SystemGain { get; set; } = 1;
 
@@ -56,6 +60,16 @@ public sealed class MediaAsset
     public double Duration { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }
+    /// <summary>录制时采样的光标轨迹（source 秒 + 相对画面 0..1 坐标 + 是否点击）。</summary>
+    public List<CursorPoint> Cursor { get; set; } = [];
+}
+
+public sealed class CursorPoint
+{
+    public double Time { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public bool Click { get; set; }
 }
 
 public sealed class ClipSegment
@@ -95,6 +109,57 @@ public sealed class CanvasSettings
     public double Scale { get; set; } = 1;
     public double Corner { get; set; } = 18;
     public double Shadow { get; set; } = 28;
+    /// <summary>俯仰角（度），画面绕水平轴倾斜，-40..40。</summary>
+    public double TiltX { get; set; }
+    /// <summary>偏航角（度），画面绕垂直轴倾斜，-40..40。</summary>
+    public double TiltY { get; set; }
+    /// <summary>边缘虚化强度 0..1（移轴效果，中心清晰四周糊）。</summary>
+    public double FocusBlur { get; set; }
+    /// <summary>开场动画预设：none / fade / rise / zoom。</summary>
+    public string Intro { get; set; } = "none";
+    /// <summary>光标呈现设置（录制不录光标，编辑期按轨迹重绘）。</summary>
+    public CursorFx Cursor { get; set; } = new();
+    /// <summary>壁纸图片：项目相对路径（media/ 下）或绝对路径；空 = 纯色背景。</summary>
+    public string? Wallpaper { get; set; }
+    /// <summary>壁纸模糊强度 0..1（垫在画面下做氛围虚化）。</summary>
+    public double WallpaperBlur { get; set; } = 0.35;
+    /// <summary>贴图：项目相对或绝对路径的图片；null/空路径 = 不画。</summary>
+    public StickerImage? Sticker { get; set; }
+    /// <summary>局部柔化：canvas 归一化矩形 + 强度。</summary>
+    public SoftRegion SoftRegion { get; set; } = new();
+}
+
+/// <summary>画面上的一张贴图：位置/宽是相对 canvas 的 0..1 归一化，高按图比例。</summary>
+public sealed class StickerImage
+{
+    public string Path { get; set; } = "";
+    public double X { get; set; } = 0.5;
+    public double Y { get; set; } = 0.5;
+    public double Width { get; set; } = 0.2;
+    /// <summary>整体不透明度 0..1。</summary>
+    public double Opacity { get; set; } = 1;
+}
+
+/// <summary>局部柔化：矩形区域按强度混入高斯模糊。</summary>
+public sealed class SoftRegion
+{
+    public bool Enabled { get; set; }
+    public double X { get; set; } = 0.25;
+    public double Y { get; set; } = 0.25;
+    public double Width { get; set; } = 0.5;
+    public double Height { get; set; } = 0.5;
+    /// <summary>0..1，映射到 gblur sigma。</summary>
+    public double Strength { get; set; } = 0.5;
+}
+
+public sealed class CursorFx
+{
+    /// <summary>pointer=箭头，dot=圆点，hidden=始终隐藏。</summary>
+    public string Mode { get; set; } = "pointer";
+    /// <summary>点击处画一个反馈圈。</summary>
+    public bool ClickRipple { get; set; } = true;
+    /// <summary>光标静止不动一段时间后隐藏。</summary>
+    public bool IdleHide { get; set; }
 }
 
 public sealed class CameraBubble
@@ -102,6 +167,12 @@ public sealed class CameraBubble
     public double CenterX { get; set; } = 0.84;
     public double CenterY { get; set; } = 0.78;
     public double Size { get; set; } = 0.2;
+    /// <summary>形状：circle=圆形，square=圆角方形，none=直角无边框。</summary>
+    public string Shape { get; set; } = "circle";
+    /// <summary>进出动画：none / fade / rise。fade=淡入淡出，rise=淡入+底部滑入。</summary>
+    public string Entry { get; set; } = "none";
+    /// <summary>方形圆角半径比例 0..1（相对边长）。</summary>
+    public double Corner { get; set; } = 0.18;
 }
 
 public static class ProjectFile
@@ -157,6 +228,10 @@ public static class ProjectFile
         project.Markers ??= [];
         project.Canvas ??= new CanvasSettings();
         project.Camera ??= new CameraBubble();
+        foreach (var asset in project.Assets)
+        {
+            asset.Cursor ??= [];
+        }
         project.Canvas.Background = NormalizeColor(project.Canvas.Background);
         project.Canvas.Scale = Math.Clamp(project.Canvas.Scale, 0.25, 2.5);
         project.Canvas.Padding = Math.Clamp(project.Canvas.Padding, 0, 240);
@@ -164,11 +239,41 @@ public static class ProjectFile
         project.Canvas.Shadow = Math.Clamp(project.Canvas.Shadow, 0, 100);
         project.Canvas.CenterX = Math.Clamp(project.Canvas.CenterX, 0, 1);
         project.Canvas.CenterY = Math.Clamp(project.Canvas.CenterY, 0, 1);
+        project.Canvas.TiltX = Math.Clamp(project.Canvas.TiltX, -40, 40);
+        project.Canvas.TiltY = Math.Clamp(project.Canvas.TiltY, -40, 40);
+        project.Canvas.FocusBlur = Math.Clamp(project.Canvas.FocusBlur, 0, 1);
+        project.Canvas.Intro = project.Canvas.Intro is "fade" or "rise" or "zoom" ? project.Canvas.Intro : "none";
+        project.Canvas.Cursor ??= new CursorFx();
+        project.Canvas.Cursor.Mode = project.Canvas.Cursor.Mode is "pointer" or "dot" or "hidden" ? project.Canvas.Cursor.Mode : "pointer";
+        project.Canvas.Wallpaper = string.IsNullOrWhiteSpace(project.Canvas.Wallpaper) ? null : project.Canvas.Wallpaper.Trim();
+        project.Canvas.WallpaperBlur = Math.Clamp(project.Canvas.WallpaperBlur, 0, 1);
+        if (project.Canvas.Sticker is { } sticker)
+        {
+            sticker.Path = sticker.Path.Trim();
+            sticker.X = Math.Clamp(sticker.X, 0, 1);
+            sticker.Y = Math.Clamp(sticker.Y, 0, 1);
+            sticker.Width = Math.Clamp(sticker.Width, 0.02, 1);
+            sticker.Opacity = Math.Clamp(sticker.Opacity, 0.05, 1);
+            if (sticker.Path.Length == 0)
+            {
+                project.Canvas.Sticker = null;
+            }
+        }
+
+        project.Canvas.SoftRegion ??= new SoftRegion();
+        project.Canvas.SoftRegion.X = Math.Clamp(project.Canvas.SoftRegion.X, 0, 1);
+        project.Canvas.SoftRegion.Y = Math.Clamp(project.Canvas.SoftRegion.Y, 0, 1);
+        project.Canvas.SoftRegion.Width = Math.Clamp(project.Canvas.SoftRegion.Width, 0.02, 1);
+        project.Canvas.SoftRegion.Height = Math.Clamp(project.Canvas.SoftRegion.Height, 0.02, 1);
+        project.Canvas.SoftRegion.Strength = Math.Clamp(project.Canvas.SoftRegion.Strength, 0, 1);
         project.Camera.Size = Math.Clamp(project.Camera.Size, 0.08, 0.46);
         project.Camera.CenterX = Math.Clamp(project.Camera.CenterX, 0, 1);
         project.Camera.CenterY = Math.Clamp(project.Camera.CenterY, 0, 1);
-        project.MicrophoneGain = Math.Clamp(project.MicrophoneGain, 0, 2);
-        project.SystemGain = Math.Clamp(project.SystemGain, 0, 2);
+        project.Camera.Shape = project.Camera.Shape is "square" or "none" ? project.Camera.Shape : "circle";
+        project.Camera.Entry = project.Camera.Entry is "fade" or "rise" ? project.Camera.Entry : "none";
+        project.Camera.Corner = Math.Clamp(project.Camera.Corner, 0, 0.5);
+        project.MicrophoneGain = Math.Clamp(project.MicrophoneGain, 0, ProjectDocument.MaxGain);
+        project.SystemGain = Math.Clamp(project.SystemGain, 0, ProjectDocument.MaxGain);
         foreach (var clip in project.Clips)
         {
             clip.Speed = Math.Clamp(clip.Speed, 0.5, 2);

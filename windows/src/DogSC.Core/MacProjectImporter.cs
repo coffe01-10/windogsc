@@ -1,0 +1,324 @@
+using System.Text.Json;
+
+namespace DogSC.Core;
+
+/// <summary>
+/// 导入 macOS 版 .dogscproject 的 project.json，映射到 Windows 的
+/// ProjectDocument。macOS 模型见 Sources/RecorderCore/ProjectModel.swift
+/// （RecorderProject / ProjectTimeline / RecordingSegment / ZoomAnimationClip）。
+/// 不认识的字段收集进 DroppedFields 清单，不中断导入。
+/// </summary>
+public static class MacProjectImporter
+{
+    /// <summary>导入结果：项目文档 + 被丢弃的字段说明。</summary>
+    public sealed class Result
+    {
+        public required ProjectDocument Project { get; init; }
+        /// <summary>macOS 端有但 Windows 端没对应实现、被丢弃的字段路径。</summary>
+        public List<string> DroppedFields { get; } = [];
+        /// <summary>media.screen.relativePath 等源引用（调用方用它去拷媒体文件）。</summary>
+        public List<string> MediaReferences { get; } = [];
+    }
+
+    /// <summary>从 macOS project.json 文本导入。dir 仅用于把相对路径解析成可读性提示，不做 IO。</summary>
+    public static Result Import(string projectJson)
+    {
+        var dropped = new List<string>();
+        using var document = JsonDocument.Parse(projectJson);
+        var root = document.RootElement;
+
+        var project = new ProjectDocument
+        {
+            Platform = ProjectSchema.Platform,
+            Name = Text(root, "title") ?? "导入的 macOS 项目",
+        };
+
+        // —— 媒体清单：screen/camera/microphone 的相对路径 ——
+        var media = Obj(root, "media");
+        var screenPath = media is null ? null : Text(media.Value, "screen", "relativePath");
+        var cameraPath = media is null ? null : Text(media.Value, "camera", "relativePath");
+        var micPath = media is null ? null : Text(media.Value, "microphone", "relativePath");
+
+        // —— 时间线片段：RecordingSegment.sourceStart/sourceDuration/playbackRate ——
+        // Windows ClipSegment 是 sourceStart/sourceEnd（源秒）+ Speed（倍速=源时长/输出时长的倒数）。
+        var clips = new List<ClipSegment>();
+        var asset = new MediaAsset();
+        double sourceDuration = 0;
+        var timeline = Obj(root, "timeline");
+        var sequence = timeline is null ? null : Obj(timeline.Value, "sourceSequence");
+        var segments = sequence is null ? null : Arr(sequence.Value, "segments");
+        if (segments is { } segs)
+        {
+            foreach (var seg in segs.EnumerateArray())
+            {
+                var start = Num(seg, "sourceStart");
+                var dur = Num(seg, "sourceDuration");
+                var rate = Num(seg, "playbackRate", 1);
+                sourceDuration = Math.Max(sourceDuration, start + dur);
+                clips.Add(new ClipSegment
+                {
+                    AssetId = asset.Id,
+                    SourceStart = start,
+                    SourceEnd = start + dur,
+                    Speed = Math.Clamp(rate, 0.5, 2),
+                });
+            }
+        }
+
+        if (clips.Count == 0)
+        {
+            // fullRecording：整段无剪辑，长度未知；media 引用存下来让调用方探测。
+            dropped.Add("timeline.sourceSequence=fullRecording（无剪辑边界，导入后按整段）");
+            clips.Add(new ClipSegment { AssetId = asset.Id, SourceStart = 0, SourceEnd = sourceDuration > 0 ? sourceDuration : 1 });
+        }
+
+        asset.Video = screenPath ?? "";
+        asset.Camera = cameraPath;
+        asset.Microphone = micPath;
+        asset.Duration = sourceDuration > 0 ? sourceDuration : 1;
+        project.Assets = [asset];
+        project.Clips = clips;
+        if (screenPath is not null)
+        {
+            var r = new Result { Project = project };
+            CollectRefs(media, r.MediaReferences);
+            r.DroppedFields.AddRange(dropped);
+            MapCanvas(root, project, r.DroppedFields);
+            MapCamera(root, project, r.DroppedFields);
+            MapAudio(root, project);
+            MapZooms(timeline, project);
+            MapCursor(root, project, r.DroppedFields);
+            project.SourceLabel = "macOS 项目导入";
+            ProjectFile.Normalize(project);
+            return r;
+        }
+
+        // 没有 screen 就没法当录制项目打开。
+        throw new InvalidDataException("macOS 项目里没有屏幕录制文件（media.screen.relativePath 缺失）。");
+    }
+
+    static void CollectRefs(JsonElement? media, List<string> refs)
+    {
+        if (media is null)
+        {
+            return;
+        }
+
+        foreach (var key in new[] { "screen", "camera", "microphone", "pointerEvents" })
+        {
+            var path = Text(media.Value, key, "relativePath");
+            if (path is not null)
+            {
+                refs.Add(path);
+            }
+        }
+    }
+
+    static void MapCanvas(JsonElement root, ProjectDocument project, List<string> dropped)
+    {
+        var canvas = Obj(root, "canvas");
+        if (canvas is null)
+        {
+            return;
+        }
+
+        var c = canvas.Value;
+        // 宽高比：macOS adaptive=适应→source，其余枚举值与 Windows 对齐。
+        var aspect = Text(c, "aspectRatio");
+        project.Canvas.Aspect = aspect switch
+        {
+            "适应" or "adaptive" => "source",
+            "16:9" => "16:9",
+            "4:3" => "4:3",
+            "1:1" => "1:1",
+            "9:16" => "9:16",
+            "3:4" => "3:4",
+            _ => "source",
+        };
+        project.Canvas.Padding = Num(c, "padding", 100) / 1080.0 * 100; // 参考宽 1080 → 归一到 Windows 的 0..240 直觉值
+        project.Canvas.Scale = Num(c, "contentScale", 1);
+        var pos = Obj(c, "contentPosition");
+        if (pos is { } p)
+        {
+            project.Canvas.CenterX = Num(p, "x", 0.5);
+            project.Canvas.CenterY = Num(p, "y", 0.5);
+        }
+
+        project.Canvas.Corner = Num(c, "cornerRadius", 24);
+        project.Canvas.Shadow = Num(c, "shadowStrength", 0.28) * 100;
+        // 背景：pattern/dynamicFlow/视频都映不动，只有纯色近似与图片可取。
+        var bg = Obj(c, "backgroundSource");
+        var kind = bg is null ? null : Text(bg.Value, "kind");
+        if (kind is "projectImage" or "systemImage")
+        {
+            var rel = Text(bg!.Value, "relativePath") ?? Text(bg.Value, "absolutePath");
+            if (rel is not null)
+            {
+                project.Canvas.Wallpaper = rel;
+            }
+        }
+        else if (kind is not null)
+        {
+            dropped.Add("canvas.backgroundSource.kind=" + kind + "（Windows 只支持纯色或图片壁纸）");
+        }
+
+        // Windows 无对应概念的字段。
+        foreach (var key in new[] { "crop", "borderWidth", "borderHex", "screenFrame", "screenFrameScale",
+                     "screenFrameToolbarScale", "screenFrameTitle", "screenFrameBrowserAddress",
+                     "patternScale", "patternOpacity", "backgroundBlur", "insetOpacity", "customAspectRatio" })
+        {
+            if (c.TryGetProperty(key, out _))
+            {
+                dropped.Add("canvas." + key);
+            }
+        }
+    }
+
+    static void MapCamera(JsonElement root, ProjectDocument project, List<string> dropped)
+    {
+        var camera = Obj(root, "camera");
+        if (camera is null)
+        {
+            return;
+        }
+
+        var c = camera.Value;
+        var pos = Obj(c, "position");
+        if (pos is { } p)
+        {
+            project.Camera.CenterX = Num(p, "x", 0.84);
+            project.Camera.CenterY = Num(p, "y", 0.78);
+        }
+
+        project.Camera.Size = Num(c, "size", 0.29);
+        // macOS CameraShape：方形/横向/纵向/原始比例/圆形 → Windows circle/square/none。
+        var shape = Text(c, "shape");
+        project.Camera.Shape = shape is "圆形" or "circle" ? "circle"
+            : shape is "方形" or "横向" or "纵向" or "square" or "horizontal" or "vertical" ? "square"
+            : "none";
+        if (Num(c, "isHidden", 0) > 0.5 || c.TryGetProperty("isHidden", out var h) && h.GetBoolean())
+        {
+            // 隐藏摄像头等价于不显示 → Windows 没有单独的隐藏位，丢给 dropped 记录。
+            dropped.Add("camera.isHidden（Windows 没有隐藏画中画开关；要用就删掉摄像头轨）");
+        }
+
+        foreach (var key in new[] { "borderWidth", "roundness", "isMirrored", "scaleDuringZoom",
+                     "contentPosition", "contentScale", "shadowStrength" })
+        {
+            if (c.TryGetProperty(key, out _))
+            {
+                dropped.Add("camera." + key);
+            }
+        }
+    }
+
+    static void MapAudio(JsonElement root, ProjectDocument project)
+    {
+        var audio = Obj(root, "audio");
+        if (audio is null)
+        {
+            return;
+        }
+
+        var a = audio.Value;
+        var sysMuted = a.TryGetProperty("isSystemMuted", out var sm) && sm.GetBoolean();
+        var micMuted = a.TryGetProperty("isMicrophoneMuted", out var mm) && mm.GetBoolean();
+        project.SystemGain = sysMuted ? 0 : Num(a, "systemVolume", 0.82);
+        project.MicrophoneGain = micMuted ? 0 : Num(a, "microphoneVolume", 0.9);
+    }
+
+    static void MapZooms(JsonElement? timeline, ProjectDocument project)
+    {
+        var zooms = timeline is null ? null : Arr(timeline.Value, "zoomClips");
+        if (zooms is null)
+        {
+            return;
+        }
+
+        foreach (var clip in zooms.Value.EnumerateArray())
+        {
+            var start = Num(clip, "startTime");
+            var end = Num(clip, "endTime");
+            var focus = Obj(clip, "focus");
+            project.Zooms.Add(new ZoomSpan
+            {
+                Start = start,
+                Duration = Math.Max(0.12, end - start),
+                Scale = Num(clip, "scale", 1.45),
+                FocusX = focus is { } f ? Num(f, "x", 0.5) : 0.5,
+                FocusY = focus is { } f2 ? Num(f2, "y", 0.5) : 0.5,
+            });
+        }
+    }
+
+    static void MapCursor(JsonElement root, ProjectDocument project, List<string> dropped)
+    {
+        var cursor = Obj(root, "cursorStyle");
+        if (cursor is null)
+        {
+            return;
+        }
+
+        var c = cursor.Value;
+        var assetId = Text(c, "assetID") ?? "";
+        project.Canvas.Cursor.Mode = assetId switch
+        {
+            "system.hidden" => "hidden",
+            "system.touch-dot" => "dot",
+            _ => "pointer",
+        };
+        project.Canvas.Cursor.IdleHide = c.TryGetProperty("hideWhenIdle", out var idle) && idle.GetBoolean();
+        var clickStyle = Text(c, "clickEffectStyle");
+        project.Canvas.Cursor.ClickRipple = clickStyle is null or not "none";
+        foreach (var key in new[] { "size", "idleDelay", "clickColor", "clickOpacity", "clickScale", "motionTiltStrength" })
+        {
+            if (c.TryGetProperty(key, out _))
+            {
+                dropped.Add("cursorStyle." + key);
+            }
+        }
+
+        // macOS 还有 openingSequence / motion / exportSettings / recordingMarkers /
+        // stickerClips / mosaicClips / screenMotionClips / cameraMotionClips —— 全部丢弃。
+        foreach (var key in new[] { "openingSequence", "motion", "exportSettings", "recordingMarkers" })
+        {
+            if (root.TryGetProperty(key, out _))
+            {
+                dropped.Add(key);
+            }
+        }
+    }
+
+    static JsonElement? Obj(JsonElement e, params string[] path)
+    {
+        var current = e;
+        foreach (var key in path)
+        {
+            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(key, out current))
+            {
+                return null;
+            }
+        }
+
+        return current;
+    }
+
+    static JsonElement? Arr(JsonElement e, string key) =>
+        e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Array ? v : null;
+
+    static string? Text(JsonElement e, params string[] path)
+    {
+        var node = Obj(e, path);
+        return node?.ValueKind == JsonValueKind.String ? node.Value.GetString() : null;
+    }
+
+    static double Num(JsonElement e, string key, double fallback = 0)
+    {
+        if (e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var n))
+        {
+            return n;
+        }
+
+        return fallback;
+    }
+}
