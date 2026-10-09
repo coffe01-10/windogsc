@@ -154,9 +154,11 @@ public static class CanvasLayout
             return 0;
         }
 
-        var ease = Math.Min(0.4, zoom.Duration / 3);
-        var into = Math.Clamp((time - zoom.Start) / ease, 0, 1);
-        var outOf = Math.Clamp((zoom.Start + zoom.Duration - time) / ease, 0, 1);
+        var (enter, exit) = ZoomMotion.Windows(zoom);
+        var into = enter <= .000001 ? (time >= zoom.Start ? 1 : 0) : Math.Clamp((time - zoom.Start) / enter, 0, 1);
+        var outOf = exit <= .000001 ? (time <= zoom.Start + zoom.Duration ? 1 : 0) : Math.Clamp((zoom.Start + zoom.Duration - time) / exit, 0, 1);
+        into = ZoomMotion.Progress(zoom, into);
+        outOf = 1 - ZoomMotion.Progress(zoom, 1 - outOf);
         return into * outOf;
     }
 

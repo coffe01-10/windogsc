@@ -93,6 +93,13 @@ public sealed class ZoomSpan
     public double Scale { get; set; } = 1.45;
     public double FocusX { get; set; } = 0.5;
     public double FocusY { get; set; } = 0.5;
+    public string Origin { get; set; } = "manual";
+    public string Easing { get; set; } = "linear";
+    public double? EnterDuration { get; set; }
+    public double? ExitDuration { get; set; }
+    public double SpringMass { get; set; } = 2.4;
+    public double SpringStiffness { get; set; } = 210;
+    public double SpringDamping { get; set; } = 42;
 }
 
 public sealed class SourceMarker
@@ -373,6 +380,11 @@ public static class ProjectFile
             zoom.FocusX = Math.Clamp(zoom.FocusX, 0, 1);
             zoom.FocusY = Math.Clamp(zoom.FocusY, 0, 1);
             zoom.Duration = Math.Max(0.12, zoom.Duration);
+            if (zoom.EnterDuration is { } enter) zoom.EnterDuration = Math.Clamp(enter, 0, 5);
+            if (zoom.ExitDuration is { } exit) zoom.ExitDuration = Math.Clamp(exit, 0, 5);
+            zoom.SpringMass = Math.Clamp(zoom.SpringMass, .1, 10);
+            zoom.SpringStiffness = Math.Clamp(zoom.SpringStiffness, 10, 500);
+            zoom.SpringDamping = Math.Clamp(zoom.SpringDamping, 1, 100);
         }
     }
 

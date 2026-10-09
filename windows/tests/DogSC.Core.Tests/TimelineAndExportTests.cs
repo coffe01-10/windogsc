@@ -263,9 +263,10 @@ public class TimelineAndExportTests
         Assert.NotNull(zoom);
         var plan = ExportGraph.Build(project, new ExportOptions(), Media(project));
         // 缩放段用 zoompan 按帧插值，不再是写死的 crop 常量。
-        Assert.Contains("zoompan=z='1+", plan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("zoompan=z='clip(", plan.FilterScript, StringComparison.Ordinal);
         Assert.Contains("clip(", plan.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("+time-", plan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("+time)", plan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("exp(-", plan.FilterScript, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -6,12 +6,14 @@ public readonly record struct CursorFrame((double X, double Y)? Pointer, (double
 public sealed class CursorTimeline
 {
     readonly ProjectDocument _project;
+    public ZoomMotion Motion { get; }
     readonly IReadOnlyList<PlacedClip> _clips;
     readonly (double Time, double X, double Y)[] _clicks;
 
     public CursorTimeline(ProjectDocument project)
     {
         _project = project;
+        Motion = new ZoomMotion(project);
         _clips = TimelineMath.Place(project);
         var advance = project.Canvas.Cursor.TimingAdvance;
         _clicks = _clips.SelectMany(clip => clip.Asset.Cursor
@@ -65,14 +67,9 @@ public sealed class CursorTimeline
         var crop = _project.Canvas.Crop;
         var x = (point.X - crop.X) / crop.Width;
         var y = (point.Y - crop.Y) / crop.Height;
-        var zoom = _project.Zooms.FirstOrDefault(z => time >= z.Start && time < z.Start + z.Duration);
-        if (zoom is not null)
-        {
-            var scale = CanvasLayout.ZoomScaleAt(zoom, time);
-            var focus = CanvasLayout.ZoomFocusAt(zoom, time);
-            x = x * scale - (scale - 1) * focus.X;
-            y = y * scale - (scale - 1) * focus.Y;
-        }
+        var pose = Motion.At(time);
+        x = x * pose.Scale - (pose.Scale - 1) * pose.X;
+        y = y * pose.Scale - (pose.Scale - 1) * pose.Y;
         return (x, y);
     }
 }

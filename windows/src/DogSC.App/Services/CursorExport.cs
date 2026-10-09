@@ -30,8 +30,7 @@ static class CursorExport
             {
                 cancellation.ThrowIfCancellationRequested();
                 var time = frame / (double)plan.Fps;
-                var activeZoom = project.Zooms.FirstOrDefault(z => time >= z.Start && time < z.Start + z.Duration);
-                var zoom = activeZoom is null ? 1 : CanvasLayout.ZoomScaleAt(activeZoom, time);
+                var zoom = timeline.Motion.At(time).Scale;
                 var sample = timeline.At(time);
                 var pointer = sample.Pointer is { } point ? timeline.InFrame(point, time) : ((double X, double Y)?)null;
                 var click = sample.Click is { } location ? timeline.InFrame(location, time) : ((double X, double Y)?)null;

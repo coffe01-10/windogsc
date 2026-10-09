@@ -124,6 +124,7 @@ public class OverlayParityTests
     {
         var project = Sample();
         project.Zooms.Add(new() { Start = 3, Duration = 2, Scale = 2 });
+        TimelineEdits.TrySplit(project, 3);
         project.Canvas.SoftRegions = [new() { Enabled = true, CoordinateSpace = "source", Style = "spotlight", Timing = new() { Start = 1, Duration = 6 } },
             new() { Enabled = true, CoordinateSpace = "canvas" }];
         var media = new ResolvedMedia { Videos = new Dictionary<string, string> { ["a"] = "screen.mp4" },

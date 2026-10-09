@@ -236,6 +236,8 @@ public static class TimelineEdits
                 Scale = zoom.Scale,
                 FocusX = zoom.FocusX,
                 FocusY = zoom.FocusY,
+                Origin = zoom.Origin, Easing = zoom.Easing, EnterDuration = zoom.EnterDuration, ExitDuration = zoom.ExitDuration,
+                SpringMass = zoom.SpringMass, SpringStiffness = zoom.SpringStiffness, SpringDamping = zoom.SpringDamping,
             })
             .ToList();
         return new EffectBundle
@@ -324,6 +326,8 @@ public static class TimelineEdits
                 Scale = zoom.Scale,
                 FocusX = zoom.FocusX,
                 FocusY = zoom.FocusY,
+                Origin = zoom.Origin, Easing = zoom.Easing, EnterDuration = zoom.EnterDuration, ExitDuration = zoom.ExitDuration,
+                SpringMass = zoom.SpringMass, SpringStiffness = zoom.SpringStiffness, SpringDamping = zoom.SpringDamping,
             });
         }
 
@@ -343,6 +347,8 @@ public static class TimelineEdits
         Scale = source.Scale,
         FocusX = source.FocusX,
         FocusY = source.FocusY,
+        Origin = source.Origin, Easing = source.Easing, EnterDuration = source.EnterDuration, ExitDuration = source.ExitDuration,
+        SpringMass = source.SpringMass, SpringStiffness = source.SpringStiffness, SpringDamping = source.SpringDamping,
     };
 
     /// <summary>完整复制缩放段；只吸附同轨边缘，不覆盖已有段或截短副本。</summary>
@@ -384,6 +390,11 @@ public static class TimelineEdits
         target.Scale = source.Scale;
         target.FocusX = source.FocusX;
         target.FocusY = source.FocusY;
+        target.Origin = "manual";
+        target.Easing = source.Easing;
+        target.EnterDuration = source.EnterDuration;
+        target.ExitDuration = source.ExitDuration;
+        target.SpringMass = source.SpringMass; target.SpringStiffness = source.SpringStiffness; target.SpringDamping = source.SpringDamping;
         return true;
     }
 
@@ -545,69 +556,59 @@ public static class TimelineEdits
         return true;
     }
 
-    /// <summary>
-    /// 自动运镜：按录制时存下的点击事件生成缩放段。点击间隔小于
-    /// minGap 的只保留最新一次；与已有缩放重叠的跳过。返回新加的段数。
-    /// </summary>
-    public static int AutoZoom(ProjectDocument project, double scale = 1.6, double hold = 1.6, double lead = 0.35, double minGap = 1.2)
+    /// <summary>一轮连续操作生成一个镜头；附近点击保持构图，换目标由 ZoomMotion 连续衔接。</summary>
+    public static int AutoZoom(ProjectDocument project, double scale = 1.6, double hold = .9, double lead = .126, double minGap = 1.4)
     {
         var total = TimelineMath.Duration(project);
-        var clicks = new List<(double Time, double X, double Y)>();
-        foreach (var clip in TimelineMath.Place(project))
+        var events = ZoomMotion.Events(project);
+        var manual = project.Zooms.Where(z => z.Origin != "automatic").OrderBy(z => z.Start).ToArray();
+        var clicks = events.Where(p => p.Click && !manual.Any(z => p.Time >= z.Start && p.Time < z.Start + z.Duration)).ToArray();
+        if (clicks.Length == 0) return 0;
+        project.Zooms.RemoveAll(z => z.Origin == "automatic");
+        var groups = new List<List<(double Time, double X, double Y, bool Click)>>();
+        foreach (var click in clicks)
         {
-            foreach (var point in clip.Asset.Cursor)
-            {
-                if (!point.Click || point.Time < clip.Clip.SourceStart || point.Time > clip.Clip.SourceEnd)
-                {
-                    continue;
-                }
-
-                clicks.Add((clip.Start + (point.Time - clip.Clip.SourceStart) / clip.Clip.Speed,
-                    Math.Clamp(point.X, 0, 1), Math.Clamp(point.Y, 0, 1)));
-            }
+            if (groups.Count == 0 || click.Time - groups[^1][^1].Time > minGap
+                || manual.Any(z => z.Start >= groups[^1][^1].Time && z.Start < click.Time))
+                groups.Add([]);
+            groups[^1].Add(click);
         }
-
-        var added = 0;
-        double last = -minGap;
-        foreach (var click in clicks.OrderBy(item => item.Time))
+        double previousEnd = 0;
+        for (var i = 0; i < groups.Count; i++)
         {
-            if (click.Time - last < minGap)
+            var group = groups[i];
+            var first = group[0]; var last = group[^1];
+            var before = manual.Where(z => z.Start + z.Duration <= first.Time).Select(z => z.Start + z.Duration).DefaultIfEmpty(0).Max();
+            var after = manual.Where(z => z.Start > last.Time).Select(z => z.Start).DefaultIfEmpty(total).Min();
+            var start = Math.Max(Math.Max(first.Time - lead, previousEnd), before);
+            var next = i + 1 < groups.Count ? groups[i + 1][0].Time - lead : total;
+            var limit = Math.Min(after, next);
+            var activity = last.Time;
+            var prior = events.LastOrDefault(p => p.Time <= last.Time);
+            foreach (var point in events.Where(p => p.Time > last.Time && p.Time < limit))
             {
-                continue;
+                var moved = Math.Abs(point.X - prior.X) > .002 || Math.Abs(point.Y - prior.Y) > .002;
+                prior = point;
+                if (!point.Click && !moved) continue; // 定时采样的静止指针不能把保持段延长到全片。
+                if (point.Time - activity > minGap) break;
+                activity = point.Time;
             }
-
-            var start = Math.Clamp(click.Time - lead, 0, Math.Max(0, total - 0.3));
-            var length = Math.Min(hold + lead + 0.4, total - start);
-            if (length < 0.3)
-            {
-                continue;
-            }
-
-            // 点击点在画面里的归一化位置 → 缩放窗口的 focus（与
-            // EditorWindow.SetZoomFocus 的逆公式一致）。
-            var divisor = 1 - 1 / scale;
+            var holdEnd = Math.Max(last.Time + hold, activity + .55);
+            var end = Math.Min(Math.Max(holdEnd, start + .7) + .7, limit);
+            if (end - start < .12) continue;
             var zoom = new ZoomSpan
             {
-                Start = start,
-                Duration = length,
-                Scale = scale,
-                FocusX = divisor < 0.02 ? 0.5 : Math.Clamp((click.X - 0.5 / scale) / divisor, 0, 1),
-                FocusY = divisor < 0.02 ? 0.5 : Math.Clamp((click.Y - 0.5 / scale) / divisor, 0, 1),
+                Start = start, Duration = end - start, Scale = Math.Clamp(scale, 1, 4), Origin = "automatic",
+                Easing = "spring", EnterDuration = .7,
+                ExitDuration = end >= total - .001 ? 0 : Math.Min(.7, Math.Max(0, end - holdEnd)),
+                FocusX = ZoomMotion.Focus((first.X - project.Canvas.Crop.X) / project.Canvas.Crop.Width, scale),
+                FocusY = ZoomMotion.Focus((first.Y - project.Canvas.Crop.Y) / project.Canvas.Crop.Height, scale),
             };
-            var overlaps = project.Zooms.Any(item =>
-                zoom.Start < item.Start + item.Duration - 0.02 && zoom.Start + zoom.Duration > item.Start + 0.02);
-            if (overlaps)
-            {
-                continue;
-            }
-
             project.Zooms.Add(zoom);
-            last = click.Time;
-            added++;
+            previousEnd = end;
         }
-
         project.Zooms.Sort((a, b) => a.Start.CompareTo(b.Start));
-        return added;
+        return project.Zooms.Count(z => z.Origin == "automatic");
     }
 
     public static ZoomSpan? AddZoom(ProjectDocument project, double time)
@@ -639,7 +640,7 @@ public static class TimelineEdits
             return null;
         }
 
-        var zoom = new ZoomSpan { Start = time, Duration = length };
+        var zoom = new ZoomSpan { Start = time, Duration = length, Easing = "spring", EnterDuration = .7, ExitDuration = .7 };
         project.Zooms.Add(zoom);
         project.Zooms.Sort((left, right) => left.Start.CompareTo(right.Start));
         return zoom;

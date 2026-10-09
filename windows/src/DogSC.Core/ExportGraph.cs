@@ -83,6 +83,7 @@ public static class ExportGraph
         }
 
         var slices = BuildPieces(project, placed, media);
+        var motion = new ZoomMotion(project);
         var duration = placed[^1].End;
         var fps = options.Fps is 60 ? 60 : 30;
         var (canvasWidth, canvasHeight) = CanvasLayout.OutputSize(project.Width, project.Height, project.Canvas.Aspect, options.Resolution);
@@ -149,7 +150,7 @@ public static class ExportGraph
                     sourceLabel = ApplyRegion(script, inputs, regionMasks, sourceLabel, soft, project.Width, project.Height,
                         fps, slice.TimelineDuration, slice.TimelineStart, regionStep++);
                 script.Append('[').Append(sourceLabel).Append(']')
-                    .Append(VideoChain(slice, project.Width, project.Height, fps, project.Canvas.Crop))
+                    .Append(VideoChain(slice, project.Width, project.Height, fps, project.Canvas.Crop, motion))
                     .Append('[').Append(label).AppendLine("]");
                 videoLabels.Add(label);
                 if (includeCamera && slice.CameraPath is not null)
@@ -568,23 +569,19 @@ public static class ExportGraph
         return "[" + output + "]";
     }
 
-    private static string VideoChain(Piece slice, int width, int height, int fps, SourceCrop sourceCrop)
+    private static string VideoChain(Piece slice, int width, int height, int fps, SourceCrop sourceCrop, ZoomMotion motion)
     {
         var chain = new StringBuilder();
         var crop = CanvasLayout.Crop(width, height, sourceCrop);
         chain.Append("crop=").Append(crop.Width).Append(':').Append(crop.Height).Append(':').Append(crop.X).Append(':').Append(crop.Y);
         width = crop.Width;
         height = crop.Height;
-        if (slice.Zoom is { Scale: > 1.01 } span)
+        if (motion.HasMotion(slice.TimelineStart, slice.TimelineDuration))
         {
-            // zoompan 的表达式逐帧求值：time 是片段本地秒，全局时间线时刻
-            // = TimelineStart + time。ramp 与预览端 CanvasLayout.ZoomRamp 同公式。
-            var ease = Math.Max(0.05, Math.Min(0.4, span.Duration / 3));
-            var ramp = "clip((" + F(slice.TimelineStart) + "+time-" + F(span.Start) + ")/" + F(ease) + ",0,1)"
-                + "*clip((" + F(span.Start + span.Duration) + "-" + F(slice.TimelineStart) + "-time)/" + F(ease) + ",0,1)";
-            var scale = "1+" + F(span.Scale - 1) + "*(" + ramp + ")";
-            var focusX = "0.5+" + F(span.FocusX - 0.5) + "*(" + ramp + ")";
-            var focusY = "0.5+" + F(span.FocusY - 0.5) + "*(" + ramp + ")";
+            var (scale, focusX, focusY) = motion.Expressions(slice.TimelineStart, slice.TimelineDuration, "(" + F(slice.TimelineStart) + "+time)");
+            // zoompan 的裁切原点取整数；小素材先放大可减少慢速运镜的一像素跳动。
+            if (Math.Max(width, height) <= 1920)
+                chain.Append(",scale=").Append(width * 2).Append(':').Append(height * 2).Append(":flags=bicubic");
             chain.Append(",zoompan=z='").Append(scale)
                 .Append("':x='(iw-iw/zoom)*(").Append(focusX)
                 .Append(")':y='(ih-ih/zoom)*(").Append(focusY)
@@ -642,51 +639,16 @@ public static class ExportGraph
 
     private static List<Piece> BuildPieces(ProjectDocument project, IReadOnlyList<PlacedClip> placed, ResolvedMedia media)
     {
-        var zooms = project.Zooms.OrderBy(item => item.Start).ToList();
         var slices = new List<Piece>();
         foreach (var clip in placed)
         {
             if (!media.Videos.TryGetValue(clip.Asset.Id, out var video))
-            {
                 throw new InvalidDataException("找不到片段对应的画面文件。");
-            }
-
             media.Microphones.TryGetValue(clip.Asset.Id, out var microphone);
             media.Systems.TryGetValue(clip.Asset.Id, out var system);
             media.Cameras.TryGetValue(clip.Asset.Id, out var camera);
-            var cuts = new List<double> { clip.Start, clip.End };
-            foreach (var zoom in zooms)
-            {
-                var start = Math.Max(zoom.Start, clip.Start);
-                var end = Math.Min(zoom.Start + zoom.Duration, clip.End);
-                if (end - start > 0.04)
-                {
-                    cuts.Add(start);
-                    cuts.Add(end);
-                }
-            }
-
-            cuts.Sort();
-            for (var index = 0; index < cuts.Count - 1; index++)
-            {
-                var start = cuts[index];
-                var end = cuts[index + 1];
-                if (end - start < 0.04)
-                {
-                    continue;
-                }
-
-                if (index > 0 && Math.Abs(cuts[index] - cuts[index - 1]) < 0.0001)
-                {
-                    continue;
-                }
-
-                var midpoint = (start + end) / 2;
-                var zoom = zooms.FirstOrDefault(item => midpoint >= item.Start && midpoint < item.Start + item.Duration);
-                var sourceStart = clip.Clip.SourceStart + (start - clip.Start) * clip.Clip.Speed;
-                var sourceEnd = clip.Clip.SourceStart + (end - clip.Start) * clip.Clip.Speed;
-                slices.Add(new Piece(video, microphone, system, camera, sourceStart, sourceEnd, clip.Clip.Speed, start, end - start, zoom, clip.Asset.CameraOffset, clip.Asset.MicrophoneOffset));
-            }
+            slices.Add(new Piece(video, microphone, system, camera, clip.Clip.SourceStart, clip.Clip.SourceEnd,
+                clip.Clip.Speed, clip.Start, clip.Duration, clip.Asset.CameraOffset, clip.Asset.MicrophoneOffset));
         }
 
         if (slices.Count == 0)
@@ -709,7 +671,6 @@ public static class ExportGraph
         double Speed,
         double TimelineStart,
         double TimelineDuration,
-        ZoomSpan? Zoom,
         double CameraOffset,
         double MicrophoneOffset);
 }

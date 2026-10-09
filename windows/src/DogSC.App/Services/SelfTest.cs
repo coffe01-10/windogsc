@@ -139,6 +139,7 @@ public static class SelfTest
         Console.WriteLine("SELFTEST_OK timed-sticker/soft/fades/perspective/intro");
         Console.WriteLine("SELFTEST_OK color/projection-edges/cancel-keeps-existing");
         await CheckMultiOverlayAsync(ffmpeg, ffprobe, root);
+        await CheckZoomMotionAsync(ffmpeg, root);
         await CheckMacImportAsync(ffmpeg, ffprobe, root, source);
         var monitor = Native.Monitors().First();
         var grabPath = Path.Combine(root, "grab.mp4");
@@ -298,6 +299,45 @@ public static class SelfTest
             SettingsStore.Current.RecentProjects = previousRecent;
             SettingsStore.Save();
         }
+    }
+
+    static async Task CheckZoomMotionAsync(string ffmpeg, string root)
+    {
+        var video = Path.Combine(root, "media", "motion-bands.mp4");
+        using (var generate = FfmpegProcess.Start(ffmpeg, ["-y", "-f", "lavfi", "-i",
+            "color=red:s=640x360:r=30:d=6,drawbox=x=320:y=0:w=320:h=360:c=blue:t=fill", "-c:v", "libx264", "-pix_fmt", "yuv420p", video]))
+            if (await generate.WaitAsync() != 0) throw new InvalidOperationException(generate.ErrorText());
+        var asset = new MediaAsset { Video = "media/motion-bands.mp4", Duration = 6, Width = 640, Height = 360,
+            Cursor = [new() { Time = 1, X = .2, Y = .5, Click = true }, new() { Time = 2, X = .9, Y = .5, Click = true },
+                new() { Time = 2.3, X = .2, Y = .5, Click = true }, new() { Time = 3, X = .8, Y = .5, Click = true }] };
+        var project = new ProjectDocument { Width = 640, Height = 360, Assets = [asset], Clips = [new() { AssetId = asset.Id, SourceEnd = 6 }],
+            Canvas = new() { Padding = 0, Corner = 0, Shadow = 0, Cursor = new() { Mode = "hidden" } } };
+        TimelineEdits.AutoZoom(project);
+        var motion = new ZoomMotion(project);
+        var output = Path.Combine(root, "continuous-motion.mp4");
+        await new ExportService(ffmpeg).ExportAsync(project, root, new(), output, CancellationToken.None);
+        var path = Path.Combine(root, "motion-frame.png");
+        try
+        {
+            foreach (var time in new[] { 1.0, 1.5, 1.6, 1.7, 2.0, 2.3, 2.7, 3.0, 3.7, 4.3, 5.0 })
+            {
+                using var extract = FfmpegProcess.Start(ffmpeg, ["-y", "-ss", time.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "-i", output, "-frames:v", "1", path]);
+                if (await extract.WaitAsync() != 0) throw new InvalidOperationException(extract.ErrorText());
+                using var stream = File.OpenRead(path);
+                var frame = BitmapFrame.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                var image = new FormatConvertedBitmap(frame, PixelFormats.Bgr32, null, 0);
+                var row = new byte[image.PixelWidth * 4];
+                image.CopyPixels(new Int32Rect(0, image.PixelHeight / 2, image.PixelWidth, 1), row, row.Length, 0);
+                var boundary = Enumerable.Range(0, image.PixelWidth).First(x => row[x * 4] > row[x * 4 + 2]);
+                var pose = motion.At(time);
+                var expected = (.5 * pose.Scale - (pose.Scale - 1) * pose.X) * image.PixelWidth;
+                if (Math.Abs(boundary - expected) > 4)
+                    throw new InvalidOperationException($"运镜预览 / 成片在 {time:0.00}s 不一致：色块边界 {boundary}px，预览 {expected:0.0}px。");
+            }
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+        Console.WriteLine("SELFTEST_OK continuous-zoom/rapid-retarget/preview-export-position");
     }
 
     static async Task CheckRenderedPixels(string ffmpeg, string video, string root, ProjectDocument project)

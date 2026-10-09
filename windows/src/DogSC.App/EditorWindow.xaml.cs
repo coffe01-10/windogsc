@@ -464,8 +464,18 @@ public partial class EditorWindow : Window
         }
     }
 
+    (Slider X, Slider Y)? _zoomFocusSliders;
+
+    void MakeZoomManual(ZoomSpan zoom)
+    {
+        if (zoom.Origin != "automatic") return;
+        var target = _cursorTimeline!.Motion.TargetAt(zoom, _player.Time);
+        zoom.FocusX = target.X; zoom.FocusY = target.Y; zoom.Origin = "manual";
+    }
+
     void BuildZoomInspector()
     {
+        _zoomFocusSliders = null;
         Inspector.Children.Add(Heading("缩放"));
         var auto = new Button { Content = "按点击自动运镜", Style = (Style)FindResource("QuietButton"), HorizontalAlignment = HorizontalAlignment.Left };
         auto.Click += (_, _) =>
@@ -475,7 +485,7 @@ public partial class EditorWindow : Window
             if (added == 0)
             {
                 _undo.Pop();
-                Inspector.Children.Add(Caption("录制里没有可用的点击点（旧项目或没有光标轨迹）。"));
+                Inspector.Children.Add(Caption("没有空闲时段的点击点。可检查指针轨迹，或移动已有手动缩放。"));
                 return;
             }
 
@@ -505,13 +515,53 @@ public partial class EditorWindow : Window
             return;
         }
 
+        Inspector.Children.Add(Caption(zoom.Origin == "automatic" ? "自动跟随：附近点击保持构图，跨区域点击平滑移动。改焦点会转为手动镜头。" : "手动镜头：相邻缩放直接衔接，空白处恢复全景。"));
         Inspector.Children.Add(Caption("倍数"));
         Inspector.Children.Add(Slider(1, 3, zoom.Scale, value => zoom.Scale = value));
+        var target = zoom.Origin == "automatic" ? _cursorTimeline!.Motion.TargetAt(zoom, _player.Time)
+            : new ZoomPose(zoom.Scale, zoom.FocusX, zoom.FocusY);
+        var focusX = Slider(0, 1, target.X, value => { MakeZoomManual(zoom); zoom.FocusX = value; }, refresh: true);
+        var focusY = Slider(0, 1, target.Y, value => { MakeZoomManual(zoom); zoom.FocusY = value; }, refresh: true);
+        _zoomFocusSliders = (focusX, focusY);
         Inspector.Children.Add(Caption("焦点 X"));
-        Inspector.Children.Add(Slider(0, 1, zoom.FocusX, value => zoom.FocusX = value));
+        Inspector.Children.Add(focusX);
         Inspector.Children.Add(Caption("焦点 Y"));
-        Inspector.Children.Add(Slider(0, 1, zoom.FocusY, value => zoom.FocusY = value));
+        Inspector.Children.Add(focusY);
+        Inspector.Children.Add(MotionSlider("进入时长", 0, 5, zoom.EnterDuration ?? .4, value => zoom.EnterDuration = value, " 秒"));
+        Inspector.Children.Add(MotionSlider("退出时长", 0, 5, zoom.ExitDuration ?? .4, value => zoom.ExitDuration = value, " 秒"));
+        Inspector.Children.Add(Caption("片段不足以容纳两段过渡时，按比例缩短；相邻镜头直接衔接。"));
+        var curves = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var (label, curve) in new[] { ("弹簧", "spring"), ("平滑", "smooth"), ("线性", "linear") })
+        {
+            var button = new Button { Content = label, Style = (Style)FindResource("QuietButton"), Margin = new Thickness(0, 4, 6, 4),
+                Background = zoom.Easing == curve ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("WellBrush"),
+                Foreground = (Brush)FindResource(zoom.Easing == curve ? "OnAccentBrush" : "InkBrush") };
+            button.Click += (_, _) => { Push(); zoom.Easing = curve; Commit(); };
+            curves.Children.Add(button);
+        }
+        Inspector.Children.Add(curves);
+        if (zoom.Easing == "spring")
+        {
+            var spring = Disclosure("弹簧参数");
+            spring.Children.Add(MotionSlider("质量", .1, 10, zoom.SpringMass, value => zoom.SpringMass = value));
+            spring.Children.Add(MotionSlider("刚度", 10, 500, zoom.SpringStiffness, value => zoom.SpringStiffness = value));
+            spring.Children.Add(MotionSlider("阻尼", 1, 100, zoom.SpringDamping, value => zoom.SpringDamping = value));
+        }
         Inspector.Children.Add(Caption("在「缩放」工具下点击画面，也会把焦点放到点击的位置。"));
+    }
+
+    StackPanel MotionSlider(string name, double min, double max, double value, Action<double> apply, string unit = "")
+    {
+        var panel = new StackPanel();
+        var label = Caption(name + "  " + value.ToString("0.##", CultureInfo.InvariantCulture) + unit);
+        var slider = Slider(min, max, value, v =>
+        {
+            apply(v);
+            label.Text = name + "  " + v.ToString("0.##", CultureInfo.InvariantCulture) + unit;
+        });
+        System.Windows.Automation.AutomationProperties.SetName(slider, name);
+        panel.Children.Add(label); panel.Children.Add(slider);
+        return panel;
     }
 
     void BuildAudioInspector()
@@ -715,12 +765,25 @@ public partial class EditorWindow : Window
 
     void ApplyZoomVisual()
     {
-        var zoom = _project.Zooms.FirstOrDefault(item => _player.Time >= item.Start && _player.Time < item.Start + item.Duration);
         var editingTarget = !_player.IsPlaying && _tool == "zoom" ? _project.Zooms.FirstOrDefault(item => item.Id == _selectedZoom) : null;
-        if (editingTarget is not null) zoom = editingTarget;
-        var scale = zoom is { Scale: > 1.01 } ? CanvasLayout.ZoomScaleAt(zoom, _player.Time) : 1;
-        var (fx, fy) = zoom is { Scale: > 1.01 } ? CanvasLayout.ZoomFocusAt(zoom, _player.Time) : (0.5, 0.5);
-        if (editingTarget is not null) { scale = editingTarget.Scale; fx = editingTarget.FocusX; fy = editingTarget.FocusY; }
+        var pose = _cursorTimeline?.Motion.At(_player.Time) ?? ZoomPose.Rest;
+        var scale = pose.Scale;
+        var (fx, fy) = (pose.X, pose.Y);
+        if (editingTarget is not null)
+        {
+            var target = editingTarget.Origin == "automatic" ? _cursorTimeline!.Motion.TargetAt(editingTarget, _player.Time)
+                : new ZoomPose(editingTarget.Scale, editingTarget.FocusX, editingTarget.FocusY);
+            scale = target.Scale; fx = target.X; fy = target.Y;
+            if (editingTarget.Origin == "automatic" && _zoomFocusSliders is { } controls
+                && !controls.X.IsMouseCaptureWithin && !controls.Y.IsMouseCaptureWithin
+                && !controls.X.IsKeyboardFocusWithin && !controls.Y.IsKeyboardFocusWithin)
+            {
+                var wasLocked = _lock;
+                _lock = true;
+                controls.X.Value = fx; controls.Y.Value = fy;
+                _lock = wasLocked;
+            }
+        }
         SourceEffects.RenderTransformOrigin = new Point(fx, fy);
 
         SourceEffects.RenderTransform = scale > 1.001 ? new ScaleTransform(scale, scale) : Transform.Identity;
@@ -1281,6 +1344,7 @@ public partial class EditorWindow : Window
         var px = Math.Clamp(unprojected.X, 0, 1);
         var py = Math.Clamp(unprojected.Y, 0, 1);
         var divisor = 1 - 1 / zoom.Scale;
+        zoom.Origin = "manual";
         zoom.FocusX = divisor < 0.02 ? 0.5 : Math.Clamp((px - 0.5 / zoom.Scale) / divisor, 0, 1);
         zoom.FocusY = divisor < 0.02 ? 0.5 : Math.Clamp((py - 0.5 / zoom.Scale) / divisor, 0, 1);
         Commit();
