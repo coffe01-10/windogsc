@@ -34,28 +34,30 @@ public partial class EditorWindow : Window
     {
         InitializeComponent();
         InitializeRegionEditor();
+        InitializeOverlayEditor();
         _saveTimer.Tick += (_, _) => FlushPendingSave();
         Loaded += (_, _) => WindowPlacement.KeepInWorkArea(this, center: true);
-        Closing += (_, _) => { CancelRegionEditing(); FlushPendingSave(); };
+        Closing += (_, _) => { CancelOverlayGesture(); CancelRegionEditing(); FlushPendingSave(); };
         SetToolContent(ToolLayout, IconKind.Layout, "画面");
         SetToolContent(ToolZoom, IconKind.Zoom, "缩放");
         SetToolContent(ToolEffects, IconKind.Region, "效果");
         SetToolContent(ToolAudio, IconKind.Speaker, "声音");
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/AppIconMaster.png"));
         FrameRect.Fill = new DrawingBrush { Drawing = _player.ScreenDrawing, Stretch = Stretch.Fill };
-        CameraBubble.Fill = new DrawingBrush { Drawing = _player.CameraDrawing, Stretch = Stretch.UniformToFill };
+        CameraBubble.Fill = new DrawingBrush { Drawing = _player.CameraDrawing, Stretch = Stretch.Fill };
         CameraBubble.Stroke = Brushes.White;
         foreach (var speed in new[] { 0.5, 0.75, 1d, 1.25, 1.5, 2d, 4, 8, 16, 32, 64, 100 })
         {
             SpeedBox.Items.Add(speed.ToString("0.##", CultureInfo.InvariantCulture) + "×");
         }
 
+        _player.MediaGeometryChanged += () => Dispatcher.Invoke(() => { _cameraMaskAspect ??= CameraSourceAspect; LayoutPreview(); });
         _player.Changed += () => Dispatcher.Invoke(SyncPlayback);
         _player.Failed += message => Dispatcher.Invoke(() => TimeLabel.Text = "预览失败：" + message);
         Timeline.SeekRequested += (_, time) => _player.Seek(time, _player.IsPlaying);
         Timeline.InteractionStarted += (_, _) => { if (_player.IsPlaying) _player.Pause(); };
-        Timeline.ClipSelected += (_, id) => { CancelRegionEditing(); _selectedClip = id; _selectedZoom = null; _selectedDecoration = null; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
-        Timeline.ZoomSelected += (_, id) => { CancelRegionEditing(); _selectedZoom = id; _selectedClip = null; _selectedDecoration = null; _tool = "zoom"; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
+        Timeline.ClipSelected += (_, id) => { _cameraSelected = false; CancelOverlayGesture(); CancelRegionEditing(); _selectedClip = id; _selectedZoom = null; _selectedDecoration = null; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
+        Timeline.ZoomSelected += (_, id) => { CancelOverlayGesture(); CancelRegionEditing(); _selectedZoom = id; _selectedClip = null; _selectedDecoration = null; _tool = "zoom"; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
         Timeline.DecorationSelected += (_, id) => SelectDecoration(id);
         Timeline.TrimFinished += (_, trim) =>
         {
@@ -221,6 +223,11 @@ public partial class EditorWindow : Window
 
     void BuildLayoutInspector()
     {
+        if (_cameraSelected)
+        {
+            Inspector.Children.Add(DecorationButton("返回画面设置", () => { _cameraSelected = false; RebuildInspector(); ApplyZoomVisual(); }));
+            BuildCameraInspector(); return;
+        }
         Inspector.Children.Add(Heading("画面"));
         var presets = new StackPanel { Orientation = Orientation.Horizontal };
         AddPreset(presets, "干净", 0, 0, 0, "#F7F4EE");
@@ -363,57 +370,66 @@ public partial class EditorWindow : Window
         }
 
 
-        // —— 摄像头画中画 ——
-        if (_project.HasCamera)
+        if (_project.HasCamera) BuildCameraInspector();
+    }
+
+    void BuildCameraInspector()
+    {
+        Inspector.Children.Add(Heading("画中画"));
+        BuildCameraDetails();
+        BuildCameraContentControls();
+        Inspector.Children.Add(Caption("形状"));
+        var shapes = new WrapPanel();
+        foreach (var (name, key) in new[] { ("圆形", "circle"), ("方形", "square"), ("横向", "horizontal"), ("纵向", "vertical"), ("原比例", "original"), ("直角", "none") })
         {
-            Inspector.Children.Add(Heading("画中画"));
-            BuildCameraDetails();
-            Inspector.Children.Add(Caption("形状"));
-            var shapes = new StackPanel { Orientation = Orientation.Horizontal };
-            foreach (var (name, key) in new[] { ("圆形", "circle"), ("圆角", "square"), ("无边框", "none") })
-            {
-                var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 0) };
-                chip.Click += (_, _) => { Push(); _project.Camera.Shape = (string)chip.Tag; Commit(); };
-                shapes.Children.Add(chip);
-            }
-
-            Inspector.Children.Add(shapes);
-            Inspector.Children.Add(Caption("大小"));
-            Inspector.Children.Add(Slider(0.08, 0.46, _project.Camera.Size, value => _project.Camera.Size = value));
-            if (_project.Camera.Shape == "square")
-            {
-                Inspector.Children.Add(Caption("圆角"));
-                Inspector.Children.Add(Slider(0, 0.5, _project.Camera.Corner, value => _project.Camera.Corner = value));
-            }
-
-            Inspector.Children.Add(Caption("位置预设"));
-            var grid = new WrapPanel();
-            foreach (var (cx, cy) in new[] { (0.12, 0.15), (0.5, 0.15), (0.88, 0.15), (0.12, 0.5), (0.5, 0.5), (0.88, 0.5), (0.12, 0.85), (0.5, 0.85), (0.88, 0.85) })
-            {
-                var cell = new Button { Content = "·", Width = 26, Height = 26, Tag = (cx, cy), Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
-                cell.Click += (_, _) =>
-                {
-                    Push();
-                    var (x, y) = ((double, double))cell.Tag;
-                    _project.Camera.CenterX = x;
-                    _project.Camera.CenterY = y;
-                    Commit();
-                };
-                grid.Children.Add(cell);
-            }
-
-            Inspector.Children.Add(grid);
-            Inspector.Children.Add(Caption("进出动画"));
-            var entries = new StackPanel { Orientation = Orientation.Horizontal };
-            foreach (var (name, key) in new[] { ("无", "none"), ("淡入", "fade"), ("滑入", "rise") })
-            {
-                var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 0) };
-                chip.Click += (_, _) => { Push(); _project.Camera.Entry = (string)chip.Tag; Commit(); };
-                entries.Children.Add(chip);
-            }
-
-            Inspector.Children.Add(entries);
+            var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 0) };
+            chip.Click += (_, _) => { Push(); _project.Camera.Shape = (string)chip.Tag; Commit(); };
+            chip.Background = (Brush)FindResource(key == _project.Camera.Shape ? "AccentBrush" : "WellBrush");
+            chip.Foreground = (Brush)FindResource(key == _project.Camera.Shape ? "OnAccentBrush" : "InkBrush");
+            shapes.Children.Add(chip);
         }
+
+        Inspector.Children.Add(shapes);
+        Inspector.Children.Add(Caption("大小"));
+        Inspector.Children.Add(Slider(0.08, 0.46, _project.Camera.Size, value => _project.Camera.Size = value));
+        if (_project.Camera.Shape != "circle" && _project.Camera.Shape != "none")
+        {
+            Inspector.Children.Add(Caption("圆角"));
+            Inspector.Children.Add(Slider(0, 0.5, _project.Camera.Corner, value => _project.Camera.Corner = value));
+        }
+
+        Inspector.Children.Add(Caption("位置预设"));
+        var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Width = 108, HorizontalAlignment = HorizontalAlignment.Left };
+        foreach (var (cx, cy, glyph, label) in new[] { (.12, .15, "↖", "左上"), (.5, .15, "↑", "上方居中"), (.88, .15, "↗", "右上"),
+            (.12, .5, "←", "左侧居中"), (.5, .5, "•", "居中"), (.88, .5, "→", "右侧居中"),
+            (.12, .85, "↙", "左下"), (.5, .85, "↓", "下方居中"), (.88, .85, "↘", "右下") })
+        {
+            var cell = new Button { Content = glyph, ToolTip = label, Padding = new Thickness(0), Width = 30, Height = 30, Tag = (cx, cy), Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
+            System.Windows.Automation.AutomationProperties.SetName(cell, "摄像头位置：" + label);
+            cell.Click += (_, _) =>
+            {
+                Push();
+                var (x, y) = ((double, double))cell.Tag;
+                _project.Camera.CenterX = x;
+                _project.Camera.CenterY = y;
+                Commit();
+            };
+            grid.Children.Add(cell);
+        }
+
+        Inspector.Children.Add(grid);
+        Inspector.Children.Add(Caption("进出动画"));
+        var entries = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var (name, key) in new[] { ("无", "none"), ("淡入", "fade"), ("滑入", "rise") })
+        {
+            var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 0) };
+            chip.Click += (_, _) => { Push(); _project.Camera.Entry = (string)chip.Tag; Commit(); };
+            chip.Background = (Brush)FindResource(key == _project.Camera.Entry ? "AccentBrush" : "WellBrush");
+            chip.Foreground = (Brush)FindResource(key == _project.Camera.Entry ? "OnAccentBrush" : "InkBrush");
+            entries.Children.Add(chip);
+        }
+
+        Inspector.Children.Add(entries);
     }
 
     /// <summary>选图后拷进项目 media/decor/ 并写入相对路径，保证项目可搬移。</summary>
@@ -672,24 +688,14 @@ public partial class EditorWindow : Window
 
         if (_project.HasCamera && !_project.Camera.Hidden)
         {
-            var bubble = CanvasLayout.Bubble(outputWidth, outputHeight, _project.Camera);
-            var size = bubble.Size * frameScale;
+            var bubble = CanvasLayout.Bubble(outputWidth, outputHeight, _project.Camera, _cameraMaskAspect ?? CameraSourceAspect);
             CameraBubble.Visibility = Visibility.Visible;
-            CameraBubble.Width = size;
-            CameraBubble.Height = size;
-            Canvas.SetLeft(CameraBubble, bubble.X * frameScale);
-            Canvas.SetTop(CameraBubble, bubble.Y * frameScale);
-            // 形状：circle=圆，square=圆角矩形，none=直角。
-            var camRadius = _project.Camera.Shape switch
-            {
-                "square" => size * Math.Clamp(_project.Camera.Corner, 0, 0.5),
-                "none" => 0,
-                _ => size / 2,
-            };
-            CameraBubble.RadiusX = camRadius;
-            CameraBubble.RadiusY = camRadius;
-            if (CameraBubble.Fill is DrawingBrush cameraBrush)
-                cameraBrush.RelativeTransform = _project.Camera.Mirrored ? new ScaleTransform(-1, 1, 0.5, 0.5) : Transform.Identity;
+            CameraBubble.Width = bubble.Width * frameScale; CameraBubble.Height = bubble.Height * frameScale;
+            Canvas.SetLeft(CameraBubble, bubble.X * frameScale); Canvas.SetTop(CameraBubble, bubble.Y * frameScale);
+            var side = Math.Min(CameraBubble.Width, CameraBubble.Height);
+            var camRadius = _project.Camera.Shape == "circle" ? side / 2 : _project.Camera.Shape == "none" ? 0 : side * _project.Camera.Corner;
+            CameraBubble.RadiusX = CameraBubble.RadiusY = camRadius;
+            UpdateCameraContent();
         }
         else
         {
@@ -745,6 +751,7 @@ public partial class EditorWindow : Window
         RegionEditor.Width = PreviewCanvas.Width; RegionEditor.Height = PreviewCanvas.Height;
         RegionEditor.Visibility = EditingRegions ? Visibility.Visible : Visibility.Collapsed;
         RegionEditor.InvalidateVisual();
+        UpdateOverlayEditor();
     }
 
     /// <summary>画中画进出场预览：按播放头相对片段首尾的进度做透明度/位移。</summary>
@@ -763,6 +770,7 @@ public partial class EditorWindow : Window
             CameraBubble.Opacity = 0;
             return;
         }
+        if (!_player.IsPlaying && _tool == "layout") { CameraBubble.Opacity = 1; CameraBubble.RenderTransform = Transform.Identity; return; }
         var anim = 0.5;
         double opacity = 1, rise = 0;
         if (clip is not null && entry is "fade" or "rise")
@@ -858,13 +866,13 @@ public partial class EditorWindow : Window
                 image.Source = bitmap; image.Tag = path;
             }
             var aspect = image.Source is BitmapSource bmp ? bmp.PixelWidth / (double)bmp.PixelHeight : 1;
-            var w = (Math.Max(4, (int)Math.Round(sticker.Width * outputWidth)) & ~1);
-            var h = (Math.Max(4, (int)Math.Round(w / Math.Max(.1, aspect))) & ~1);
+            var box = CanvasLayout.Sticker(outputWidth, outputHeight, sticker, aspect);
             var scale = viewWidth / outputWidth;
-            image.Width = w * scale; image.Height = h * scale;
+            image.Width = CanvasLayout.Even((int)Math.Round(box.Width)) * scale;
+            image.Height = CanvasLayout.Even((int)Math.Round(box.Height)) * scale;
             image.RenderTransformOrigin = new Point(.5, .5); image.RenderTransform = new RotateTransform(sticker.Rotation);
-            Canvas.SetLeft(image, Math.Clamp(Math.Round(sticker.X * outputWidth - w / 2.0), 0, Math.Max(0, outputWidth - w)) * scale);
-            Canvas.SetTop(image, Math.Clamp(Math.Round(sticker.Y * outputHeight - h / 2.0), 0, Math.Max(0, outputHeight - h)) * scale);
+            Canvas.SetLeft(image, box.X * scale - image.Width / 2);
+            Canvas.SetTop(image, box.Y * scale - image.Height / 2);
         }
     }
 
@@ -976,12 +984,12 @@ public partial class EditorWindow : Window
 
     void Restore(string json)
     {
-        CancelRegionEditing();
-        var previousRegions = _project.Canvas.SoftRegions.Select(r => r.Id).ToHashSet();
+        CancelOverlayGesture(); CancelRegionEditing();
+        var previousRegions = _project.Canvas.SoftRegions.Select(r => r.Id).Concat(_project.Canvas.Stickers.Select(r => r.Id)).ToHashSet();
         _project = JsonSerializer.Deserialize<ProjectDocument>(json, ProjectSchema.Json) ?? _project;
         ProjectFile.Normalize(_project);
         _selectedDecoration = DecorationTiming(_selectedDecoration ?? "") is not null ? _selectedDecoration : null;
-        _selectedDecoration ??= _project.Canvas.SoftRegions.LastOrDefault(r => !previousRegions.Contains(r.Id))?.Id;
+        _selectedDecoration ??= _project.Canvas.SoftRegions.Select(r => r.Id).Concat(_project.Canvas.Stickers.Select(r => r.Id)).LastOrDefault(id => !previousRegions.Contains(id));
         _selectedZoom = _project.Zooms.FirstOrDefault(item => item.Id == _selectedZoom)?.Id;
         _selectedClip = _selectedDecoration is null && _selectedZoom is null
             ? _project.Clips.FirstOrDefault(item => item.Id == _selectedClip)?.Id ?? _project.Clips.FirstOrDefault()?.Id
@@ -993,8 +1001,9 @@ public partial class EditorWindow : Window
     void Tool_Click(object sender, RoutedEventArgs e)
     {
         var tool = (string)((Button)sender).Tag;
-        if (tool == _tool) return;
-        CancelRegionEditing();
+        if (tool == _tool && !_cameraSelected) return;
+        _cameraSelected = false;
+        CancelOverlayGesture(); CancelRegionEditing();
         _tool = tool;
         if (tool == "effects") _player.Pause();
         RebuildInspector();
@@ -1200,7 +1209,7 @@ public partial class EditorWindow : Window
         Commit(rebuild: false);
     }
 
-    void Play_Click(object sender, RoutedEventArgs e) { CancelRegionEditing(); RebuildInspector(); _player.Toggle(); }
+    void Play_Click(object sender, RoutedEventArgs e) { CancelOverlayGesture(); CancelRegionEditing(); RebuildInspector(); _player.Toggle(); }
 
     void SkipStart_Click(object sender, RoutedEventArgs e) => _player.Seek(0, play: false);
 
@@ -1218,6 +1227,7 @@ public partial class EditorWindow : Window
 
     void Frame_Down(object sender, MouseButtonEventArgs e)
     {
+        if (_cameraSelected) { _cameraSelected = false; RebuildInspector(); ApplyZoomVisual(); }
         if (_tool == "zoom" && _selectedZoom is not null)
         {
             SetZoomFocus(e.GetPosition(FrameHost));
@@ -1257,42 +1267,6 @@ public partial class EditorWindow : Window
         FrameHost.ReleaseMouseCapture();
     }
 
-    void Camera_Down(object sender, MouseButtonEventArgs e)
-    {
-        _dragTarget = "camera";
-        _dragOrigin = e.GetPosition(PreviewCanvas);
-        _dragX = _project.Camera.CenterX;
-        _dragY = _project.Camera.CenterY;
-        _dragUndo = false;
-        CameraBubble.CaptureMouse();
-        e.Handled = true;
-    }
-
-    void Camera_Move(object sender, MouseEventArgs e)
-    {
-        if (_dragTarget != "camera" || e.LeftButton != MouseButtonState.Pressed)
-        {
-            return;
-        }
-
-        if (!_dragUndo)
-        {
-            Push();
-            _dragUndo = true;
-        }
-
-        var delta = e.GetPosition(PreviewCanvas) - _dragOrigin;
-        _project.Camera.CenterX = Math.Clamp(_dragX + delta.X / PreviewCanvas.Width, 0, 1);
-        _project.Camera.CenterY = Math.Clamp(_dragY + delta.Y / PreviewCanvas.Height, 0, 1);
-        Commit(rebuild: false);
-    }
-
-    void Camera_Up(object sender, MouseButtonEventArgs e)
-    {
-        _dragTarget = null;
-        CameraBubble.ReleaseMouseCapture();
-    }
-
     void SetZoomFocus(Point point)
     {
         var zoom = _project.Zooms.FirstOrDefault(item => item.Id == _selectedZoom);
@@ -1321,6 +1295,7 @@ public partial class EditorWindow : Window
         }
 
         var modifiers = Keyboard.Modifiers;
+        if (OverlayKey(e.Key, modifiers)) { e.Handled = true; return; }
         if (RegionKey(e.Key, modifiers)) { e.Handled = true; return; }
         if (modifiers == ModifierKeys.Control && e.Key == Key.C)
         {

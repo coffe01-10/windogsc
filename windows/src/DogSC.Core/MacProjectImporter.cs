@@ -224,17 +224,19 @@ public static class MacProjectImporter
         }
 
         project.Camera.Size = Num(c, "size", 0.29);
-        // macOS CameraShape：方形/横向/纵向/原始比例/圆形 → Windows circle/square/none。
+        // Preserve the macOS mask ratio and independent content framing.
         var shape = Text(c, "shape");
-        project.Camera.Shape = shape is "圆形" or "circle" ? "circle"
-            : shape is "方形" or "横向" or "纵向" or "square" or "horizontal" or "vertical" ? "square"
-            : "none";
+        project.Camera.Shape = shape switch { "圆形" or "circle" => "circle", "横向" or "horizontal" or "圆角矩形" => "horizontal",
+            "纵向" or "vertical" => "vertical", "原始比例" or "original" => "original", "方形" or "square" or "连续圆角" => "square", _ => "none" };
+        project.Camera.ContentScale = Num(c, "contentScale", 1);
+        if (Obj(c, "contentPosition") is { } content)
+        { project.Camera.ContentX = Num(content, "x", .5); project.Camera.ContentY = Num(content, "y", .5); }
         project.Camera.Hidden = c.TryGetProperty("isHidden", out var h) && h.ValueKind == JsonValueKind.True;
         project.Camera.Mirrored = c.TryGetProperty("isMirrored", out var mirrored) && mirrored.ValueKind == JsonValueKind.True;
-        project.Camera.Corner = Num(c, "roundness", 0.18);
+        project.Camera.Corner = .5 * Num(c, "roundness", .36);
 
         foreach (var key in new[] { "borderWidth", "scaleDuringZoom",
-                     "contentPosition", "contentScale", "shadowStrength" })
+                     "shadowStrength" })
         {
             if (c.TryGetProperty(key, out _))
             {

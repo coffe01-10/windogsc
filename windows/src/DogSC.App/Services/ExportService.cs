@@ -17,6 +17,9 @@ public sealed class ExportService
     public async Task<string> ExportAsync(ProjectDocument project, string projectDirectory, ExportOptions options, string outputPath, CancellationToken cancellation)
     {
         var resolved = Resolve(project, projectDirectory);
+        if (project.Camera.Shape == "original" && project.Clips.Select(c => resolved.Cameras.GetValueOrDefault(c.AssetId)).FirstOrDefault(path => path is not null) is { } cameraPath
+            && FfmpegTools.LocateFfprobe(_ffmpeg) is { } probe && await FfmpegTools.Probe(probe, cameraPath) is { } info)
+            resolved.CameraAspect = info.Width / (double)info.Height;
         var temp = Path.Combine(Path.GetTempPath(), "DogSC", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temp);
         var partial = Path.Combine(Path.GetDirectoryName(outputPath)!, ".DogSC-" + Guid.NewGuid().ToString("N") + Path.GetExtension(outputPath));
@@ -47,8 +50,8 @@ public sealed class ExportService
                 var mask = Path.Combine(temp, "camera.bmp");
                 // 形状：circle=圆形 mask；square=圆角矩形；none=直角矩形（radius=0）。
                 var circle = plan.CameraShape == "circle";
-                var radius = plan.CameraShape == "square" ? plan.CameraCorner : 0;
-                MaskImage.WriteBmp(mask, plan.Bubble.Size, plan.Bubble.Size, radius, circle);
+                var radius = plan.CameraShape != "circle" && plan.CameraShape != "none" ? plan.CameraCorner : 0;
+                MaskImage.WriteBmp(mask, plan.Bubble.Width, plan.Bubble.Height, radius, circle);
                 plan.Inputs[plan.CameraMaskIndex] = mask;
             }
 

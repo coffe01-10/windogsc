@@ -71,11 +71,12 @@
                           </Grid>
                           <Viewport3D x:Name="ScreenPerspective" Visibility="Collapsed" IsHitTestVisible="False"/>
                         </Canvas>
-                        <Rectangle x:Name="CameraBubble" Visibility="Collapsed" Cursor="SizeAll" StrokeThickness="2" MouseLeftButtonDown="Camera_Down" MouseMove="Camera_Move" MouseLeftButtonUp="Camera_Up"/>
+                        <Rectangle x:Name="CameraBubble" Visibility="Collapsed" IsHitTestVisible="False" StrokeThickness="2"/>
                         </Canvas>
                         </Grid>
                         <Canvas x:Name="StickerLayers" IsHitTestVisible="False"/>
                         <local:RegionEditSurface x:Name="RegionEditor" Visibility="Collapsed"/>
+                        <local:RegionEditSurface x:Name="OverlayEditor" Visibility="Collapsed"/>
                     </Canvas>
                 </Grid>
             </Grid>

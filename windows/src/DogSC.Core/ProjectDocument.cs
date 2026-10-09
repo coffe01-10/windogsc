@@ -215,12 +215,15 @@ public sealed class CameraBubble
     public double CenterX { get; set; } = 0.84;
     public double CenterY { get; set; } = 0.78;
     public double Size { get; set; } = 0.2;
-    /// <summary>形状：circle=圆形，square=圆角方形，none=直角无边框。</summary>
+    /// <summary>形状：circle / square / horizontal / vertical / original / none（直角方形）。</summary>
     public string Shape { get; set; } = "circle";
     /// <summary>进出动画：none / fade / rise。fade=淡入淡出，rise=淡入+底部滑入。</summary>
     public string Entry { get; set; } = "none";
     /// <summary>方形圆角半径比例 0..1（相对边长）。</summary>
     public double Corner { get; set; } = 0.18;
+    public double ContentScale { get; set; } = 1;
+    public double ContentX { get; set; } = .5;
+    public double ContentY { get; set; } = .5;
     public bool Hidden { get; set; }
     public bool Mirrored { get; set; }
     /// <summary>摄像头画面相对原始素材提前的秒数。</summary>
@@ -347,7 +350,10 @@ public static class ProjectFile
         project.Camera.Size = Math.Clamp(project.Camera.Size, 0.08, 0.46);
         project.Camera.CenterX = Math.Clamp(project.Camera.CenterX, 0, 1);
         project.Camera.CenterY = Math.Clamp(project.Camera.CenterY, 0, 1);
-        project.Camera.Shape = project.Camera.Shape is "square" or "none" ? project.Camera.Shape : "circle";
+        project.Camera.Shape = project.Camera.Shape is "square" or "none" or "horizontal" or "vertical" or "original" ? project.Camera.Shape : "circle";
+        project.Camera.ContentScale = Math.Clamp(project.Camera.ContentScale, 1, 4);
+        project.Camera.ContentX = Math.Clamp(project.Camera.ContentX, 0, 1);
+        project.Camera.ContentY = Math.Clamp(project.Camera.ContentY, 0, 1);
         project.Camera.Entry = project.Camera.Entry is "fade" or "rise" ? project.Camera.Entry : "none";
         project.Camera.Corner = Math.Clamp(project.Camera.Corner, 0, 0.5);
         project.MicrophoneGain = Math.Clamp(project.MicrophoneGain, 0, ProjectDocument.MaxGain);

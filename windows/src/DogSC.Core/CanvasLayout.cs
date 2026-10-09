@@ -10,7 +10,11 @@ public readonly record struct FramePlacement(
     int ShadowOffset,
     double ShadowAlpha);
 
-public readonly record struct BubblePlacement(int X, int Y, int Size);
+public readonly record struct BubblePlacement(int X, int Y, int Size)
+{
+    public int Height { get; init; } = Size;
+    public int Width => Size;
+}
 
 public static class CanvasLayout
 {
@@ -111,12 +115,23 @@ public static class CanvasLayout
         return (Math.Min(width - w, (int)Math.Round(width * crop.X)) & ~1, Math.Min(height - h, (int)Math.Round(height * crop.Y)) & ~1, w, h);
     }
 
-    public static BubblePlacement Bubble(int canvasWidth, int canvasHeight, CameraBubble camera)
+    public static BubblePlacement Bubble(int canvasWidth, int canvasHeight, CameraBubble camera, double sourceAspect = 16d / 9)
     {
-        var size = Even((int)Math.Round(canvasWidth * Math.Clamp(camera.Size, 0.08, 0.46)));
-        var x = (int)Math.Round(Math.Clamp(camera.CenterX, 0, 1) * canvasWidth - size / 2.0);
-        var y = (int)Math.Round(Math.Clamp(camera.CenterY, 0, 1) * canvasHeight - size / 2.0);
-        return new BubblePlacement(x, y, size);
+        var aspect = camera.Shape switch { "horizontal" => 1.5, "vertical" => .72, "original" => sourceAspect, _ => 1 };
+        var width = Even((int)Math.Round(canvasWidth * Math.Clamp(camera.Size, .08, .46)));
+        var height = Even((int)Math.Round(width / aspect));
+        var fit = Math.Min(1, Math.Min(canvasWidth / (double)width, canvasHeight / (double)height));
+        width = Even((int)(width * fit)); height = Even((int)(height * fit));
+        var x = (int)Math.Round(Math.Clamp(camera.CenterX * canvasWidth - width / 2d, 0, canvasWidth - width));
+        var y = (int)Math.Round(Math.Clamp(camera.CenterY * canvasHeight - height / 2d, 0, canvasHeight - height));
+        return new BubblePlacement(x, y, width) { Height = height };
+    }
+
+    public static OverlayBox Sticker(int canvasWidth, int canvasHeight, StickerImage sticker, double aspect)
+    {
+        var w = Math.Max(4, (int)Math.Round(sticker.Width * canvasWidth)) & ~1;
+        var h = Math.Max(4, (int)Math.Round(w / Math.Max(.1, aspect))) & ~1;
+        return new OverlayBox(sticker.X * canvasWidth, sticker.Y * canvasHeight, w, h, sticker.Rotation).Fit(canvasWidth, canvasHeight);
     }
 
     /// <summary>开场动画时长（秒）。</summary>

@@ -50,6 +50,10 @@ Windows 桌面版。录制屏幕、剪一段、导出 MP4。界面和流程对�
 
 录制条松手吸附、横竖排列切换与收起展开使用减速过渡，按钮和文字稍后淡入，展开箭头平滑转向；中途拖动或反向切换会从当前尺寸接续。窗口随内容同步调整，过渡期间也限制在屏幕工作区内。菜单与编辑器属性面板切换使用淡入；关闭 Windows 的界面动画后，这些过渡也会关闭。Windows 版不检查 macOS 发布版本，也不显示相关更新提示。
 
+贴图可直接在预览中拖动，按原比例拖边角缩放，并用顶部手柄旋转；Shift 旋转吸附 15°，Alt + 点击切换重叠图层，Tab 切换贴图。方向键移动 1 个成片像素，Shift + 方向键移动 10 个像素。小贴图的手柄在外围，中心仍能拖动；拖动按画布边缘和中线吸附，旋转后的四角也保持可见。
+
+点选摄像头显示画中画设置，外框支持直接移动和边角缩放，提供方形、横向、纵向、原比例和圆形蒙版。勾选“调整内部画面”后，拖动画面改变构图，内部放大不会改变外框；构图位置按镜像后的视觉方向解释，预览与导出保持一致。
+
 ## 运行
 
 需要 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) 和 [ffmpeg](https://www.gyan.dev/ffmpeg/builds/)（含 ffprobe）。ffmpeg 要在 PATH 里，或在应用设置中指定 `ffmpeg.exe`；把 `ffmpeg.exe` / `ffprobe.exe` 放到应用目录下也能被自动找到（`FfmpegTools.Candidates` 会查 `AppContext.BaseDirectory` 与 `DOGSC_FFMPEG` 环境变量）。

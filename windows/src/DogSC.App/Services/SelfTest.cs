@@ -235,6 +235,25 @@ public static class SelfTest
         if (await Pixel(.7, .2, .2, layered) < 220 || await Pixel(.7, .2, .2, layered, 2) > 40)
             throw new InvalidOperationException("贴图图层顺序没有反映到成片。");
         Console.WriteLine("SELFTEST_OK multiple-stickers/rotation/blur/spotlight/source-crop-zoom/independent-transitions");
+        var cameraPath = Path.Combine(root, "media", "camera-bands.mp4");
+        using (var generateCamera = FfmpegProcess.Start(ffmpeg, ["-y", "-f", "lavfi", "-i",
+            "color=red:s=640x360:r=30:d=2,drawbox=x=320:y=0:w=320:h=360:c=blue:t=fill",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", cameraPath]))
+            if (await generateCamera.WaitAsync() != 0) throw new InvalidOperationException(generateCamera.ErrorText());
+        asset.Camera = "media/camera-bands.mp4";
+        project.Canvas = new() { Padding = 0, Corner = 0, Shadow = 0, Cursor = new() { Mode = "hidden" } };
+        project.Zooms.Clear();
+        project.Camera = new() { Shape = "horizontal", CenterX = .5, CenterY = .5, Size = .4, ContentScale = 2, ContentX = 1, Mirrored = true, Corner = .2 };
+        var cameraOut = Path.Combine(root, "camera-content.mp4");
+        await new ExportService(ffmpeg).ExportAsync(project, root, new(), cameraOut, CancellationToken.None);
+        if (await Pixel(.5, .5, .5, cameraOut, 2) < 220 || await Pixel(.5, .5, .5, cameraOut, 0) > 40
+            || await Pixel(.5, .5, .8, cameraOut, 0) < 235)
+            throw new InvalidOperationException("横向摄像头内部构图、镜像方向或外框裁切异常。");
+        project.Camera.Shape = "original"; project.Camera.ContentX = 0;
+        await new ExportService(ffmpeg).ExportAsync(project, root, new(), cameraOut, CancellationToken.None);
+        if (await Pixel(.5, .5, .5, cameraOut, 0) < 220 || await Pixel(.5, .5, .5, cameraOut, 2) > 40)
+            throw new InvalidOperationException("原比例摄像头构图位置没有反映到成片。");
+        Console.WriteLine("SELFTEST_OK camera-aspect/content-zoom/visual-focus/mirrored-crop");
     }
 
     static async Task CheckMacImportAsync(string ffmpeg, string ffprobe, string root, string source)

@@ -12,7 +12,7 @@ public partial class EditorWindow
 
     void SelectDecoration(string id, bool rebuild = true)
     {
-        CancelRegionEditing();
+        CancelOverlayGesture(); _cameraSelected = false; CancelRegionEditing();
         _player.Pause();
         _selectedDecoration = id; _selectedClip = null; _selectedZoom = null; _tool = "effects";
         _expandedDetails.Add("贴图、柔化与聚光");
@@ -70,7 +70,8 @@ public partial class EditorWindow
         list.DropDownClosed += (_, _) =>
         {
             if (!selectionPending) return;
-            selectionPending = false; RebuildInspector(); RegionEditor.Focus();
+            selectionPending = false; RebuildInspector();
+            if (_project.Canvas.Stickers.Any(s => s.Id == _selectedDecoration)) OverlayEditor.Focus(); else RegionEditor.Focus();
         };
         if (list.Items.Count > 0) section.Children.Add(list);
         var sticker = _project.Canvas.Stickers.FirstOrDefault(x => x.Id == _selectedDecoration);
@@ -99,6 +100,10 @@ public partial class EditorWindow
         { section.Children.Add(Caption(title)); section.Children.Add(Slider(min, max, value, assign, refresh)); }
         if (sticker is not null)
         {
+            section.Children.Add(Caption("拖动摆放 · 边角缩放 · 顶部手柄旋转"));
+            var tips = Caption("Alt + 点击切换重叠图层；Tab 切图层。");
+            tips.ToolTip = "旋转时按住 Shift 吸附 15°；方向键移动 1 像素，Shift + 方向键移动 10 像素。"; section.Children.Add(tips);
+            BuildStickerNumbers(section, sticker);
             Control("宽度", .02, 1, sticker.Width, x => sticker.Width = x);
             Control("旋转角度", -180, 180, sticker.Rotation, x => sticker.Rotation = x);
             Control("不透明度", 0, 1, sticker.Opacity, x => sticker.Opacity = x);

@@ -26,6 +26,7 @@ public sealed class ResolvedMedia
     /// <summary>贴图原始宽高比（宽/高），解析不出来就 1。</summary>
     public double StickerAspect { get; init; } = 1;
     public IReadOnlyDictionary<string, ResolvedSticker> Stickers { get; init; } = new Dictionary<string, ResolvedSticker>();
+    public double CameraAspect { get; set; } = 16d / 9;
     public string CursorCommands { get; set; } = "cursor.commands";
 }
 
@@ -86,7 +87,7 @@ public static class ExportGraph
         var fps = options.Fps is 60 ? 60 : 30;
         var (canvasWidth, canvasHeight) = CanvasLayout.OutputSize(project.Width, project.Height, project.Canvas.Aspect, options.Resolution);
         var placement = CanvasLayout.Place(canvasWidth, canvasHeight, project.Width, project.Height, project.Canvas);
-        var bubble = CanvasLayout.Bubble(canvasWidth, canvasHeight, project.Camera);
+        var bubble = CanvasLayout.Bubble(canvasWidth, canvasHeight, project.Camera, media.CameraAspect);
         var inputs = new List<string>();
         var videoIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var micIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -155,7 +156,7 @@ public static class ExportGraph
                 {
                     var cameraLabel = "c" + index;
                     script.Append('[').Append(cameraIndex[slice.CameraPath]).Append(":v]")
-                        .Append(CameraChain(slice, bubble.Size, fps, project.Camera))
+                        .Append(CameraChain(slice, bubble.Width, bubble.Height, fps, project.Camera))
                         .Append('[').Append(cameraLabel).AppendLine("]");
                     cameraSlices.Add((index, cameraLabel, slice.TimelineStart, slice.TimelineStart + slice.TimelineDuration));
                 }
@@ -350,7 +351,7 @@ public static class ExportGraph
                     var next = step == cameraSlices.Count - 1 ? "vfinal" : "cover" + step;
                     // rise：在入场窗口内 y 从下方滑到位。
                     var oy = entry == "rise"
-                        ? F(bubble.Y) + "+(1-min((t-" + F(cam.Start) + ")/" + F(anim) + "\\,1))*" + F(bubble.Size * 0.4)
+                        ? F(bubble.Y) + "+(1-min((t-" + F(cam.Start) + ")/" + F(anim) + "\\,1))*" + F(bubble.Height * 0.4)
                         : bubble.Y.ToString();
                     // 只在该片段的时间窗内叠加画中画，缺摄像头的片段保持背景画面。
                     script.Append('[').Append(cameraUnder).Append("][").Append(src)
@@ -401,11 +402,11 @@ public static class ExportGraph
                 stickerIndex = inputs.Count;
                 inputs.Add(stickerPath);
                 stickerIndices.Add(stickerIndex);
-                var w = Math.Max(4, (int)Math.Round(sticker.Width * canvasWidth)) & ~1;
-                var h = Math.Max(4, (int)Math.Round(w / Math.Max(0.1, resolvedSticker.Aspect))) & ~1;
-                var sx = Math.Clamp((int)Math.Round(sticker.X * canvasWidth - w / 2.0), 0, Math.Max(0, canvasWidth - w));
-                var sy = Math.Clamp((int)Math.Round(sticker.Y * canvasHeight - h / 2.0), 0, Math.Max(0, canvasHeight - h));
-                stickerRect = (sx, sy, w, h);
+                var box = CanvasLayout.Sticker(canvasWidth, canvasHeight, sticker, resolvedSticker.Aspect);
+                var w = CanvasLayout.Even((int)Math.Round(box.Width));
+                var h = CanvasLayout.Even((int)Math.Round(box.Height));
+                var sx = box.X - w / 2; var sy = box.Y - h / 2;
+                stickerRect = ((int)Math.Round(sx), (int)Math.Round(sy), w, h);
                 script.Append('[').Append(stickerIndex).Append(":v]scale=").Append(w).Append(':').Append(h)
                     .Append(",format=rgba,loop=loop=-1:size=1:start=0,trim=duration=")
                     .Append(F(Math.Max(duration, 0.1))).Append(",setpts=PTS-STARTPTS");
@@ -519,7 +520,7 @@ public static class ExportGraph
             StickerRect = stickerRect,
             SoftRect = softRect,
             CameraShape = project.Camera.Shape,
-            CameraCorner = (int)Math.Round(bubble.Size * Math.Clamp(project.Camera.Corner, 0, 0.5)),
+            CameraCorner = (int)Math.Round(Math.Min(bubble.Width, bubble.Height) * Math.Clamp(project.Camera.Corner, 0, 0.5)),
             Bubble = bubble,
         };
     }
@@ -595,7 +596,7 @@ public static class ExportGraph
         return chain.ToString();
     }
 
-    private static string CameraChain(Piece slice, int size, int fps, CameraBubble camera)
+    private static string CameraChain(Piece slice, int width, int height, int fps, CameraBubble camera)
     {
         var chain = new StringBuilder();
         var offset = slice.CameraOffset + camera.TimingAdvance;
@@ -605,9 +606,11 @@ public static class ExportGraph
         chain.Append("trim=start=").Append(F(start))
             .Append(":end=").Append(F(end))
             .Append(",setpts=(PTS-STARTPTS)/").Append(F(slice.Speed))
-            .Append(",scale=").Append(size).Append(':').Append(size)
+            .Append(",scale=").Append(CanvasLayout.Even((int)Math.Ceiling(width * camera.ContentScale))).Append(':').Append(CanvasLayout.Even((int)Math.Ceiling(height * camera.ContentScale)))
             .Append(":force_original_aspect_ratio=increase,crop=")
-            .Append(size).Append(':').Append(size)
+            .Append(width).Append(':').Append(height)
+            .Append(":x=(iw-ow)*").Append(F(camera.Mirrored ? 1 - camera.ContentX : camera.ContentX))
+            .Append(":y=(ih-oh)*").Append(F(camera.ContentY))
             .Append(",setsar=1,fps=").Append(fps).Append(camera.Mirrored ? ",hflip" : "")
             .Append(",format=yuv420p,setpts=PTS+").Append(F(slice.TimelineStart + delay)).Append("/TB");
         return chain.ToString();

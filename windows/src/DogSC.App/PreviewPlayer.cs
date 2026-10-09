@@ -28,7 +28,7 @@ public sealed class PreviewPlayer : IDisposable
         ScreenDrawing = new VideoDrawing { Rect = new Rect(0, 0, 16, 9), Player = _screen };
         CameraDrawing = new VideoDrawing { Rect = new Rect(0, 0, 16, 9), Player = _camera };
         _screen.MediaOpened += (_, _) => OnOpened(_screen, ScreenDrawing, ref _screenPending);
-        _camera.MediaOpened += (_, _) => OnOpened(_camera, CameraDrawing, ref _cameraPending);
+        _camera.MediaOpened += (_, _) => { OnOpened(_camera, CameraDrawing, ref _cameraPending); MediaGeometryChanged?.Invoke(); };
         _microphone.MediaOpened += (_, _) => OnOpened(_microphone, null, ref _microphonePending);
         _system.MediaOpened += (_, _) => OnOpened(_system, null, ref _systemPending);
         _screen.MediaFailed += (_, args) => Failed?.Invoke(args.ErrorException.Message);
@@ -41,6 +41,7 @@ public sealed class PreviewPlayer : IDisposable
     public bool IsPlaying { get; private set; }
     public double Time { get; private set; }
     public event Action? Changed;
+    public event Action? MediaGeometryChanged;
     public event Action<string>? Failed;
 
     public void Open(ProjectDocument project, string directory)

@@ -6,6 +6,7 @@ public sealed class RegionEditSurface : FrameworkElement
     internal Action<DrawingContext>? Paint;
     internal Action<Point>? Down, Move;
     internal Action<bool>? Finish;
+    internal Func<Point, bool>? Hit;
 
     public RegionEditSurface()
     {
@@ -16,6 +17,9 @@ public sealed class RegionEditSurface : FrameworkElement
         MouseLeftButtonUp += (_, e) => { Finish?.Invoke(false); e.Handled = true; };
         LostMouseCapture += (_, _) => Finish?.Invoke(true);
     }
+
+    protected override HitTestResult? HitTestCore(PointHitTestParameters parameters) =>
+        Hit is null || Hit(parameters.HitPoint) ? new PointHitTestResult(this, parameters.HitPoint) : null;
 
     protected override void OnRender(DrawingContext dc)
     {
