@@ -1,104 +1,127 @@
-> [!IMPORTANT]
-> **首次打开提示：** DogSC 目前通过 GitHub 分发，暂不计划在 App Store 付费上架。当前测试版使用 Apple Development 开发签名，尚未采用 Developer ID 分发签名并完成 Apple 公证。
->
-> 下载 DMG 并将 DogSC 拖入「应用程序」后，如果 macOS 阻止打开，可在 **系统设置 → 隐私与安全性 → 仍要打开** 中允许。请确认文件来自本仓库的 [Releases](https://github.com/laogou717/dogsc/releases)，无需关闭系统安全保护。详见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。
->
-> App Store 上架与签名、公证是不同的流程；App Store 之外的应用也可以使用 [Developer ID](https://developer.apple.com/developer-id/) 分发。
-
 <p align="center">
   <img src="Resources/AppIconMaster.png" width="112" alt="DogSC 应用图标">
 </p>
-
-<h1 align="center">DogSC</h1>
-
-<p align="center">macOS 原生录屏与轻量编辑工具。录制、剪辑、运镜，到导出成片。</p>
-
+<h1 align="center">WinDogSC</h1>
+<p align="center">把屏幕操作，变成讲得清楚的视频。</p>
+<p align="center">DogSC 的 Windows 桌面版 · 录制、剪辑、运镜与导出</p>
 <p align="center">
-  <a href="https://github.com/laogou717/dogsc/releases/latest"><strong>下载 DogSC</strong></a>
-  · <a href="#从源码构建">从源码构建</a>
-  · <a href="https://github.com/laogou717/dogsc/issues">反馈问题</a>
+  <img src="docs/images/windows/platform.svg" alt="Windows x64">
+  <img src="docs/images/windows/runtime.svg" alt=".NET 8 / WPF">
+  <a href="LICENSE"><img src="docs/images/windows/license.svg" alt="MIT License"></a>
+</p>
+<p align="center">
+  <a href="#开始使用">开始使用</a> ·
+  <a href="windows/README.md">详细使用说明</a> ·
+  <a href="windows/MAC_PARITY.md">与 Mac 版的功能差异</a> ·
+  <a href="https://github.com/coffe01-10/windogsc/issues">反馈问题</a>
 </p>
 
-![DogSC 编辑器：画面预览、布局设置与多轨时间线](docs/images/editor.png)
+![Windows 编辑器：画面预览、属性面板、剪辑和效果时间线](docs/images/windows/editor.png)
 
-## 录制
+WinDogSC 面向产品演示、操作教程和问题复现：录下操作，去掉等待，把镜头引向重点，再导出成片。它基于 [laogou717/DogSC](https://github.com/laogou717/dogsc) 的产品设计，使用 .NET 8 / WPF 实现 Windows 桌面流程。
 
-![DogSC 悬浮录制条](docs/images/recorder.png)
+本页截图来自当前 Windows 程序；画面中的客户表格是虚构演示数据。应用窗口和可执行文件仍使用 **DogSC** 名称。
 
-支持屏幕、窗口与区域录制，可同时录制摄像头、麦克风和系统声音。录制结束后，可以保存项目，或直接进入编辑。
+## 录制：从一个悬浮工具条开始
 
-录制时仍可打开以前已完成的项目编辑。编辑窗口可以正常录入画面；录制条和备忘录等辅助窗口默认排除。
+选择显示器、窗口或自选区域，按需开启麦克风、系统声音和摄像头画中画；也可以把摄像头或采集卡作为主画面。暂停后继续录制，素材会接入同一条时间线。
 
-内置 **悬浮备忘录**，可独立拖动、调整大小、字号与背景不透明度。文稿自动保存在本机，重启后仍可使用；备忘录不会进入 DogSC 自身的录制画面。
+- **工具条跟着工作空间走**：拖动、收起与展开，支持 70%–110% 大小调节和 `Ctrl` + 滚轮缩放；靠近四边松手吸附，上下横排、左右竖排，展开方向随可用空间调整。
+- **讲解时保留提示**：可拖动备忘录、调整字号与透明度；录制条、倒计时和备忘录从屏幕采集中排除。
+- **给后期留路标**：`Ctrl+Alt+M` 添加录制标记，`Ctrl+Alt+S` 停止录制。
 
-录制时可点 **标记按钮**或按 **⌃⌥M** 留下剪辑书签，方便之后找回口误、重录或重点位置。标记随项目保存，不会进入成片。
+系统声音录的是当前播放设备的声音。使用麦克风或摄像头时，需要 Windows 隐私设置允许桌面应用访问相应设备。
 
-## 编辑与运镜
+## 编辑与运镜：让观众跟上操作
 
-![DogSC 屏幕 3D 与动画轨道](docs/images/motion.png)
+在时间线上分割、裁短、重排和变速，用缩略图、音频波形、标记和边缘吸附定位。画面支持留白、圆角、阴影、壁纸、源画面裁切、自定义比例和透视倾斜，也可以保存为自己的场景预设。
 
-- **时间线剪辑**：分割、裁短、重排、加速与恢复剪辑，支持缩略图／波形显示及边界吸附。
-- **开场与运镜**：开场动效、自动跟随、手动缩放，以及可调整倾斜、透视和聚焦虚化的屏幕 3D。
-- **效果复用**：缩放、屏幕 3D、摄像运动、贴图和柔化片段可用 **⌘C / ⌘V** 复制、粘贴完整副本；优先放到鼠标所指的时间线位置，鼠标离开时间线则使用播放头；开启吸附后，贴近同类片段边缘可直接接上。**⌘⇧V** 向选中的同类组件粘贴属性，保留其位置和长度。
-- **光标与摄像头**：单独控制光标样式、点击反馈、静止后隐藏或始终隐藏；调整摄像头布局与动画。
-- **画面设计**：比例、裁切、留白、圆角、阴影、背景与样机外框；支持贴图、画面柔化和场景预设。
+![Windows 运镜面板：选中缩放片段，查看目标构图并调整倍数和焦点](docs/images/windows/motion.png)
 
-## 导出
+**按点击自动运镜**会把连续操作组织成镜头：附近点击保持构图，跨区域时平滑移动，持续操作延长停留。重新生成自动镜头会保留手动镜头；也可以手动设置焦点、倍数、进入与退出时长，选择线性、平滑或弹簧曲线。
 
-<p align="center">
-  <img src="docs/images/export.png" width="760" alt="DogSC 导出面板：视频或音频、分辨率与帧率选项">
-</p>
+光标可显示为箭头、圆点或隐藏，支持点击反馈、静止隐藏和时间校准。摄像头画中画可直接移动、缩放，调整形状、内部构图、镜像和进出动画。
 
-支持 **MP4 视频**与 **M4A 音频**。视频可选原始素材分辨率、1080p、1440p、4K，以及 **30／60 FPS**。保留 `.dogscproject` 项目包，方便以后继续编辑。
+## 局部效果：遮住信息，突出重点
 
-导出时显示处理阶段与已用时间，速度稳定后提供预计剩余时间；可随时取消。
+![Windows 局部柔化：在预览中选中邮箱区域，拖动边角调整范围](docs/images/windows/effects.png)
 
-设置中的「关于」集中提供版本、软件更新、源码与反馈入口。软件免费使用；「请杯咖啡」可查看自愿支持的赞赏码，导出完成后也可打开。
+在「效果」页添加柔化、聚光或贴图。柔化与聚光支持直接框选、移动、拖边角缩放和重画，区域随源画面的裁切、缩放与透视变化。需要精细定位时，可以输入原画面像素坐标，或用方向键微调。
 
-## Windows
+每个效果都有独立时间范围和淡入淡出；重叠效果会在时间线上分行。贴图支持旋转、透明度和图层顺序，效果可以复制、粘贴属性并撤销。暂停选中效果时会显示「编辑预览」，方便完整调整区域；播放时按时间线呈现。
 
-Windows 版在 [`windows/`](windows/README.md)。它用 .NET 8 和 WPF，按 DogSC 的录制、剪辑、导出流程重写，不编译 macOS 的 Swift 源码。
+## 导出：交付视频或音频
 
-可以录显示器、窗口、区域和采集设备，也能录麦克风、系统声音和摄像头画中画。录完可分割、裁短、重排、变速、标记，添加手动缩放或按点击自动缩放，调整倾斜、开场、光标、壁纸、贴图和局部柔化，再导出 MP4 或 M4A。缩放片段支持复制完整副本或只粘属性，也可复用素材效果。macOS 的 `.dogscproject` 可通过导入转换为新 Windows 项目，部分效果会略过；完整的屏幕 3D 透视和连续光标跟随仍未移植。使用方式与限制见 [Windows 说明](windows/README.md)。
+| 内容 | 可选设置 |
+| --- | --- |
+| 视频成片 | MP4，原始尺寸 / 1080p / 1440p / 4K，30 / 60 FPS |
+| 仅音频 | M4A，按项目的系统声音与麦克风混音 |
+| 导出过程 | 准备阶段、进度、已用时间与剩余时间估算，可取消 |
 
-## 使用说明
+导出选项随项目保存。同名文件在新导出成功后才替换；取消或失败时保留旧成片。预览和导出使用相同的运镜轨迹与效果参数。
 
-- **系统要求**：Apple Silicon Mac，macOS 14 或更高版本。
-- **首次授权**：按引导开启屏幕录制与辅助功能权限；麦克风、摄像头按需授权。
-- **预览性能**：测试版在完整分辨率、多效果叠加时仍可能掉帧，可降低预览质量，导出分辨率单独设置。
-- **界面截图**：来自当前开发版，使用 AI 海岸风景演示素材，无个人录制内容。README 对应当前源码，已下载版本请参照其发布说明。
+## 开始使用
 
-## 从源码构建
+目前以**源码运行**为入口，仓库尚未提供发布包。Windows 构建目标为 `win-x64`。
 
-需要 Apple Silicon Mac、**Xcode 26 或更新版本、Swift 6**，以及自己的 **Apple Development 签名证书**。无需作者的私钥或 GitHub Secrets。
+准备 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) 和 [FFmpeg](https://ffmpeg.org/download.html)。需要同时具备 `ffmpeg.exe` 与 `ffprobe.exe`；把它们所在目录加入 `PATH`，或者启动后在应用设置中指定 `ffmpeg.exe`。
 
-<details>
-<summary>查看构建命令与开发版说明</summary>
-
-```bash
-git clone https://github.com/laogou717/dogsc.git
-cd dogsc
-
-# 查看本机可用的签名证书
-security find-identity -v -p codesigning
-
-# 构建完整开发版 App
-DOGSC_SIGNING_IDENTITY="你的 Apple Development 证书的 40 位 SHA-1 指纹" bash build-app.sh
-open ".build/local/DogSC Dev.app"
+```powershell
+git clone https://github.com/coffe01-10/windogsc.git
+cd windogsc
+dotnet run --project windows/src/DogSC.App
 ```
 
-可在 Xcode 的 Accounts → Manage Certificates 中创建自己的 Apple Development 证书，私钥保留在本机钥匙串。首次构建需要联网下载已锁定的 Sparkle 依赖。
+第一次体验：
 
-脚本进行 Release 构建，组装图标、字体、本地化资源与 Sparkle，并签署完整 App。仅运行 `swift build -c release` 只编译可执行文件，不生成完整 `.app`。
+1. 在录制条选择一个显示器或区域，录制一小段操作后停止。
+2. 在编辑器中裁掉开头等待，打开「缩放」页生成按点击自动运镜。
+3. 在「效果」页框选需要柔化的区域，播放检查范围和时间。
+4. 点击「导出」，选择 MP4 和所需分辨率，导出后打开成片。
 
-产物为 **`.build/local/DogSC Dev.app`**（`cn.laogou.dogsc.dev`）。它与下载的 **DogSC**（`cn.laogou.dogsc`）使用独立偏好和系统权限，授权时请区分名称；开发版不连接正式版更新源。
+录制项目默认保存在「视频 / DogSC」目录下，扩展名为 `.dogscproject` 的文件夹中包含项目数据与素材。保留整个文件夹，后续可以继续编辑。
 
-默认使用 `/Applications/Xcode.app`；其他安装位置可通过 `DEVELOPER_DIR` 指向对应的 `Xcode.app/Contents/Developer`。重新构建前请保存并退出正在运行的 DogSC。
+FFmpeg 也可通过 `DOGSC_FFMPEG` 环境变量指定，或与 `ffprobe.exe` 一起放在程序目录。更多设备、快捷键与排障说明见 [Windows 使用文档](windows/README.md)。
 
-源码包含录制、编辑实现与必要运行资源。系统壁纸、用户录制与项目文件不随源码分发；制作正式 DMG 与签名更新源所需的发布证书和 Sparkle 密钥由维护者单独配置。
+## 与原版的关系
 
-</details>
+这里继续完善 DogSC 的 Windows 体验，保留原版“录制 → 编辑与运镜 → 导出”的使用主线。上游 Swift 源码位于 `Sources/`；Windows 实现位于 `windows/`，构建 Windows 版无需 Xcode 或 Apple 签名证书。
 
-## 许可
+录制条提供「导入 macOS 项目…」，可转换屏幕、音频、摄像头、光标轨迹、标记及部分剪辑、运镜和效果设置；未支持的内容会显示迁移摘要。两端项目格式不同，转换后的 Windows 项目不能直接作为 Mac 原生项目使用。
 
-源代码采用 [MIT License](LICENSE)。随附字体采用其自身的许可，详见 [字体说明](Resources/Fonts/README.md) 与 [许可原文](Resources/Fonts/LICENSE.txt)。
+以下差异仍然存在：
+
+- 窗口录制按屏幕矩形采集，窗口移动或被遮挡时，与 Mac 原生窗口采集行为不同。
+- 独立屏幕 / 摄像头运镜轨道、连续光标跟随控制器和自由贝塞尔曲线尚未完整移植。
+- 贴图的部分边框、阴影、背景虚化与位移动画，以及录制恢复、iOS 设备镜像尚未实现。
+- 复杂 Mac 项目不能完整迁移；WPF 预览与 FFmpeg 导出在抗锯齿、模糊和阴影细节上仍可能有差异。
+
+逐项实现状态、验证记录和剩余工作见 [Windows 与 macOS 功能核对](windows/MAC_PARITY.md)。
+
+## 开发与构建
+
+```powershell
+dotnet build windows/DogSC.sln -c Release
+dotnet test windows/tests/DogSC.Core.Tests
+```
+
+应用自检会生成演示素材、验证导出和项目迁移，并采集 **1 秒桌面画面**；完成后清理自检临时文件：
+
+```powershell
+dotnet run --project windows/src/DogSC.App -- --self-test
+```
+
+生成本地 Windows x64 发布目录：
+
+```powershell
+dotnet publish windows/src/DogSC.App/DogSC.App.csproj -c Release -r win-x64 --self-contained false -o artifacts/publish
+.\artifacts\publish\DogSC.exe
+```
+
+该发布方式依赖 **.NET 8 Desktop Runtime**，也需要 FFmpeg / ffprobe；发布目录不捆绑 FFmpeg。自动构建与草稿发布流程见 [Windows 工作流](.github/workflows/windows.yml)。
+
+## 贡献与许可
+
+欢迎通过 [Issues](https://github.com/coffe01-10/windogsc/issues) 提交问题或使用体验。涉及交互问题时，请说明操作步骤、预期行为与实际结果；截图或短视频有助于复现。
+
+感谢 [神烦老狗 / laogou717](https://github.com/laogou717) 的原版 [DogSC](https://github.com/laogou717/dogsc)。本项目继承上游的设计、品牌素材和源码历史，按 [MIT License](LICENSE) 开源，保留原作者版权声明。内置字体的来源及许可见 [字体说明](Resources/Fonts/README.md)；本页图片来源见 [README 素材说明](docs/images/windows/SOURCES.md)。
