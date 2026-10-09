@@ -30,6 +30,12 @@ public sealed class ExportService
             var plan = ExportGraph.Build(project, options, resolved);
             await CursorExport.PrepareAsync(_ffmpeg, project, plan, temp, cancellation);
             await StickerBackdropExport.PrepareAsync(_ffmpeg, project, plan, temp, cancellation);
+            if (plan.StickerAnimIndex >= 0
+                && await StickerAnimatedExport.PrepareAsync(_ffmpeg, project, plan, resolved.Stickers,
+                    plan.Width, plan.Height, temp, cancellation) is { } animPath)
+            {
+                plan.Inputs[plan.StickerAnimIndex] = animPath;
+            }
             if (plan.FrameMaskIndex >= 0)
             {
                 var mask = Path.Combine(temp, "frame.bmp");
@@ -77,7 +83,19 @@ public sealed class ExportService
             var args = new List<string> { "-y", "-hide_banner", "-loglevel", "warning", "-progress", "pipe:1", "-nostats" };
             for (var index = 0; index < plan.Inputs.Count; index++)
             {
-                if (index == plan.FrameMaskIndex || index == plan.ProjectionMaskIndex || index == plan.CameraMaskIndex || index == plan.FocusMaskIndex
+                if (index == plan.StickerMatteIndex || index == plan.StickerMatteCamIndex)
+                {
+                    // 贴纸背景通道是 64×36 bgra 裸流（qtrle 多帧编码在本机 ffmpeg 上会毁值）。
+                    args.Add("-f");
+                    args.Add("rawvideo");
+                    args.Add("-pixel_format");
+                    args.Add("bgra");
+                    args.Add("-video_size");
+                    args.Add(StickerBackdropExport.Width + "x" + StickerBackdropExport.Height);
+                    args.Add("-framerate");
+                    args.Add(plan.Fps.ToString());
+                }
+                else if (index == plan.FrameMaskIndex || index == plan.ProjectionMaskIndex || index == plan.CameraMaskIndex || index == plan.FocusMaskIndex
                     || plan.RegionMasks.Any(mask => mask.Index == index)
                     || index == plan.WallpaperIndex || plan.StickerIndices.Contains(index))
                 {
@@ -139,7 +157,8 @@ public sealed class ExportService
             if (File.Exists(partial)) File.Delete(partial);
             try
             {
-                Directory.Delete(temp, recursive: true);
+                if (Environment.GetEnvironmentVariable("DOGSC_KEEP_TEMP") is null)
+                    Directory.Delete(temp, recursive: true);
             }
             catch
             {
@@ -180,7 +199,7 @@ public sealed class ExportService
             var aspect = frame.PixelWidth / (double)frame.PixelHeight;
             var contentW = CanvasLayout.Even((int)Math.Round(Math.Max(image.Width, 0.02) * canvasW));
             var contentH = CanvasLayout.Even(Math.Max(2, (int)Math.Round(contentW / aspect)));
-            var baked = StickerArt.Bake(path, image, contentW, contentH, bakeDir);
+            var baked = await Task.Run(() => StickerArt.Bake(path, image, contentW, contentH, bakeDir));
             stickers[image.Id] = new(baked.Path, aspect, baked.Margin);
         }
 

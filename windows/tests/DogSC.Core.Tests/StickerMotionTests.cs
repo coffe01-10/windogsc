@@ -123,9 +123,9 @@ public class StickerMotionTests
             Stickers = new Dictionary<string, ResolvedSticker> { [s.Id] = new(stickerPath, 1) },
         };
         var plan = ExportGraph.Build(project, new ExportOptions(), media);
-        Assert.True(plan.StickerMatteIndex >= 0);
-        Assert.Contains("extractplanes=r+g+b+a", plan.FilterScript);
-        Assert.Contains("maskedmerge", plan.FilterScript);
-        Assert.Contains("eval=frame", plan.FilterScript); // 动画贴纸走 spad 垫层
+        // 压制改烘进动画 overlay 帧；无虚化/无摄像头时不需要蒙版流。
+        Assert.True(plan.StickerAnimIndex >= 0);
+        Assert.Equal(-1, plan.StickerMatteIndex);
+        Assert.Contains("overlay=0:0:format=auto", plan.FilterScript);
     }
 }

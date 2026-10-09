@@ -65,6 +65,10 @@ public sealed class ExportPlan
     public (int X, int Y, int W, int H) StickerRect { get; init; }
     /// <summary>贴纸背景通道 mask 视频输入（-1 = 无压制/虚化需求）。</summary>
     public int StickerMatteIndex { get; init; } = -1;
+    /// <summary>摄像头虚化通道 mask 视频输入（-1 = 无）；qtrle 预乘会毁掉 A<255 的 RGB，拆单列。</summary>
+    public int StickerMatteCamIndex { get; init; } = -1;
+    /// <summary>动画贴纸预渲染整帧流（StickerAnimatedExport）的输入序号；-1 表示没有。</summary>
+    public int StickerAnimIndex { get; init; } = -1;
     /// <summary>局部柔化矩形（画布像素）。</summary>
     public (int X, int Y, int W, int H) SoftRect { get; init; }
     /// <summary>摄像头形状：circle / square / none（none 时 mask 是全白）。</summary>
@@ -138,6 +142,8 @@ public static class ExportGraph
         var regionStep = 0;
         var stickerIndices = new List<int>();
         var stickerMatteIndex = -1;
+        var stickerAnimIndex = -1;
+        var stickerMatteCamIndex = -1;
         var cameraSlices = new List<(int Index, string Label, double Start, double End)>();
         if (!options.AudioOnly)
         {
@@ -217,7 +223,7 @@ public static class ExportGraph
                 var split = placement.ShadowBlur > 0 ? ",split[framea][shadowsrc]" : "[framea]";
                 script.Append('[').Append(frameMaskIndex).Append(":v]format=rgba,loop=loop=-1:size=1:start=0,trim=duration=")
                     .Append(F(Math.Max(duration, 0.1)))
-                    .Append(",setpts=PTS-STARTPTS,alphaextract").Append(split)
+                    .Append(",setpts=PTS-STARTPTS,fps=").Append(fps).Append(",alphaextract").Append(split)
                     .AppendLine();
                 script.Append("[scaled][framea]alphamerge[rounded]").AppendLine();
             }
@@ -238,7 +244,7 @@ public static class ExportGraph
                     .Append(":force_original_aspect_ratio=increase,crop=")
                     .Append(canvasWidth).Append(':').Append(canvasHeight)
                     .Append(",format=rgba,loop=loop=-1:size=1:start=0,trim=duration=")
-                    .Append(F(Math.Max(duration, 0.1))).Append(",setpts=PTS-STARTPTS");
+                    .Append(F(Math.Max(duration, 0.1))).Append(",setpts=PTS-STARTPTS,fps=").Append(fps);
                 if (blur > 0.03)
                 {
                     script.Append(",gblur=sigma=").Append(F(6 + blur * 30));
@@ -310,45 +316,68 @@ public static class ExportGraph
                 tilted = "intro";
             }
 
-            // rise 预设：overlay 的 y 逐帧表达式做上移入场。
-            // 表达式里的逗号要转义，否则会被滤镜参数分隔符吃掉。
-            var overlayY = project.Canvas.Intro == "rise"
-                ? placement.Y + "+(1-min(t/" + F(CanvasLayout.IntroDuration) + "\\,1))*" + F(placement.Height * 0.08)
-                : placement.Y.ToString();
+            // 生成流（color 源）做主、解码视频做辅时 ffmpeg overlay 的帧配对会漂移，
+            // 这里不用 overlay，改走 pad+maskedmerge：先把画面垫到全画布透明帧上，
+            // 再用它的 alpha 当蒙版和背景合并，时间轴严格按 pts 对齐。
+            var rise = project.Canvas.Intro == "rise";
+            var riseDy = CanvasLayout.Even((int)Math.Round(placement.Height * 0.08));
+            var padH = placement.Height + placement.Y + riseDy;
+            var padH2 = CanvasLayout.Even(Math.Max(padH, canvasHeight + riseDy));
+            script.Append('[').Append(tilted).Append("]pad=")
+                .Append(canvasWidth).Append(':').Append(padH2).Append(':')
+                .Append(placement.X).Append(':').Append(placement.Y + riseDy)
+                .AppendLine(":color=black@0,format=rgba[pl0]");
+            if (rise)
+            {
+                script.Append("[pl0]crop=").Append(canvasWidth).Append(':').Append(canvasHeight)
+                    .Append(":0:'").Append(riseDy).Append("*min(t/")
+                    .Append(F(CanvasLayout.IntroDuration)).Append("\\,1)'[placed]").AppendLine();
+            }
+            else
+            {
+                script.Append("[pl0]crop=").Append(canvasWidth).Append(':').Append(canvasHeight)
+                    .AppendLine(":0:0[placed]");
+            }
+            script.AppendLine("[placed]alphaextract,negate[bgn]");
             // —— 贴纸背景通道（压屏幕/虚化）：先把背景拆出一份供压制合并 ——
             var stickerTrack = new StickerMotion.Track(project.Canvas.Stickers);
             var backdropMax = StickerBackdropMax(stickerTrack, duration, fps);
-            if (backdropMax.ScreenSuppression > 0)
-            {
-                script.Append('[').Append(under).AppendLine("]split[bgmain][bgmatte]");
-                under = "bgmain";
-            }
-
-            script.Append('[').Append(under).Append("][").Append(tilted).Append("]overlay=")
-                .Append(placement.X).Append(':').Append(overlayY)
-                .AppendLine(":format=auto:shortest=1[composed]");
+            // 背景挖洞（screen 区域 alpha=0）后叠在画面流上，视频流做主避免 overlay 帧配对漂移。
+            script.Append('[').Append(under).AppendLine("]format=rgba[bgrgb]");
+            script.AppendLine("[bgrgb][bgn]alphamerge[bga]");
+            script.Append("[placed][bga]overlay=0:0:format=auto:shortest=1")
+                .AppendLine("[composed]");
             videoMap = "composed";
-            if (backdropMax.Any)
+            var camOn = includeCamera && cameraSlices.Count > 0;
+            var camBlur = backdropMax.CameraBlur > 0 && camOn;
+            var needMatte = (backdropMax.CameraSuppression > 0 && camOn) || backdropMax.ScreenBlur > 0;
+            if (needMatte)
             {
                 stickerMatteIndex = inputs.Count;
                 inputs.Add("");
+                var planeList = string.Join("+",
+                    new[] { backdropMax.CameraSuppression > 0 && camOn ? "g" : null,
+                        backdropMax.ScreenBlur > 0 ? "b" : null }.Where(p => p is not null));
+                var planeTags = string.Concat(
+                    new[] { backdropMax.CameraSuppression > 0 && camOn ? "[bdcs]" : null,
+                        backdropMax.ScreenBlur > 0 ? "[bdsb]" : null }.Where(p => p is not null));
                 script.Append('[').Append(stickerMatteIndex)
-                    .AppendLine(":v]format=argb,extractplanes=r+g+b+a[bdss][bdcs][bdsb][bdcb]");
-                if (backdropMax.ScreenSuppression > 0)
+                    .Append(":v]format=argb,extractplanes=").Append(planeList).Append(planeTags).AppendLine();
+                if (camBlur)
                 {
-                    script.Append("[bdss]scale=").Append(canvasWidth).Append(':').Append(canvasHeight)
-                        .AppendLine(",format=gray[bdssm]");
-                    script.Append('[').Append(videoMap).AppendLine("]split[vsbase0]");
-                    script.AppendLine("[bgmatte][vsbase0][bdssm]maskedmerge[vbdss]");
-                    videoMap = "vbdss";
+                    stickerMatteCamIndex = inputs.Count;
+                    inputs.Add("");
+                    script.Append('[').Append(stickerMatteCamIndex).AppendLine(":v]format=gray[bdcb]");
                 }
                 if (backdropMax.ScreenBlur > 0)
                 {
+                    // 虚化：模糊画面贴 blur 蒙版作 alpha，按帧盖在清晰画面上。
                     script.Append("[bdsb]scale=").Append(canvasWidth).Append(':').Append(canvasHeight)
                         .AppendLine(",format=gray[bdsbm]");
                     script.Append('[').Append(videoMap).Append("]gblur=sigma=")
-                        .Append(F(backdropMax.ScreenBlur)).AppendLine("[vblur0]");
-                    script.Append('[').Append(videoMap).AppendLine("][vblur0][bdsbm]maskedmerge[vbdbl]");
+                        .Append(F(backdropMax.ScreenBlur)).AppendLine(",format=rgb24[vblur0]");
+                    script.AppendLine("[vblur0][bdsbm]alphamerge[vblura]");
+                    script.Append('[').Append(videoMap).AppendLine("][vblura]overlay=0:0:format=auto[vbdbl]");
                     videoMap = "vbdbl";
                 }
             }
@@ -357,7 +386,8 @@ public static class ExportGraph
                 cameraMaskIndex = inputs.Count;
                 inputs.Add("");
                 // 圆形 mask 只循环一次，再 split 给每个有摄像头的片段。
-                script.Append('[').Append(cameraMaskIndex).Append(":v]format=rgba,loop=loop=-1:size=1:start=0,alphaextract,split=")
+                script.Append('[').Append(cameraMaskIndex).Append(":v]format=rgba,loop=loop=-1:size=1:start=0,fps=")
+                    .Append(fps).Append(",alphaextract,split=")
                     .Append(cameraSlices.Count);
                 foreach (var cam in cameraSlices)
                 {
@@ -365,7 +395,7 @@ public static class ExportGraph
                 }
 
                 script.AppendLine();
-                var cameraUnder = "composed";
+                var cameraUnder = videoMap;
                 var step = 0;
                 var entry = project.Camera.Entry;
                 // 进出动画时长：跟开场一致，太长会吃掉短片段。
@@ -376,24 +406,26 @@ public static class ExportGraph
                     script.Append('[').Append(cam.Label).Append("][cama").Append(cam.Index)
                         .Append("]alphamerge[").Append(src).AppendLine("]");
                     // 贴纸压制摄像头 / 摄像头虚化：mask 平面缩到画中画尺寸后 maskedmerge。
-                    if (backdropMax.CameraSuppression > 0)
+                    if (backdropMax.CameraSuppression > 0 && includeCamera)
                     {
                         script.Append("color=c=black@0:s=").Append(bubble.Width).Append('x')
                             .Append(bubble.Height).Append(":r=").Append(fps).Append(":d=")
-                            .Append(F(Math.Max(duration, 0.1))).Append(",format=rgba[cblk]").AppendLine();
+                            .Append(F(Math.Max(duration, 0.1))).Append(",format=rgb24[cblk]").AppendLine();
                         script.Append("[bdcs]scale=").Append(bubble.Width).Append(':').Append(bubble.Height)
                             .AppendLine(",format=gray[bdcsm]");
-                        script.Append("[cblk][").Append(src).Append("][bdcsm]maskedmerge[csup]").AppendLine();
+                        script.AppendLine("[cblk][bdcsm]alphamerge[cblkam]");
+                        script.Append('[').Append(src).Append("][cblkam]overlay=0:0:format=auto[csup]").AppendLine();
                         src = "csup";
                     }
-                    if (backdropMax.CameraBlur > 0)
+                    if (backdropMax.CameraBlur > 0 && includeCamera)
                     {
                         var camSigma = F(Math.Max(0.5, backdropMax.CameraBlur * bubble.Height / canvasHeight));
                         script.Append("[bdcb]scale=").Append(bubble.Width).Append(':').Append(bubble.Height)
                             .AppendLine(",format=gray[bdcbm]");
                         script.Append('[').Append(src).Append("]gblur=sigma=").Append(camSigma)
-                            .AppendLine("[cblur]");
-                        script.Append('[').Append(src).AppendLine("][cblur][bdcbm]maskedmerge[cblu]");
+                            .AppendLine(",format=rgb24[cblur]");
+                        script.AppendLine("[cblur][bdcbm]alphamerge[cbluram]");
+                        script.Append('[').Append(src).AppendLine("][cbluram]overlay=0:0:format=auto[cblu]");
                         src = "cblu";
                     }
                     // 进出场：fade=对合并后的 rgba 做 alpha 淡入淡出。
@@ -443,12 +475,22 @@ public static class ExportGraph
                 inputs.Add("");
                 var sigma = F(4 + project.Canvas.FocusBlur * 26);
                 script.Append('[').Append(videoMap).AppendLine("]format=gbrp,split[fclear][fblur0]");
-                script.Append("[fblur0]gblur=sigma=").Append(sigma).AppendLine("[fblur]");
+                script.Append("[fblur0]gblur=sigma=").Append(sigma).AppendLine(",format=rgb24[fblur]");
                 script.Append('[').Append(focusMaskIndex).Append(":v]scale=")
                     .Append(canvasWidth).Append('x').Append(canvasHeight)
-                    .AppendLine(",format=gray,format=gbrp[fmask]");
-                script.AppendLine("[fclear][fblur][fmask]maskedmerge[focused]");
+                    .AppendLine(",format=gray[fmask]");
+                script.AppendLine("[fblur][fmask]alphamerge[fbluram]");
+                script.AppendLine("[fclear][fbluram]overlay=0:0:format=auto[focused]");
                 videoMap = "focused";
+            }
+
+            if (project.Canvas.Stickers.Any(s =>
+                    (s.Animation is { Length: > 0 } a && a != "none")
+                    || (s.ExitAnimation is { Length: > 0 } e && e != "none")))
+            {
+                // 动画贴纸整帧透明流输入占位，实际文件由 StickerAnimatedExport 写入。
+                stickerAnimIndex = inputs.Count;
+                inputs.Add("");
             }
 
             foreach (var sticker in project.Canvas.Stickers)
@@ -456,12 +498,19 @@ public static class ExportGraph
                 var resolvedSticker = media.Stickers.GetValueOrDefault(sticker.Id)
                     ?? (sticker == project.Canvas.Sticker && media.Sticker is not null ? new ResolvedSticker(media.Sticker, media.StickerAspect) : null);
                 if (resolvedSticker is null || !File.Exists(resolvedSticker.Path)) continue;
+                var box = CanvasLayout.Sticker(canvasWidth, canvasHeight, sticker, resolvedSticker.Aspect);
+                var fx = StickerFx(sticker, stickerTrack, box.X, box.Y, canvasWidth, canvasHeight);
+                if (fx.Transformed)
+                {
+                    // 动画贴纸由 StickerAnimatedExport 预渲染成整帧透明流（stickerAnim 输入），
+                    // 不走逐贴纸滤镜：ffmpeg 表达式做大图缩放/位移/透明度太脆弱。
+                    continue;
+                }
                 var stickerPath = resolvedSticker.Path;
                 var suffix = stickerIndices.Count.ToString();
                 stickerIndex = inputs.Count;
                 inputs.Add(stickerPath);
                 stickerIndices.Add(stickerIndex);
-                var box = CanvasLayout.Sticker(canvasWidth, canvasHeight, sticker, resolvedSticker.Aspect);
                 // 烘焙图 = 内容 + 对称留边：输入宽 = 内容宽 × (1+2·margin)。
                 var w = CanvasLayout.Even((int)Math.Round(box.Width));
                 var h = CanvasLayout.Even((int)Math.Round(box.Height));
@@ -469,32 +518,10 @@ public static class ExportGraph
                 var pngH = CanvasLayout.Even((int)Math.Round(h * (1 + 2 * resolvedSticker.Margin)));
                 var sx = box.X - w / 2; var sy = box.Y - h / 2;
                 stickerRect = ((int)Math.Round(sx), (int)Math.Round(sy), w, h);
-                var fx = StickerFx(sticker, stickerTrack, box.X, box.Y, canvasWidth, canvasHeight);
-                var animated = fx.Transformed;
-                if (animated)
-                {
-                    // 动画贴纸：缩放到当前尺寸后叠进固定大小的透明垫，再做旋转和整体位移。
-                    script.Append("color=c=black@0:s=").Append(pngW).Append('x').Append(pngH)
-                        .Append(":r=").Append(fps).Append(":d=").Append(F(Math.Max(duration, 0.1)))
-                        .Append(",format=rgba[spad").Append(suffix).AppendLine("]");
-                    script.Append('[').Append(stickerIndex).Append(":v]scale=w='trunc(iw*(")
-                        .Append(fx.Scale).Append(")/2)*2':h=-2:eval=frame")
-                        .Append(",format=rgba,loop=loop=-1:size=1:start=0,trim=duration=")
-                        .Append(F(Math.Max(duration, 0.1))).Append(",setpts=PTS-STARTPTS");
-                    if (sticker.Opacity < 0.99 || fx.Alpha != "1")
-                    {
-                        script.Append(",format=gbrap,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*(")
-                            .Append(fx.Alpha).Append(")*").Append(F(sticker.Opacity)).Append("',format=rgba");
-                    }
-                    script.Append("[stk").Append(suffix).AppendLine("]");
-                    script.Append("[spad").Append(suffix).Append("][stk").Append(suffix)
-                        .Append("]overlay=(W-w)/2:(H-h)/2:format=auto:eval=frame");
-                }
-                else
                 {
                     script.Append('[').Append(stickerIndex).Append(":v]scale=").Append(pngW).Append(':').Append(pngH)
                         .Append(",format=rgba,loop=loop=-1:size=1:start=0,trim=duration=")
-                        .Append(F(Math.Max(duration, 0.1))).Append(",setpts=PTS-STARTPTS");
+                        .Append(F(Math.Max(duration, 0.1))).Append(",setpts=PTS-STARTPTS,fps=").Append(fps);
                     if (sticker.Opacity < 0.99 || fx.Alpha != "1")
                     {
                         script.Append(",format=gbrap,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*(")
@@ -514,6 +541,13 @@ public static class ExportGraph
                     .Append(fx.Enable)
                     .Append("'[stickered").Append(suffix).AppendLine("]");
                 videoMap = "stickered" + suffix;
+            }
+
+            if (stickerAnimIndex >= 0)
+            {
+                script.Append('[').Append(videoMap).Append("][").Append(stickerAnimIndex)
+                    .Append(":v]overlay=0:0:format=auto[stickeranim]").AppendLine();
+                videoMap = "stickeranim";
             }
 
             script.Append('[').Append(videoMap).Append("]format=yuv420p[vout]").AppendLine();
@@ -581,6 +615,8 @@ public static class ExportGraph
             RegionMasks = regionMasks,
             StickerIndices = stickerIndices,
             StickerMatteIndex = stickerMatteIndex,
+            StickerMatteCamIndex = stickerMatteCamIndex,
+            StickerAnimIndex = stickerAnimIndex,
             Inputs = inputs,
             FilterScript = script.ToString().Trim(),
             VideoLabel = videoMap,
@@ -646,19 +682,25 @@ public static class ExportGraph
         var gateEnter = sticker.Animation != "none";
         var gateExit = exitPreset != "none";
         string Clip(string x) => "clip(" + x + "\\,0\\,1)";
-        string LinEnter = w.JoinEnter is { } je
-            ? Clip("(t-" + F(je.Start) + ")/" + F(Math.Max(je.End - je.Start, 0.0001)))
-            : enterDur > 0 ? Clip("(t-" + F(start) + ")/" + F(enterDur)) : "1";
-        string LinExit = w.JoinExit is { } jx
-            ? "1-" + Clip("(t-" + F(jx.Start) + ")/" + F(Math.Max(jx.End - jx.Start, 0.0001)))
-            : exitDur > 0 ? Clip("(" + F(end) + "-t)/" + F(exitDur)) : "1";
-        var enterP = CurveExpr(LinEnter, sticker.AnimationCurve);
-        var exitP = CurveExpr(LinExit, sticker.AnimationCurve);
-        var vis = "if(lt(" + (gateEnter ? enterP : "1") + "\\," + (gateExit ? exitP : "1") + ")\\,"
-            + (gateEnter ? enterP : "1") + "\\," + (gateExit ? exitP : "1") + ")";
-        var alpha = "clip(" + vis + "\\,0\\,1)";
+        // geq 的时间变量是大写 T，overlay/enable 是小写 t —— 同一套进度要按场景替换。
+        string Prog(string tv, string which)
+        {
+            string linEnter = w.JoinEnter is { } je
+                ? Clip("(" + tv + "-" + F(je.Start) + ")/" + F(Math.Max(je.End - je.Start, 0.0001)))
+                : enterDur > 0 ? Clip("(" + tv + "-" + F(start) + ")/" + F(enterDur)) : "1";
+            string linExit = w.JoinExit is { } jx
+                ? "1-" + Clip("(" + tv + "-" + F(jx.Start) + ")/" + F(Math.Max(jx.End - jx.Start, 0.0001)))
+                : exitDur > 0 ? Clip("(" + F(end) + "-" + tv + ")/" + F(exitDur)) : "1";
+            return which == "enter" ? CurveExpr(linEnter, sticker.AnimationCurve)
+                : CurveExpr(linExit, sticker.AnimationCurve);
+        }
+        string Min(string a, string b) => "if(lt(" + a + "\\," + b + ")\\," + a + "\\," + b + ")";
+        var alpha = "clip(" + Min(gateEnter ? Prog("T", "enter") : "1",
+            gateExit ? Prog("T", "exit") : "1") + "\\,0\\,1)";
         var exitStart = w.JoinExit?.Start ?? (gateExit && exitDur > 0 ? end - exitDur : 1e9);
         var exiting = "gte(t\\," + F(exitStart) + ")";
+        var enterPt = Prog("t", "enter");
+        var exitPt = Prog("t", "exit");
         var halfExtent = Math.Max(sticker.Width, 0.02) / 2;
         var outsideLeading = Math.Min(-0.85, -halfExtent - 0.06);
         var outsideTrailing = Math.Max(1.85, 1 + halfExtent + 0.06);
@@ -678,12 +720,12 @@ public static class ExportGraph
         string OffXOf(string preset, string p) => F(Dx(preset)) + "*(1-(" + p + "))";
         string OffYOf(string preset, string p) => F(Dy(preset)) + "*(1-(" + p + "))";
         var hasTransform = PresetMoves(sticker.Animation) || PresetMoves(exitPreset);
-        var scale = !hasTransform ? "1" : "if(" + exiting + "\\," + ScaleOf(exitPreset, exitP)
-            + "\\," + ScaleOf(sticker.Animation, enterP) + ")";
-        var offX = !hasTransform ? "0" : "if(" + exiting + "\\," + OffXOf(exitPreset, exitP)
-            + "\\," + OffXOf(sticker.Animation, enterP) + ")";
-        var offY = !hasTransform ? "0" : "if(" + exiting + "\\," + OffYOf(exitPreset, exitP)
-            + "\\," + OffYOf(sticker.Animation, enterP) + ")";
+        var scale = !hasTransform ? "1" : "if(" + exiting + "\\," + ScaleOf(exitPreset, exitPt)
+            + "\\," + ScaleOf(sticker.Animation, enterPt) + ")";
+        var offX = !hasTransform ? "0" : "if(" + exiting + "\\," + OffXOf(exitPreset, exitPt)
+            + "\\," + OffXOf(sticker.Animation, enterPt) + ")";
+        var offY = !hasTransform ? "0" : "if(" + exiting + "\\," + OffYOf(exitPreset, exitPt)
+            + "\\," + OffYOf(sticker.Animation, enterPt) + ")";
         var (ws, we) = track.VisibleWindow(sticker);
         var enable = "gte(t," + F(ws) + ")*lt(t," + F(we) + ")";
         return (alpha, scale, offX, offY, F(cx), F(cy), enable, hasTransform);
@@ -720,9 +762,12 @@ public static class ExportGraph
         script.Append('[').Append(index).Append(":v]loop=loop=-1:size=1:start=0,setpts=N/").Append(fps)
             .Append("/TB,trim=duration=").Append(F(duration)).Append(",format=gray,geq=lum='")
             .Append(soft.Style == "spotlight" ? "(255-p(X,Y))" : "p(X,Y)")
-            .Append("*(").Append(EffectTiming.Expression(soft.Timing, "(T+" + F(start) + ")")).Append(")',format=gbrp[").Append(prefix).AppendLine("mask]");
-        script.Append('[').Append(prefix).Append("clear][").Append(prefix).Append("fx][").Append(prefix)
-            .Append("mask]maskedmerge[").Append(prefix).AppendLine("out]");
+            .Append("*(").Append(EffectTiming.Expression(soft.Timing, "(T+" + F(start) + ")")).Append(")'[").Append(prefix).AppendLine("mask]");
+        script.Append('[').Append(prefix).Append("fx]format=rgb24[").Append(prefix).AppendLine("fxa]");
+        script.Append('[').Append(prefix).Append("fxa][").Append(prefix).Append("mask]alphamerge[")
+            .Append(prefix).AppendLine("fxam]");
+        script.Append('[').Append(prefix).Append("clear][").Append(prefix)
+            .Append("fxam]overlay=0:0:format=auto[").Append(prefix).AppendLine("out]");
         return prefix + "out";
     }
 

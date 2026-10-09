@@ -339,7 +339,7 @@ public class TimelineAndExportTests
         var plan = ExportGraph.Build(project, new ExportOptions(), Media(project));
         Assert.Contains("perspective=", plan.FilterScript, StringComparison.Ordinal);
         Assert.Contains("gblur=sigma=", plan.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("maskedmerge", plan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("alphamerge", plan.FilterScript, StringComparison.Ordinal);
         Assert.True(plan.FocusMaskIndex >= 0);
 
         // 关掉效果时回到原样。
@@ -697,7 +697,7 @@ public class TimelineAndExportTests
         Assert.True(plan.SoftMaskIndex >= 0);
         Assert.Single(plan.RegionMasks);
         Assert.Contains("format=gbrp", plan.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("maskedmerge", plan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("alphamerge", plan.FilterScript, StringComparison.Ordinal);
         Assert.Contains("gblur", plan.FilterScript, StringComparison.Ordinal);
         Assert.True(plan.SoftRect.W > 0);
         // 关掉开关 → 无柔化链。
