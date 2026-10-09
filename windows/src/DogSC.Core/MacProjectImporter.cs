@@ -18,6 +18,9 @@ public static class MacProjectImporter
         public List<string> DroppedFields { get; } = [];
         /// <summary>media.screen.relativePath 等源引用（调用方用它去拷媒体文件）。</summary>
         public List<string> MediaReferences { get; } = [];
+        public string? PointerPath { get; init; }
+        public double PointerAdvance { get; init; }
+        public bool FullRecording { get; init; }
     }
 
     /// <summary>从 macOS project.json 文本导入。dir 仅用于把相对路径解析成可读性提示，不做 IO。</summary>
@@ -60,7 +63,7 @@ public static class MacProjectImporter
                     AssetId = asset.Id,
                     SourceStart = start,
                     SourceEnd = start + dur,
-                    Speed = Math.Clamp(rate, 0.5, 2),
+                    Speed = Math.Clamp(rate, 0.5, 100),
                 });
             }
         }
@@ -75,19 +78,35 @@ public static class MacProjectImporter
         asset.Video = screenPath ?? "";
         asset.Camera = cameraPath;
         asset.Microphone = micPath;
+        asset.CameraOffset = media is { } cm && Obj(cm, "camera") is { } cr ? Num(cr, "sourceStartTime") - Num(cr, "startOffset") : 0;
+        asset.MicrophoneOffset = media is { } mm && Obj(mm, "microphone") is { } mr ? Num(mr, "sourceStartTime") - Num(mr, "startOffset") : 0;
         asset.Duration = sourceDuration > 0 ? sourceDuration : 1;
         project.Assets = [asset];
         project.Clips = clips;
         if (screenPath is not null)
         {
-            var r = new Result { Project = project };
+            var pointer = media is { } manifest ? Obj(manifest, "pointerEvents") : null;
+            var r = new Result { Project = project,
+                FullRecording = sequence is null || Text(sequence.Value, "kind") != "edited",
+                PointerPath = pointer is { } pt ? Text(pt, "relativePath") : null,
+                PointerAdvance = pointer is { } pr ? Num(pr, "sourceStartTime") - Num(pr, "startOffset") : 0 };
             CollectRefs(media, r.MediaReferences, dropped);
             r.DroppedFields.AddRange(dropped);
             MapCanvas(root, project, r.DroppedFields);
+            if (project.Canvas.Wallpaper is { } wallpaper) r.MediaReferences.Add(wallpaper);
             MapCamera(root, project, r.DroppedFields);
             MapAudio(root, project);
             MapZooms(timeline, project);
             MapCursor(root, project, r.DroppedFields);
+            CollectUnmappedEffects(root, r.DroppedFields);
+            if (Arr(root, "recordingMarkers") is { } markers)
+                foreach (var marker in markers.EnumerateArray())
+                    project.Markers.Add(new SourceMarker { AssetId = asset.Id, SourceTime = Num(marker, "sourceTime"), Note = "标记 " + Num(marker, "number", 1) });
+            if (Obj(root, "exportSettings") is { } export)
+            {
+                project.ExportResolution = Text(export, "resolution") ?? "source";
+                project.ExportFps = (int)Num(export, "frameRate", 30);
+            }
             project.SourceLabel = "macOS 项目导入";
             ProjectFile.Normalize(project);
             return r;
@@ -117,7 +136,7 @@ public static class MacProjectImporter
 
         if (Text(media.Value, "pointerEvents", "relativePath") is not null)
         {
-            dropped.Add("media.pointerEvents（Windows 不读取光标轨迹文件）");
+            // Pointer JSONL is read by the caller into the Windows cursor track.
         }
     }
 
@@ -140,8 +159,14 @@ public static class MacProjectImporter
             "1:1" => "1:1",
             "9:16" => "9:16",
             "3:4" => "3:4",
+            "2.39:1" => "2.39:1",
+            "1:2.39" => "1:2.39",
             _ => "source",
         };
+        if (aspect is "自定义" or "custom" && Obj(c, "customAspectRatio") is { } custom)
+            project.Canvas.Aspect = Num(custom, "width", 16).ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + Num(custom, "height", 9).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (Obj(c, "crop") is { } crop)
+            project.Canvas.Crop = new SourceCrop { X = Num(crop, "x"), Y = Num(crop, "y"), Width = Num(crop, "width", 1), Height = Num(crop, "height", 1) };
         project.Canvas.Padding = Num(c, "padding", 100) / 1080.0 * 100; // 参考宽 1080 → 归一到 Windows 的 0..240 直觉值
         project.Canvas.Scale = Num(c, "contentScale", 1);
         var pos = Obj(c, "contentPosition");
@@ -170,9 +195,9 @@ public static class MacProjectImporter
         }
 
         // Windows 无对应概念的字段。
-        foreach (var key in new[] { "crop", "borderWidth", "borderHex", "screenFrame", "screenFrameScale",
+        foreach (var key in new[] { "borderWidth", "borderHex", "screenFrame", "screenFrameScale",
                      "screenFrameToolbarScale", "screenFrameTitle", "screenFrameBrowserAddress",
-                     "patternScale", "patternOpacity", "backgroundBlur", "insetOpacity", "customAspectRatio" })
+                     "patternScale", "patternOpacity", "backgroundBlur", "insetOpacity" })
         {
             if (c.TryGetProperty(key, out _))
             {
@@ -203,13 +228,11 @@ public static class MacProjectImporter
         project.Camera.Shape = shape is "圆形" or "circle" ? "circle"
             : shape is "方形" or "横向" or "纵向" or "square" or "horizontal" or "vertical" ? "square"
             : "none";
-        if (Num(c, "isHidden", 0) > 0.5 || c.TryGetProperty("isHidden", out var h) && h.GetBoolean())
-        {
-            // 隐藏摄像头等价于不显示 → Windows 没有单独的隐藏位，丢给 dropped 记录。
-            dropped.Add("camera.isHidden（Windows 没有隐藏画中画开关；要用就删掉摄像头轨）");
-        }
+        project.Camera.Hidden = c.TryGetProperty("isHidden", out var h) && h.ValueKind == JsonValueKind.True;
+        project.Camera.Mirrored = c.TryGetProperty("isMirrored", out var mirrored) && mirrored.ValueKind == JsonValueKind.True;
+        project.Camera.Corner = Num(c, "roundness", 0.18);
 
-        foreach (var key in new[] { "borderWidth", "roundness", "isMirrored", "scaleDuringZoom",
+        foreach (var key in new[] { "borderWidth", "scaleDuringZoom",
                      "contentPosition", "contentScale", "shadowStrength" })
         {
             if (c.TryGetProperty(key, out _))
@@ -275,25 +298,57 @@ public static class MacProjectImporter
             _ => "pointer",
         };
         project.Canvas.Cursor.IdleHide = c.TryGetProperty("hideWhenIdle", out var idle) && idle.GetBoolean();
+        project.Canvas.Cursor.Size = Num(c, "size", 1);
+        project.Canvas.Cursor.IdleDelay = Num(c, "idleDelay", 1.6);
         var clickStyle = Text(c, "clickEffectStyle");
         project.Canvas.Cursor.ClickRipple = clickStyle is null or not "none";
-        foreach (var key in new[] { "size", "idleDelay", "clickColor", "clickOpacity", "clickScale", "motionTiltStrength" })
+        project.Canvas.Cursor.ClickColor = Text(c, "clickColor") ?? "#292929";
+        project.Canvas.Cursor.ClickOpacity = Num(c, "clickOpacity", 0.8);
+        project.Canvas.Cursor.ClickScale = Num(c, "clickScale", 1);
+        foreach (var key in new[] { "motionTiltStrength", "motionSmoothing", "assetID" })
         {
             if (c.TryGetProperty(key, out _))
             {
-                dropped.Add("cursorStyle." + key);
+                if (key != "assetID" || !assetId.StartsWith("system.")) dropped.Add("cursorStyle." + key);
             }
         }
 
-        // macOS 还有 openingSequence / motion / exportSettings / recordingMarkers /
-        // stickerClips / mosaicClips / screenMotionClips / cameraMotionClips —— 全部丢弃。
-        foreach (var key in new[] { "openingSequence", "motion", "exportSettings", "recordingMarkers" })
+    }
+
+    static void CollectUnmappedEffects(JsonElement root, List<string> dropped)
+    {
+        foreach (var key in new[] { "openingSequence", "motion" })
         {
             if (root.TryGetProperty(key, out _))
             {
                 dropped.Add(key);
             }
         }
+        if (Obj(root, "timeline") is { } timeline)
+            foreach (var key in new[] { "stickerClips", "mosaicClips", "screenMotionClips", "cameraMotionClips" })
+                if (timeline.TryGetProperty(key, out var clips) && clips.ValueKind == JsonValueKind.Array && clips.GetArrayLength() > 0)
+                    dropped.Add("timeline." + key);
+    }
+
+    public static List<CursorPoint> ImportPointerEvents(IEnumerable<string> lines, double advance)
+    {
+        var points = new List<CursorPoint>();
+        CursorPoint? seed = null;
+        foreach (var line in lines.Where(line => !string.IsNullOrWhiteSpace(line)))
+        {
+            using var json = JsonDocument.Parse(line);
+            var entry = json.RootElement;
+            if (Obj(entry, "location") is not { } location) continue;
+            var point = new CursorPoint { Time = Num(entry, "time") - advance,
+                X = Num(location, "x"), Y = Num(location, "y"),
+                Click = Text(entry, "kind") is "leftClick" or "rightClick" };
+            if (point.Time < 0) { seed = point; continue; }
+            if (points.Count == 0 && seed is not null && point.Time > 0)
+                points.Add(new CursorPoint { Time = 0, X = seed.X, Y = seed.Y });
+            points.Add(point);
+        }
+        if (points.Count == 0 && seed is not null) points.Add(new CursorPoint { X = seed.X, Y = seed.Y });
+        return points.OrderBy(point => point.Time).ToList();
     }
 
     static JsonElement? Obj(JsonElement e, params string[] path)

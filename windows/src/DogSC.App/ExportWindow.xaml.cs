@@ -17,8 +17,8 @@ public partial class ExportWindow : Window
     {
         _project = project;
         _directory = directory;
-        _resolution = SettingsStore.Current.ExportResolution;
-        _fps = SettingsStore.Current.ExportFps is 60 ? 60 : 30;
+        _resolution = project.ExportResolution;
+        _fps = project.ExportFps is 60 ? 60 : 30;
         InitializeComponent();
         ProjectName.Text = project.Name;
         FileName.Text = project.Name + "-" + _fps + "fps";
@@ -36,6 +36,7 @@ public partial class ExportWindow : Window
         }
 
         Paint();
+        Closing += (_, _) => _cancel?.Cancel();
     }
 
     void Video_Click(object sender, RoutedEventArgs e)
@@ -92,6 +93,9 @@ public partial class ExportWindow : Window
         var output = Path.Combine(SettingsStore.Current.ExportDirectory, name);
         SettingsStore.Current.ExportResolution = _resolution;
         SettingsStore.Current.ExportFps = _fps;
+        _project.ExportResolution = _resolution;
+        _project.ExportFps = _fps;
+        ProjectFile.Save(_directory, _project);
         SettingsStore.Save();
         _running = true;
         ExportButton.IsEnabled = false;
@@ -101,10 +105,13 @@ public partial class ExportWindow : Window
         try
         {
             var service = new ExportService(ffmpeg);
+            service.Stage += stage => Dispatcher.Invoke(() => { clock.Restart(); Status.Text = stage; });
             service.Progress += value => Dispatcher.Invoke(() =>
             {
                 Bar.Value = value;
-                Status.Text = "正在导出… " + (int)(value * 100) + "% · 已用 " + clock.Elapsed.ToString(@"m\:ss");
+                var remaining = value > 0.03 && clock.Elapsed.TotalSeconds > 3
+                    ? " · 预计剩余 " + TimeSpan.FromSeconds(clock.Elapsed.TotalSeconds * (1 - value) / value).ToString(@"m\:ss") : "";
+                Status.Text = "正在导出… " + (int)(value * 100) + "% · 已用 " + clock.Elapsed.ToString(@"m\:ss") + remaining;
             });
             await service.ExportAsync(_project, _directory, new ExportOptions
             {

@@ -26,6 +26,9 @@ public sealed class AppSettings
     public double BarTop { get; set; } = double.NaN;
     public double BarScale { get; set; } = 0.85;
     public bool BarCollapsed { get; set; }
+    public BarDockEdge BarDockEdge { get; set; }
+    public bool BarAnchorRight { get; set; }
+    public bool BarAnchorBottom { get; set; }
     public string MemoText { get; set; } = "";
     public double MemoSize { get; set; } = 18;
     public double MemoOpacity { get; set; } = 0.94;
@@ -37,6 +40,8 @@ public sealed class AppSettings
     public string ExportResolution { get; set; } = "source";
     public int ExportFps { get; set; } = 30;
     public string? FfmpegPath { get; set; }
+    public List<ScenePreset> ScenePresets { get; set; } = [];
+    public string? DefaultScenePresetId { get; set; }
     /// <summary>启动时自动检测 GitHub 上的新版本（只提示，不自动更新）。</summary>
     public bool CheckUpdates { get; set; } = true;
 }
@@ -104,6 +109,7 @@ public static class SettingsFile
         settings.Theme = settings.Theme == "dark" ? "dark" : "light";
         settings.FrameRate = settings.FrameRate >= 60 ? 60 : 30;
         settings.RecentProjects ??= [];
+        settings.ScenePresets ??= [];
         // 坐标字段 NaN 是合法哨兵（未存过位置），Infinity 没有语义、回到 NaN。
         settings.BarLeft = double.IsInfinity(settings.BarLeft) ? defaults.BarLeft : settings.BarLeft;
         settings.BarTop = double.IsInfinity(settings.BarTop) ? defaults.BarTop : settings.BarTop;

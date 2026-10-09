@@ -37,13 +37,16 @@ public class SettingsFileTests
         Assert.Equal(double.NaN, loaded.MemoTop);
         Assert.Equal(0.94, loaded.MemoOpacity, 2);
 
-        var restored = new AppSettings { BarLeft = 120.5, BarTop = 40, MemoText = "x", BarScale = 0.75, BarCollapsed = true };
+        var restored = new AppSettings { BarLeft = 120.5, BarTop = 40, MemoText = "x", BarScale = 0.75, BarCollapsed = true, BarDockEdge = BarDockEdge.Right, BarAnchorRight = true, BarAnchorBottom = true };
         SettingsFile.Save(path, restored);
         var pinned = SettingsFile.Load(path);
         Assert.Equal(120.5, pinned.BarLeft, 3);
         Assert.Equal(40, pinned.BarTop, 3);
         Assert.Equal(0.75, pinned.BarScale, 3);
         Assert.True(pinned.BarCollapsed);
+        Assert.Equal(BarDockEdge.Right, pinned.BarDockEdge);
+        Assert.True(pinned.BarAnchorRight);
+        Assert.True(pinned.BarAnchorBottom);
 
         File.Delete(path);
     }

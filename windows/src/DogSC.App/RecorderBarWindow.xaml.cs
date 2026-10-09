@@ -19,11 +19,28 @@ public partial class RecorderBarWindow : Window
     HwndSource? _source;
     bool _barLayoutReady;
     bool _collapsed;
+    BarAnchor _anchor;
+    BarBounds _work;
+    bool _positionReady;
+    bool _dragging;
+    bool _placing;
+    bool _changingLayout;
+    readonly RotateTransform _chevronTurn = new();
+    BarBounds? _dockOrigin;
+    static readonly DependencyProperty DockProgressProperty = DependencyProperty.Register(
+        "DockProgress", typeof(double), typeof(RecorderBarWindow),
+        new PropertyMetadata(1d, (owner, _) => ((RecorderBarWindow)owner).PositionBar()));
+    double DockProgress => (double)GetValue(DockProgressProperty);
+
+    bool VerticalBar => _anchor.Edge is BarDockEdge.Left or BarDockEdge.Right;
 
     public RecorderBarWindow()
     {
         InitializeComponent();
+        CollapseIcon.RenderTransformOrigin = new Point(0.5, 0.5);
+        CollapseIcon.RenderTransform = _chevronTurn;
         _collapsed = SettingsStore.Current.BarCollapsed;
+        _anchor = new(SettingsStore.Current.BarDockEdge, SettingsStore.Current.BarAnchorRight, SettingsStore.Current.BarAnchorBottom, 0, 0);
         BarSizeSlider.Value = SettingsStore.Current.BarScale;
         SizePopup.Opened += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => BarSizeSlider.Focus()));
         SizePopup.Closed += (_, _) => (SizePopup.PlacementTarget as UIElement)?.Focus();
@@ -67,6 +84,7 @@ public partial class RecorderBarWindow : Window
         _timer.Tick += (_, _) => PaintElapsedTime();
         Loaded += async (_, _) => await LoadDevicesAsync();
         MouseLeftButtonDown += DragBar;
+        SizeChanged += (_, _) => PositionBar();
         Loaded += (_, _) =>
         {
             _barLayoutReady = true;
@@ -86,40 +104,166 @@ public partial class RecorderBarWindow : Window
 
     void DragBar(object sender, MouseButtonEventArgs args)
     {
-        foreach (var property in new[] { LeftProperty, TopProperty }) BeginAnimation(property, null);
-        BarRoot.BeginAnimation(WidthProperty, null);
-        WindowPlacement.Drag(this, args);
+        try
+        {
+            if (!WindowPlacement.Drag(this, args, () =>
+            {
+                _dragging = true;
+                ListPopup.IsOpen = SizePopup.IsOpen = false;
+                Motion.Freeze(BarRoot, WidthProperty);
+                Motion.Freeze(BarRoot, HeightProperty);
+                BeginAnimation(DockProgressProperty, null);
+                SetValue(DockProgressProperty, 1d);
+                _dockOrigin = null;
+                foreach (var panel in new FrameworkElement[] { SetupPanel, RecordingPanel, CompactPanel })
+                {
+                    panel.BeginAnimation(OpacityProperty, null);
+                    panel.Opacity = 1;
+                }
+            })) return;
+        }
+        finally
+        {
+            _dragging = false;
+        }
+        var work = WindowPlacement.WorkArea(this);
+        _work = new(work.Left, work.Top, work.Width, work.Height);
+        var bounds = new BarBounds(Left, Top, ActualWidth, ActualHeight);
+        _anchor = BarAnchor.Capture(bounds, _work, BarDockLayout.SnapEdge(bounds, _work));
+        SizeToContent = SizeToContent.WidthAndHeight;
+        ApplyBarLayout(true, attach: true);
+        SettingsStore.Current.BarDockEdge = _anchor.Edge;
+        SettingsStore.Current.BarAnchorRight = _anchor.RightAligned;
+        SettingsStore.Current.BarAnchorBottom = _anchor.BottomAligned;
+        QueueBarSettings();
     }
 
-    void ApplyBarLayout(bool animate)
+    void PositionBar()
+    {
+        if (!_positionReady || _dragging || _placing || _changingLayout) return;
+        _placing = true;
+        try
+        {
+            var bounds = _anchor.Place(_work, ActualWidth, ActualHeight, _dockOrigin, DockProgress);
+            Left = bounds.Left;
+            Top = bounds.Top;
+        }
+        finally { _placing = false; }
+    }
+
+    void ArrangeAlongEdge(bool animate)
+    {
+        var vertical = VerticalBar;
+        BarShell.Margin = vertical ? new Thickness(12, 16, 8, 16) : new Thickness(16, 12, 16, 8);
+        BarShell.Padding = vertical ? new Thickness(10, 14, 10, 14) : new Thickness(14, 10, 14, 10);
+        ShellGrid.ColumnDefinitions[0].Width = vertical ? new GridLength(1, GridUnitType.Star) : new GridLength(24);
+        ShellGrid.ColumnDefinitions[1].Width = vertical ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+        ShellGrid.ColumnDefinitions[2].Width = new GridLength(vertical ? 0 : 36);
+        ShellGrid.RowDefinitions[0].Height = vertical ? new GridLength(24) : new GridLength(1, GridUnitType.Star);
+        ShellGrid.RowDefinitions[1].Height = vertical ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        ShellGrid.RowDefinitions[2].Height = new GridLength(vertical ? 36 : 0);
+        Grid.SetColumn(ContentHost, vertical ? 0 : 1);
+        Grid.SetRow(ContentHost, vertical ? 1 : 0);
+        Grid.SetColumn(CollapseButton, vertical ? 0 : 2);
+        Grid.SetRow(CollapseButton, vertical ? 2 : 0);
+        CollapseButton.HorizontalAlignment = HorizontalAlignment.Center;
+        CollapseButton.VerticalAlignment = VerticalAlignment.Center;
+        GripIcon.LayoutTransform = new RotateTransform(vertical ? 90 : 0);
+        SetupPanel.Orientation = CompactPanel.Orientation = CompactRecording.Orientation = vertical ? Orientation.Vertical : Orientation.Horizontal;
+        SetupPanel.HorizontalAlignment = CompactPanel.HorizontalAlignment = HorizontalAlignment.Center;
+        foreach (var button in SetupPanel.Children.OfType<Button>())
+            button.Margin = vertical ? new Thickness(0, 2, 0, 2) : new Thickness(2, 0, 2, 0);
+        foreach (var separator in SetupPanel.Children.OfType<System.Windows.Shapes.Rectangle>())
+        {
+            separator.Width = vertical ? 36 : 1;
+            separator.Height = vertical ? 1 : 36;
+            separator.Margin = vertical ? new Thickness(0, 8, 0, 8) : new Thickness(8, 0, 8, 0);
+        }
+        FolderButton.Width = vertical ? 64 : 112;
+        FolderContent.Width = vertical ? 48 : 96;
+        MainMenuButton.Width = MainCloseButton.Width = vertical ? 64 : 48;
+        if (!vertical) MainMenuButton.Margin = new Thickness(6, 0, 2, 0);
+        CompactRecord.Height = vertical ? 56 : 36;
+        CompactRecord.Padding = vertical ? new Thickness(6) : new Thickness(14, 8, 14, 8);
+        CompactRecordContent.Orientation = vertical ? Orientation.Vertical : Orientation.Horizontal;
+        CompactRecordIcon.Margin = vertical ? new Thickness(0, 0, 0, 4) : new Thickness(0, 0, 6, 0);
+        CompactMenu.Margin = vertical ? new Thickness(0, 4, 0, 0) : new Thickness(4, 0, 0, 0);
+        RecordingHeader.Orientation = vertical ? Orientation.Vertical : Orientation.Horizontal;
+        DockPanel.SetDock(RecordingHeader, vertical ? Dock.Top : Dock.Left);
+        RecordingLabel.MaxWidth = vertical ? 84 : 140;
+        RecordingLabel.Margin = vertical ? new Thickness(0, 6, 0, 6) : new Thickness(14, 0, 0, 0);
+        foreach (var button in RecordingPanel.Children.OfType<Button>())
+        {
+            DockPanel.SetDock(button, vertical ? Dock.Bottom : Dock.Right);
+            button.Margin = vertical ? new Thickness(0, 4, 0, 4) : new Thickness(0);
+        }
+        if (!vertical) ((Button)RecordingPanel.Children[1]).Margin = new Thickness(8, 0, 4, 0);
+        var popupSide = _anchor.Edge == BarDockEdge.Right ? System.Windows.Controls.Primitives.PlacementMode.Left
+            : _anchor.Edge == BarDockEdge.Left ? System.Windows.Controls.Primitives.PlacementMode.Right
+            : _anchor.BottomAligned ? System.Windows.Controls.Primitives.PlacementMode.Top : System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        ListPopup.Placement = SizePopup.Placement = popupSide;
+        var towardEnd = vertical ? !_anchor.BottomAligned : !_anchor.RightAligned;
+        if (!_collapsed) towardEnd = !towardEnd;
+        var angle = vertical ? towardEnd ? 90d : 270d : towardEnd ? 0d : 180d;
+        CollapseIcon.Kind = IconKind.ChevronRight;
+        var from = _chevronTurn.Angle;
+        var turn = ((angle - from) % 360 + 540) % 360 - 180;
+        Motion.To(_chevronTurn, RotateTransform.AngleProperty, from, from + turn, animate ? 240 : 0);
+    }
+
+    void ApplyBarLayout(bool animate, bool attach = false)
     {
         if (!_barLayoutReady) return;
+        var origin = new BarBounds(Left, Top, ActualWidth, ActualHeight);
         var recording = _session is not null;
         SetupPanel.Visibility = !_collapsed && !recording ? Visibility.Visible : Visibility.Collapsed;
         RecordingPanel.Visibility = !_collapsed && recording ? Visibility.Visible : Visibility.Collapsed;
         CompactPanel.Visibility = _collapsed ? Visibility.Visible : Visibility.Collapsed;
         CompactRecord.Visibility = recording ? Visibility.Collapsed : Visibility.Visible;
         CompactRecording.Visibility = recording ? Visibility.Visible : Visibility.Collapsed;
-        CollapseIcon.Kind = _collapsed ? IconKind.ChevronRight : IconKind.ChevronLeft;
         CollapseButton.ToolTip = _collapsed ? "展开工具条" : "收起工具条";
         System.Windows.Automation.AutomationProperties.SetName(CollapseButton, (string)CollapseButton.ToolTip);
 
-        var designWidth = _collapsed ? recording ? 340d : 280d : recording ? 620d : 860d;
-        var designHeight = _collapsed ? 88d : recording ? 100d : 124d;
+        var length = _collapsed ? recording ? 340d : 280d : recording ? VerticalBar ? 400d : 620d : 860d;
+        var designWidth = VerticalBar ? _collapsed ? 104d : 132d : length;
+        var designHeight = VerticalBar ? length : _collapsed ? 88d : recording ? 100d : 124d;
         var work = WindowPlacement.WorkArea(this);
+        _work = new(work.Left, work.Top, work.Width, work.Height);
         var scale = Math.Min(SettingsStore.Current.BarScale, Math.Min((work.Width - 24) / designWidth, (work.Height - 24) / designHeight));
-        BarScale.ScaleX = BarScale.ScaleY = scale;
         var width = designWidth * scale;
         var height = designHeight * scale;
-        var duration = animate ? 180 : 0;
-        Motion.To(this, LeftProperty, Left, Math.Clamp(Left, work.Left, work.Right - width), duration);
-        Motion.To(this, TopProperty, Top, Math.Clamp(Top, work.Top, work.Bottom - height), duration);
-        // Let SizeToContent keep the native window and its scaled content in sync.
-        // Height changes immediately so expanded labels are never clipped by the compact height.
-        BarRoot.Height = designHeight;
-        Motion.To(BarRoot, WidthProperty, BarRoot.Width, designWidth, duration);
+        if (!_positionReady)
+        {
+            var right = _anchor.Edge == BarDockEdge.Right || _anchor.RightAligned;
+            var bottom = _anchor.Edge == BarDockEdge.Bottom || _anchor.BottomAligned;
+            _anchor = new(_anchor.Edge, right, bottom, right ? Left + width : Left, bottom ? Top + height : Top);
+            if (double.IsNaN(SettingsStore.Current.BarLeft)) _anchor = BarAnchor.Capture(new(Left, Top, width, height), _work, _anchor.Edge);
+            _positionReady = true;
+        }
+        var duration = animate ? attach ? 320 : 280 : 0;
+        var attaching = animate && Motion.Enabled && (attach || _dockOrigin is not null && DockProgress < 1);
+        var fromWidth = ActualWidth / scale;
+        var fromHeight = ActualHeight / scale;
+        _changingLayout = true;
+        try
+        {
+            _dockOrigin = attaching ? origin : null;
+            Motion.To(this, DockProgressProperty, attaching ? 0 : 1, 1, duration);
+            ArrangeAlongEdge(animate);
+            BarScale.ScaleX = BarScale.ScaleY = scale;
+            Motion.To(BarRoot, WidthProperty, fromWidth, designWidth, duration);
+            Motion.To(BarRoot, HeightProperty, fromHeight, designHeight, duration);
+        }
+        finally { _changingLayout = false; }
+        PositionBar();
         BarSizeLabel.Text = SettingsStore.Current.BarScale.ToString("P0");
-        if (animate) Motion.Reveal(_collapsed ? CompactPanel : recording ? RecordingPanel : SetupPanel);
+        if (animate)
+        {
+            var delay = _collapsed ? 45 : (int)(duration * 0.65);
+            Motion.Reveal(_collapsed ? CompactPanel : recording ? RecordingPanel : SetupPanel, milliseconds: 150, delay: delay,
+                x: VerticalBar ? 0 : _anchor.RightAligned ? -4 : 4,
+                y: VerticalBar ? _anchor.BottomAligned ? -4 : 4 : 0);
+        }
     }
 
     void Collapse_Click(object sender, RoutedEventArgs e)
@@ -610,6 +754,7 @@ public partial class RecorderBarWindow : Window
             if (result.DroppedFields.Count > 0)
             {
                 AppPaths.Log("macOS 导入丢弃字段：" + string.Join("；", result.DroppedFields));
+                MessageBox.Show(this, "项目已导入。以下设置暂未迁移：\n\n" + string.Join("\n", result.DroppedFields.Distinct()), "Mac 项目导入说明");
             }
 
             var videos = result.Project.Assets.SelectMany(a => new[] { a.Video, a.Camera });
@@ -687,6 +832,16 @@ public partial class RecorderBarWindow : Window
 
     IntPtr WndProc(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (message == 0x0046 && _positionReady && !_dragging && !_changingLayout)
+            WindowPlacement.AnchorPosition(this, lParam, _anchor, _work, _dockOrigin, DockProgress);
+        if (message == 0x0216 && _dragging)
+        {
+            WindowPlacement.ConstrainMove(lParam);
+            handled = true;
+            return new IntPtr(1);
+        }
+        if (!_dragging && (message is 0x007E or 0x001A or 0x02E0))
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => ApplyBarLayout(false)));
         if (message == 0x0312 && _session is not null)
         {
             if (wParam.ToInt32() == 1)

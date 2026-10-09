@@ -20,6 +20,8 @@ public sealed class PreviewPlayer : IDisposable
     bool _cameraPending;
     bool _microphonePending;
     bool _systemPending;
+    MediaAsset? _activeAsset;
+    double _cameraAdvance;
 
     public PreviewPlayer()
     {
@@ -56,7 +58,8 @@ public sealed class PreviewPlayer : IDisposable
     {
         var timeline = project.Clips.Select(clip =>
             (clip.Id, clip.AssetId, clip.SourceStart, clip.SourceEnd, clip.Speed)).ToArray();
-        var changed = !ReferenceEquals(_project, project) || !_timeline.SequenceEqual(timeline);
+        var changed = !ReferenceEquals(_project, project) || !_timeline.SequenceEqual(timeline) || _cameraAdvance != project.Camera.TimingAdvance;
+        _cameraAdvance = project.Camera.TimingAdvance;
         _project = project;
         SetGains(project.MicrophoneGain, project.SystemGain);
         if (changed)
@@ -198,11 +201,14 @@ public sealed class PreviewPlayer : IDisposable
         }
 
         Time = clip.Start + Math.Max(0, source - clip.Clip.SourceStart) / clip.Clip.Speed;
-        var drift = Math.Abs(_microphone.Position.TotalSeconds - source);
+        var drift = Math.Abs(_microphone.Position.TotalSeconds - Math.Max(0, source + (_activeAsset?.MicrophoneOffset ?? 0)));
         if (_microphone.Source is not null && drift > 0.35)
         {
-            _microphone.Position = TimeSpan.FromSeconds(source);
+            _microphone.Position = TimeSpan.FromSeconds(Math.Max(0, source + (_activeAsset?.MicrophoneOffset ?? 0)));
         }
+        var cameraSource = Math.Max(0, source + (_activeAsset?.CameraOffset ?? 0) + _cameraAdvance);
+        if (_camera.Source is not null && Math.Abs(_camera.Position.TotalSeconds - cameraSource) > 0.12)
+            _camera.Position = TimeSpan.FromSeconds(cameraSource);
 
         if (_system.Source is not null && Math.Abs(_system.Position.TotalSeconds - source) > 0.35)
         {
@@ -214,11 +220,13 @@ public sealed class PreviewPlayer : IDisposable
 
     void OpenAsset(MediaAsset asset)
     {
+        _activeAsset = asset;
         OpenMedia(_screen, ProjectFile.Media(_directory, asset.Video), ref _screenPending);
         if (!string.IsNullOrWhiteSpace(asset.Camera))
         {
             OpenMedia(_camera, ProjectFile.Media(_directory, asset.Camera), ref _cameraPending);
         }
+        else _camera.Close();
 
         OpenAudio(_microphone, asset.Microphone, ref _microphonePending);
         OpenAudio(_system, asset.SystemAudio, ref _systemPending);
@@ -250,7 +258,7 @@ public sealed class PreviewPlayer : IDisposable
             return;
         }
 
-        player.Position = _pendingPosition;
+        player.Position = PendingPosition(player);
     }
 
     void OnOpened(MediaPlayer player, VideoDrawing? drawing, ref bool pending)
@@ -266,7 +274,7 @@ public sealed class PreviewPlayer : IDisposable
         }
 
         pending = false;
-        player.Position = _pendingPosition;
+        player.Position = PendingPosition(player);
         if (_wantPlay)
         {
             player.Play();
@@ -287,6 +295,13 @@ public sealed class PreviewPlayer : IDisposable
         {
             drawing.Rect = new Rect(0, 0, player.NaturalVideoWidth, player.NaturalVideoHeight);
         }
+    }
+
+    TimeSpan PendingPosition(MediaPlayer player)
+    {
+        var offset = ReferenceEquals(player, _camera) ? (_activeAsset?.CameraOffset ?? 0) + _cameraAdvance
+            : ReferenceEquals(player, _microphone) ? _activeAsset?.MicrophoneOffset ?? 0 : 0;
+        return TimeSpan.FromSeconds(Math.Max(0, _pendingPosition.TotalSeconds + offset));
     }
 
     static void Nudge(MediaPlayer player)

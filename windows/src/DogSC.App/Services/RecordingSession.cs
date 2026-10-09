@@ -160,6 +160,7 @@ public sealed class RecordingSession : IAsyncDisposable
             project.Height = project.Assets[0].Height;
         }
 
+        ScenePresets.ApplyDefault(project, _directory);
         ProjectFile.Save(_directory, project);
         return project;
     }

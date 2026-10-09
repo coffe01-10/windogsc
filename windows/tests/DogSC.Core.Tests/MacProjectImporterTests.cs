@@ -101,7 +101,9 @@ public class MacProjectImporterTests
 
         // 丢弃清单：screenFrame/crop/width 等 macOS 独有字段被记下。
         Assert.Contains(result.DroppedFields, f => f.StartsWith("canvas.screenFrame"));
-        Assert.Contains(result.DroppedFields, f => f.StartsWith("canvas.crop"));
+        Assert.DoesNotContain(result.DroppedFields, f => f.StartsWith("canvas.crop"));
+        Assert.Equal(1, project.Canvas.Crop.Width);
+        Assert.Equal(2, project.Canvas.Cursor.Size);
         Assert.Contains(result.DroppedFields, f => f == "openingSequence");
         Assert.Contains(result.DroppedFields, f => f == "motion");
         Assert.Contains(result.DroppedFields, f => f.StartsWith("camera.borderWidth"));
@@ -112,7 +114,8 @@ public class MacProjectImporterTests
         // pointerEvents 是 mac 的光标轨迹（events/pointer.jsonl），不该被拷进 media/。
         Assert.DoesNotContain("media/pointer.json", result.MediaReferences);
         Assert.DoesNotContain(result.MediaReferences, r => r.Contains("pointer"));
-        Assert.Contains(result.DroppedFields, f => f.StartsWith("media.pointerEvents"));
+        Assert.Equal("media/pointer.json", result.PointerPath);
+        Assert.DoesNotContain(result.DroppedFields, f => f.StartsWith("media.pointerEvents"));
     }
 
     [Fact]

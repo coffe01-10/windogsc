@@ -14,20 +14,43 @@ static class Motion
         if (!Enabled || milliseconds == 0 || Math.Abs(from - to) < 0.01) return;
         animatable.BeginAnimation(property, new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(milliseconds))
         {
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            EasingFunction = new QuarticEase { EasingMode = EasingMode.EaseOut },
             FillBehavior = FillBehavior.Stop,
         }, HandoffBehavior.SnapshotAndReplace);
     }
 
-    public static void Reveal(FrameworkElement element)
+    public static void Freeze(DependencyObject target, DependencyProperty property)
+    {
+        var current = target.GetValue(property);
+        ((IAnimatable)target).BeginAnimation(property, null);
+        target.SetValue(property, current);
+    }
+
+    public static void Reveal(FrameworkElement element, int milliseconds = 160, int delay = 0, double x = 0, double y = 5)
     {
         element.BeginAnimation(UIElement.OpacityProperty, null);
         element.Opacity = 1;
         if (!Enabled) return;
-        element.BeginAnimation(UIElement.OpacityProperty,
-            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)) { FillBehavior = FillBehavior.Stop });
+        var fade = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.Stop };
+        fade.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+        fade.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(delay))));
+        fade.KeyFrames.Add(new EasingDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(delay + milliseconds)),
+            new QuadraticEase { EasingMode = EasingMode.EaseOut }));
+        element.BeginAnimation(UIElement.OpacityProperty, fade, HandoffBehavior.SnapshotAndReplace);
         var offset = new TranslateTransform();
         element.RenderTransform = offset;
-        To(offset, TranslateTransform.YProperty, 5, 0, 160);
+        Slide(TranslateTransform.XProperty, x);
+        Slide(TranslateTransform.YProperty, y);
+
+        void Slide(DependencyProperty property, double from)
+        {
+            if (from == 0) return;
+            offset.BeginAnimation(property, new DoubleAnimation(from, 0, TimeSpan.FromMilliseconds(milliseconds))
+            {
+                BeginTime = TimeSpan.FromMilliseconds(delay),
+                EasingFunction = new QuarticEase { EasingMode = EasingMode.EaseOut },
+                FillBehavior = FillBehavior.Stop,
+            });
+        }
     }
 }

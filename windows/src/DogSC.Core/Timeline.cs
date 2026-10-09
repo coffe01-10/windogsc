@@ -264,7 +264,7 @@ public static class TimelineEdits
 
         if (includeTiming)
         {
-            placed.Clip.Speed = Math.Clamp(bundle.Speed, 0.5, 2);
+            placed.Clip.Speed = Math.Clamp(bundle.Speed, 0.5, 100);
             var length = Math.Max(0.2, bundle.SourceLength);
             placed.Clip.SourceEnd = Math.Clamp(placed.Clip.SourceStart + length, 0, placed.Asset.Duration);
             if (placed.Clip.SourceEnd - placed.Clip.SourceStart < 0.2)
@@ -390,6 +390,7 @@ public static class TimelineEdits
     static CanvasSettings Copy(CanvasSettings source) => new()
     {
         Aspect = source.Aspect,
+        Crop = new SourceCrop { X = source.Crop.X, Y = source.Crop.Y, Width = source.Crop.Width, Height = source.Crop.Height },
         Background = source.Background,
         Padding = source.Padding,
         CenterX = source.CenterX,
@@ -406,6 +407,12 @@ public static class TimelineEdits
             Mode = source.Cursor.Mode,
             ClickRipple = source.Cursor.ClickRipple,
             IdleHide = source.Cursor.IdleHide,
+            Size = source.Cursor.Size,
+            IdleDelay = source.Cursor.IdleDelay,
+            TimingAdvance = source.Cursor.TimingAdvance,
+            ClickColor = source.Cursor.ClickColor,
+            ClickScale = source.Cursor.ClickScale,
+            ClickOpacity = source.Cursor.ClickOpacity,
         },
         Wallpaper = source.Wallpaper,
         WallpaperBlur = source.WallpaperBlur,
@@ -414,6 +421,7 @@ public static class TimelineEdits
             : new StickerImage
             {
                 Path = source.Sticker.Path,
+                Timing = ScenePreset.Clone(source.Sticker.Timing),
                 X = source.Sticker.X,
                 Y = source.Sticker.Y,
                 Width = source.Sticker.Width,
@@ -422,6 +430,7 @@ public static class TimelineEdits
         SoftRegion = new SoftRegion
         {
             Enabled = source.SoftRegion.Enabled,
+            Timing = ScenePreset.Clone(source.SoftRegion.Timing),
             X = source.SoftRegion.X,
             Y = source.SoftRegion.Y,
             Width = source.SoftRegion.Width,
@@ -438,6 +447,9 @@ public static class TimelineEdits
         Shape = source.Shape,
         Entry = source.Entry,
         Corner = source.Corner,
+        Hidden = source.Hidden,
+        Mirrored = source.Mirrored,
+        TimingAdvance = source.TimingAdvance,
     };
 
 
@@ -505,6 +517,8 @@ public static class TimelineEdits
             return false;
         }
 
+        EffectTiming.Edit(project, spans => TimelineMath.RemoveRange(spans, placed.Start, placed.End));
+
         TimelineMath.RemoveRange(project.Zooms, placed.Start, placed.End);
         project.Clips.RemoveAll(item => item.Id == clipId);
         return true;
@@ -530,10 +544,12 @@ public static class TimelineEdits
         var head = sourceStart - clip.SourceStart;
         if (head > 0.0001)
         {
+            EffectTiming.Edit(project, spans => TimelineMath.RemoveRange(spans, slot.Start, slot.Start + head / clip.Speed));
             TimelineMath.RemoveRange(project.Zooms, slot.Start, slot.Start + head / clip.Speed);
         }
         else if (head < -0.0001)
         {
+            EffectTiming.Edit(project, spans => TimelineMath.InsertGap(spans, slot.Start, -head / clip.Speed));
             TimelineMath.InsertGap(project.Zooms, slot.Start, -head / clip.Speed);
         }
 
@@ -543,10 +559,12 @@ public static class TimelineEdits
         if (tail > 0.0001)
         {
             var removed = tail / clip.Speed;
+            EffectTiming.Edit(project, spans => TimelineMath.RemoveRange(spans, refreshed.End - removed, refreshed.End));
             TimelineMath.RemoveRange(project.Zooms, refreshed.End - removed, refreshed.End);
         }
         else if (tail < -0.0001)
         {
+            EffectTiming.Edit(project, spans => TimelineMath.InsertGap(spans, refreshed.End, -tail / clip.Speed));
             TimelineMath.InsertGap(project.Zooms, refreshed.End, -tail / clip.Speed);
         }
 
@@ -562,7 +580,7 @@ public static class TimelineEdits
             return false;
         }
 
-        speed = Math.Clamp(speed, 0.5, 2);
+        speed = Math.Clamp(speed, 0.5, 100);
         if (Math.Abs(speed - clip.Speed) < 0.001)
         {
             return false;
@@ -571,6 +589,7 @@ public static class TimelineEdits
         var slot = TimelineMath.Place(project).First(item => item.Clip.Id == clipId);
         var oldDuration = slot.Duration;
         var newDuration = (clip.SourceEnd - clip.SourceStart) / speed;
+        EffectTiming.Edit(project, spans => TimelineMath.Retime(spans, slot.Start, oldDuration, newDuration));
         TimelineMath.Retime(project.Zooms, slot.Start, oldDuration, newDuration);
         clip.Speed = speed;
         return true;

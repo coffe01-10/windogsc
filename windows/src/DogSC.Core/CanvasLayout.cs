@@ -21,15 +21,16 @@ public static class CanvasLayout
         sourceWidth = Math.Max(2, sourceWidth);
         sourceHeight = Math.Max(2, sourceHeight);
         var sourceAspect = string.IsNullOrWhiteSpace(aspect) || aspect is "source" or "适应";
-        var (aspectWidth, aspectHeight) = aspect switch
+        double aspectWidth = sourceWidth, aspectHeight = sourceHeight;
+        var ratio = aspect?.Split(':');
+        if (ratio is { Length: 2 }
+            && double.TryParse(ratio[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var w)
+            && double.TryParse(ratio[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var h)
+            && w > 0 && h > 0)
         {
-            "16:9" => (16, 9),
-            "4:3" => (4, 3),
-            "1:1" => (1, 1),
-            "9:16" => (9, 16),
-            "3:4" => (3, 4),
-            _ => (sourceWidth, sourceHeight),
-        };
+            aspectWidth = w;
+            aspectHeight = h;
+        }
 
         var shortTarget = resolution switch
         {
@@ -75,6 +76,9 @@ public static class CanvasLayout
 
     public static FramePlacement Place(int canvasWidth, int canvasHeight, int videoWidth, int videoHeight, CanvasSettings canvas)
     {
+        var cropped = Crop(videoWidth, videoHeight, canvas.Crop);
+        videoWidth = cropped.Width;
+        videoHeight = cropped.Height;
         videoWidth = Math.Max(2, videoWidth);
         videoHeight = Math.Max(2, videoHeight);
         var pad = canvas.Padding / 1080.0 * canvasHeight;
@@ -98,6 +102,13 @@ public static class CanvasLayout
             (int)Math.Round(shadowT * 28),
             (int)Math.Round(shadowT * 22),
             shadowT * 0.5);
+    }
+
+    public static (int X, int Y, int Width, int Height) Crop(int width, int height, SourceCrop crop)
+    {
+        var w = Even((int)Math.Round(width * crop.Width));
+        var h = Even((int)Math.Round(height * crop.Height));
+        return (Math.Min(width - w, (int)Math.Round(width * crop.X)) & ~1, Math.Min(height - h, (int)Math.Round(height * crop.Y)) & ~1, w, h);
     }
 
     public static BubblePlacement Bubble(int canvasWidth, int canvasHeight, CameraBubble camera)

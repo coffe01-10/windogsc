@@ -96,6 +96,44 @@ public static class SelfTest
         }
 
         Console.WriteLine($"SELFTEST_OK export {info.Width}x{info.Height} {info.Duration:0.00}s");
+        asset.Cursor = [new CursorPoint { Time = 0, X = 0.2, Y = 0.3 },
+            new CursorPoint { Time = 0.5, X = 0.5, Y = 0.5, Click = true },
+            new CursorPoint { Time = 0.55, X = 0.55, Y = 0.55 }];
+        asset.Camera = asset.Video;
+        asset.SystemAudio = asset.Video;
+        project.Camera.Mirrored = true;
+        project.Camera.TimingAdvance = 0.01;
+        project.Canvas.Crop = new SourceCrop { X = 0.1, Y = 0.1, Width = 0.8, Height = 0.8 };
+        project.Canvas.Aspect = "9:16";
+        project.Canvas.TiltY = 18;
+        var parityOutput = Path.Combine(root, "parity.mp4");
+        await exporter.ExportAsync(project, root, new ExportOptions(), parityOutput, CancellationToken.None);
+        var parityInfo = await FfmpegTools.Probe(ffprobe, parityOutput);
+        if (parityInfo is null || parityInfo.Width >= parityInfo.Height || !parityInfo.HasAudio || parityInfo.Duration < 1.5)
+            throw new InvalidOperationException("裁切、光标、摄像头或声音导出异常。");
+        Console.WriteLine("SELFTEST_OK parity crop/cursor/ripple/mirror/sync/audio");
+        var sticker = Path.Combine(root, "media", "logo.bmp");
+        MaskImage.WriteBmp(sticker, 64, 64, 8, false);
+        project.Canvas.Sticker = new() { Path = "media/logo.bmp", Timing = new() { Start = .2, Duration = 1.3, Fade = .2 } };
+        project.Canvas.SoftRegion = new() { Enabled = true, Timing = new() { Start = .3, Duration = 1.1, Fade = .2 } };
+        project.Canvas.Intro = "zoom";
+        var effectsOutput = Path.Combine(root, "effects.mp4");
+        await new ExportService(ffmpeg).ExportAsync(project, root, new(), effectsOutput, CancellationToken.None);
+        if ((await FfmpegTools.Probe(ffprobe, effectsOutput))?.Duration < 1.5) throw new InvalidOperationException("时段装饰导出被截断。");
+        await CheckRenderedPixels(ffmpeg, effectsOutput, root, project);
+        var protectedOutput = Path.Combine(root, "keep-existing.mp4");
+        await File.WriteAllTextAsync(protectedOutput, "existing-export");
+        try
+        {
+            await new ExportService(ffmpeg).ExportAsync(project, root, new(), protectedOutput, new CancellationToken(true));
+            throw new InvalidOperationException("取消导出没有停止。");
+        }
+        catch (OperationCanceledException) { }
+        if (await File.ReadAllTextAsync(protectedOutput) != "existing-export" || Directory.EnumerateFiles(root, ".DogSC-*").Any())
+            throw new InvalidOperationException("取消导出覆盖了旧文件或留下半成品。");
+        Console.WriteLine("SELFTEST_OK timed-sticker/soft/fades/perspective/intro");
+        Console.WriteLine("SELFTEST_OK color/projection-edges/cancel-keeps-existing");
+        await CheckMacImportAsync(ffmpeg, ffprobe, root, source);
         var monitor = Native.Monitors().First();
         var grabPath = Path.Combine(root, "grab.mp4");
         var region = Native.EvenRegion(monitor.Left, monitor.Top, Math.Min(640, monitor.Width), Math.Min(360, monitor.Height));
@@ -117,5 +155,64 @@ public static class SelfTest
 
         Console.WriteLine($"SELFTEST_OK capture {grabInfo.Width}x{grabInfo.Height}");
         return 0;
+    }
+
+    static async Task CheckMacImportAsync(string ffmpeg, string ffprobe, string root, string source)
+    {
+        var package = Path.Combine(root, "mac-input");
+        Directory.CreateDirectory(package);
+        using (var mov = FfmpegProcess.Start(ffmpeg, ["-y", "-i", source, "-c", "copy", Path.Combine(package, "screen.mov")]))
+            if (await mov.WaitAsync() != 0) throw new InvalidOperationException(mov.ErrorText());
+        await File.WriteAllTextAsync(Path.Combine(package, "pointer.jsonl"), """
+            {"time":0,"location":{"x":0.2,"y":0.2},"kind":"move"}
+            {"time":0.5,"location":{"x":0.5,"y":0.5},"kind":"leftClick"}
+            """);
+        await File.WriteAllTextAsync(Path.Combine(package, "project.json"), """
+            {"version":27,"title":"import-selftest","media":{"screen":{"relativePath":"screen.mov"},"pointerEvents":{"relativePath":"pointer.jsonl"}},
+             "timeline":{"sourceSequence":{"kind":"fullRecording"}},"recordingMarkers":[{"sourceTime":0.5,"number":1}]}
+            """);
+        var previousDirectory = SettingsStore.Current.ProjectsDirectory;
+        var previousRecent = SettingsStore.Current.RecentProjects.ToList();
+        try
+        {
+            SettingsStore.Current.ProjectsDirectory = Path.Combine(root, "imports");
+            var imported = await ProjectFactory.ImportMacAsync(ffmpeg, ffprobe, package);
+            var importedProject = imported.Result.Project;
+            if (importedProject.Assets[0].SystemAudio is null || importedProject.Assets[0].Cursor.Count != 2 || importedProject.Markers.Count != 1)
+                throw new InvalidOperationException("Mac 音频、指针或标记迁移异常。");
+            var output = Path.Combine(root, "mac-export.mp4");
+            await new ExportService(ffmpeg).ExportAsync(importedProject, imported.Directory, new ExportOptions(), output, CancellationToken.None);
+            if ((await FfmpegTools.Probe(ffprobe, output))?.HasAudio != true) throw new InvalidOperationException("Mac 导入后导出丢失声音。");
+            Console.WriteLine("SELFTEST_OK mac-import audio/pointer/markers/export");
+        }
+        finally
+        {
+            SettingsStore.Current.ProjectsDirectory = previousDirectory;
+            SettingsStore.Current.RecentProjects = previousRecent;
+            SettingsStore.Save();
+        }
+    }
+
+    static async Task CheckRenderedPixels(string ffmpeg, string video, string root, ProjectDocument project)
+    {
+        var path = Path.Combine(root, "rendered.png");
+        try
+        {
+            using var extract = FfmpegProcess.Start(ffmpeg, ["-y", "-ss", "1", "-i", video, "-frames:v", "1", path]);
+            if (await extract.WaitAsync() != 0) throw new InvalidOperationException(extract.ErrorText());
+            var frame = BitmapFrame.Create(new Uri(path), BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            var image = new FormatConvertedBitmap(frame, PixelFormats.Bgr32, null, 0);
+            var pixels = new byte[image.PixelWidth * image.PixelHeight * 4];
+            image.CopyPixels(pixels, image.PixelWidth * 4, 0);
+            var colored = 0;
+            for (var i = 0; i < pixels.Length; i += 4)
+                if (Math.Max(pixels[i], Math.Max(pixels[i + 1], pixels[i + 2])) - Math.Min(pixels[i], Math.Min(pixels[i + 1], pixels[i + 2])) > 40) colored++;
+            if (colored < image.PixelWidth * image.PixelHeight * .02) throw new InvalidOperationException("柔化后成片丢失颜色。");
+            var placement = CanvasLayout.Place(image.PixelWidth, image.PixelHeight, project.Width, project.Height, project.Canvas);
+            var corner = ((placement.Y + 1) * image.PixelWidth + placement.X + 1) * 4;
+            if (pixels[corner] < 180 || pixels[corner + 1] < 180 || pixels[corner + 2] < 180)
+                throw new InvalidOperationException("透视四角外侧出现拉伸填充。");
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
     }
 }

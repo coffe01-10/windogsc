@@ -104,6 +104,7 @@ public static class ProjectFactory
         {
             // 拷贝 media 引用文件，并把 asset 的相对路径改成 Windows 约定。
             var mediaDir = Path.Combine(directory, "media");
+            var copied = new Dictionary<string, string>();
             foreach (var reference in result.MediaReferences)
             {
                 var source = Path.Combine(packagePath, reference.Replace('/', Path.DirectorySeparatorChar));
@@ -112,47 +113,55 @@ public static class ProjectFactory
                     continue;
                 }
 
-                var name = Path.GetFileName(source);
+                var name = "import-" + copied.Count + "-" + Path.GetFileName(source);
                 var target = Path.Combine(mediaDir, name);
                 File.Copy(source, target, overwrite: true);
+                copied[reference] = "media/" + name;
             }
 
             var asset = project.Assets[0];
-            var screenName = Path.GetFileName(asset.Video.Replace('/', Path.DirectorySeparatorChar));
-            var copiedScreen = Path.Combine(mediaDir, screenName);
-            if (File.Exists(copiedScreen))
+            if (copied.TryGetValue(asset.Video, out var screen))
             {
-                asset.Video = "media/" + screenName;
+                asset.Video = screen;
             }
             else
             {
                 throw new InvalidDataException("macOS 项目的屏幕录制文件拷不过来：" + asset.Video);
             }
 
-            asset.Camera = Relocate(asset.Camera, mediaDir);
-            asset.Microphone = Relocate(asset.Microphone, mediaDir);
+            asset.Camera = asset.Camera is { } camera && copied.TryGetValue(camera, out var cameraCopy) ? cameraCopy : null;
+            asset.Microphone = asset.Microphone is { } mic && copied.TryGetValue(mic, out var micCopy) ? micCopy : null;
+            if (project.Canvas.Wallpaper is { } wall && copied.TryGetValue(wall, out var wallCopy)) project.Canvas.Wallpaper = wallCopy;
+            if (result.PointerPath is { } pointer)
+            {
+                var pointerFile = Path.Combine(packagePath, pointer.Replace('/', Path.DirectorySeparatorChar));
+                if (File.Exists(pointerFile)) asset.Cursor = MacProjectImporter.ImportPointerEvents(File.ReadLines(pointerFile), result.PointerAdvance);
+                else result.DroppedFields.Add("指针轨迹文件缺失：" + pointer);
+            }
+            var originalScreen = ProjectFile.Media(directory, asset.Video);
+            var originalInfo = await FfmpegTools.Probe(ffprobe, originalScreen);
+            if (originalInfo is not null)
+            {
+                var fullRecording = result.FullRecording;
+                asset.Duration = Math.Max(originalInfo.Duration, 0.1);
+                asset.Width = project.Width = originalInfo.Width;
+                asset.Height = project.Height = originalInfo.Height;
+                if (fullRecording) project.Clips[0].SourceEnd = asset.Duration;
+                if (originalInfo.HasAudio && ffmpeg is not null)
+                {
+                    var audio = Path.Combine(mediaDir, "system.wav");
+                    using var extract = FfmpegProcess.Start(ffmpeg, ["-y", "-i", originalScreen, "-map", "0:a:0", "-vn", "-c:a", "pcm_s16le", audio]);
+                    if (await extract.WaitAsync() != 0) throw new InvalidOperationException("导入系统声音失败：" + extract.ErrorText());
+                    asset.SystemAudio = "media/system.wav";
+                }
+                else if (originalInfo.HasAudio) result.DroppedFields.Add("系统声音需要 ffmpeg 才能分离，请配置后重新导入。");
+            }
             // mac 的 screen/camera 常是 .mov：HEVC 要装扩展、ProRes 无解，
             // Media Foundation 预览会黑屏。转成 h264 mp4，导出/预览都走它。
             if (ffmpeg is not null)
             {
                 asset.Video = await ToMp4(ffmpeg, ffprobe, directory, asset.Video) ?? asset.Video;
                 asset.Camera = await ToMp4(ffmpeg, ffprobe, directory, asset.Camera);
-            }
-
-            var screenFile = Path.Combine(directory, asset.Video.Replace('/', Path.DirectorySeparatorChar));
-            // fullRecording 时长未知：用 ffprobe 探测补齐。
-            if (asset.Duration <= 1.01 && File.Exists(screenFile))
-            {
-                var info = await FfmpegTools.Probe(ffprobe, screenFile);
-                if (info is not null)
-                {
-                    asset.Duration = Math.Max(info.Duration, 0.1);
-                    asset.Width = info.Width;
-                    asset.Height = info.Height;
-                    project.Width = Math.Max(info.Width, 2);
-                    project.Height = Math.Max(info.Height, 2);
-                    project.Clips[0].SourceEnd = asset.Duration;
-                }
             }
 
             ProjectFile.Save(directory, project);
@@ -163,17 +172,6 @@ public static class ProjectFactory
         {
             try { Directory.Delete(directory, recursive: true); } catch { }
             throw;
-        }
-
-        static string? Relocate(string? relative, string mediaDir)
-        {
-            if (string.IsNullOrWhiteSpace(relative))
-            {
-                return null;
-            }
-
-            var name = Path.GetFileName(relative.Replace('/', Path.DirectorySeparatorChar));
-            return File.Exists(Path.Combine(mediaDir, name)) ? "media/" + name : null;
         }
 
         /// <summary>
@@ -201,7 +199,7 @@ public static class ProjectFactory
                 return relative;
             }
 
-            var target = Path.Combine(Path.GetDirectoryName(source)!, Path.GetFileNameWithoutExtension(source) + ".mp4");
+            var target = Path.Combine(Path.GetDirectoryName(source)!, Path.GetFileNameWithoutExtension(source) + "-preview.mp4");
             var run = FfmpegProcess.Start(ffmpeg, [
                 "-y", "-i", source, "-map", "0:v:0", "-an",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", target,

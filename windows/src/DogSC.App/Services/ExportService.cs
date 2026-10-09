@@ -7,6 +7,7 @@ public sealed class ExportService
     readonly string _ffmpeg;
     FfmpegProcess? _process;
     public event Action<double>? Progress;
+    public event Action<string>? Stage;
 
     public ExportService(string ffmpeg)
     {
@@ -16,16 +17,29 @@ public sealed class ExportService
     public async Task<string> ExportAsync(ProjectDocument project, string projectDirectory, ExportOptions options, string outputPath, CancellationToken cancellation)
     {
         var resolved = Resolve(project, projectDirectory);
-        var plan = ExportGraph.Build(project, options, resolved);
         var temp = Path.Combine(Path.GetTempPath(), "DogSC", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temp);
+        var partial = Path.Combine(Path.GetDirectoryName(outputPath)!, ".DogSC-" + Guid.NewGuid().ToString("N") + Path.GetExtension(outputPath));
         try
         {
+            Stage?.Invoke("正在准备光标和效果…");
+            resolved.CursorCommands = Path.Combine(temp, "cursor.commands");
+            var plan = ExportGraph.Build(project, options, resolved);
+            await CursorExport.PrepareAsync(_ffmpeg, project, plan, temp, cancellation);
             if (plan.FrameMaskIndex >= 0)
             {
                 var mask = Path.Combine(temp, "frame.bmp");
                 MaskImage.WriteBmp(mask, plan.Placement.Width, plan.Placement.Height, plan.Placement.Radius, circle: false);
                 plan.Inputs[plan.FrameMaskIndex] = mask;
+            }
+            if (plan.ProjectionMaskIndex >= 0)
+            {
+                var mask = Path.Combine(temp, "projection.bmp");
+                var width = plan.Placement.Width;
+                var height = plan.Placement.Height;
+                MaskImage.WriteBmp(mask, MaskImage.CreateProjectionMask(width, height,
+                    PerspectiveGeometry.Corners(width, height, project.Canvas.TiltX, project.Canvas.TiltY)), width, height);
+                plan.Inputs[plan.ProjectionMaskIndex] = mask;
             }
 
             if (plan.CameraMaskIndex >= 0)
@@ -45,21 +59,6 @@ public sealed class ExportService
                 plan.Inputs[plan.FocusMaskIndex] = mask;
             }
 
-            if (plan.CursorIndex >= 0)
-            {
-                var cursor = Path.Combine(temp, "cursor.bmp");
-                var dot = project.Canvas.Cursor.Mode == "dot";
-                MaskImage.WriteBmp(cursor, MaskImage.CreateCursor(18, dot), 18, dot ? 18 : 27);
-                plan.Inputs[plan.CursorIndex] = cursor;
-            }
-
-            if (plan.RippleIndex >= 0)
-            {
-                var ring = Path.Combine(temp, "ripple.bmp");
-                MaskImage.WriteBmp(ring, MaskImage.CreateRing(36), 36, 36);
-                plan.Inputs[plan.RippleIndex] = ring;
-            }
-
             if (plan.SoftMaskIndex >= 0)
             {
                 var mask = Path.Combine(temp, "soft.bmp");
@@ -69,16 +68,14 @@ public sealed class ExportService
             }
 
             var graph = string.Join(";", plan.FilterScript.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-            if (graph.Length > 24000)
-            {
-                throw new InvalidOperationException("滤镜图太长，这段时间线暂时导不出。可以先少放几段缩放再试。");
-            }
+            var graphPath = Path.Combine(temp, "filters.txt");
+            await File.WriteAllTextAsync(graphPath, graph, cancellation);
 
             var args = new List<string> { "-y", "-hide_banner", "-loglevel", "warning", "-progress", "pipe:1", "-nostats" };
             for (var index = 0; index < plan.Inputs.Count; index++)
             {
-                if (index == plan.FrameMaskIndex || index == plan.CameraMaskIndex || index == plan.FocusMaskIndex
-                    || index == plan.CursorIndex || index == plan.RippleIndex || index == plan.SoftMaskIndex
+                if (index == plan.FrameMaskIndex || index == plan.ProjectionMaskIndex || index == plan.CameraMaskIndex || index == plan.FocusMaskIndex
+                    || index == plan.SoftMaskIndex
                     || index == plan.WallpaperIndex || index == plan.StickerIndex)
                 {
                     args.Add("-framerate");
@@ -89,8 +86,8 @@ public sealed class ExportService
                 args.Add(plan.Inputs[index]);
             }
 
-            args.Add("-filter_complex");
-            args.Add(graph);
+            args.Add("-/filter_complex");
+            args.Add(graphPath);
             if (!options.AudioOnly && plan.VideoLabel is not null)
             {
                 args.Add("-map");
@@ -109,8 +106,9 @@ public sealed class ExportService
                 throw new InvalidOperationException("这个项目没有可导出的声音。");
             }
 
-            args.AddRange(["-movflags", "+faststart", outputPath]);
+            args.AddRange(["-movflags", "+faststart", partial]);
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+            Stage?.Invoke("正在渲染成片…");
             _process = FfmpegProcess.Start(_ffmpeg, args);
             _process.Progress += seconds =>
             {
@@ -120,12 +118,14 @@ public sealed class ExportService
                 }
             };
             var code = await _process.WaitAsync(cancellation);
+            cancellation.ThrowIfCancellationRequested();
             var error = _process.ErrorText();
-            if (code != 0 || !File.Exists(outputPath) || new FileInfo(outputPath).Length < 128)
+            if (code != 0 || !File.Exists(partial) || new FileInfo(partial).Length < 128)
             {
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "导出失败。" : error.Trim());
             }
 
+            File.Move(partial, outputPath, overwrite: true);
             Progress?.Invoke(1);
             return outputPath;
         }
@@ -133,6 +133,7 @@ public sealed class ExportService
         {
             _process?.Dispose();
             _process = null;
+            if (File.Exists(partial)) File.Delete(partial);
             try
             {
                 Directory.Delete(temp, recursive: true);

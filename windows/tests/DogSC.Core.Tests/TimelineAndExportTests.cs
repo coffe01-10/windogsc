@@ -379,7 +379,8 @@ public class TimelineAndExportTests
         var zoom = Sample(4);
         zoom.Canvas.Intro = "zoom";
         var zoomPlan = ExportGraph.Build(zoom, new ExportOptions(), Media(zoom));
-        Assert.Contains("zoompan=z='0.9+0.1*", zoomPlan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("scale=w='trunc(iw*(0.9+0.1*", zoomPlan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("color=0x00000000:eval=frame[introzoom]", zoomPlan.FilterScript, StringComparison.Ordinal);
 
         var none = Sample(4);
         var nonePlan = ExportGraph.Build(none, new ExportOptions(), Media(none));
@@ -572,7 +573,8 @@ public class TimelineAndExportTests
         // 隐藏模式：overlay 仍生成但 enable=0（轨迹还在）。
         project.Canvas.Cursor.Mode = "hidden";
         var hidden = ExportGraph.Build(project, new ExportOptions(), Media(project));
-        Assert.Contains("enable='0'", hidden.FilterScript, StringComparison.Ordinal);
+        Assert.Equal(-1, hidden.CursorIndex);
+        Assert.Equal(-1, hidden.RippleIndex);
 
         // 没轨迹的老项目：不生成光标 overlay。
         var plainProject = Sample(4);

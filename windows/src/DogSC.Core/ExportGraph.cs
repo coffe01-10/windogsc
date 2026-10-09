@@ -22,6 +22,7 @@ public sealed class ResolvedMedia
     public string? Sticker { get; init; }
     /// <summary>贴图原始宽高比（宽/高），解析不出来就 1。</summary>
     public double StickerAspect { get; init; } = 1;
+    public string CursorCommands { get; set; } = "cursor.commands";
 }
 
 public sealed class ExportPlan
@@ -36,6 +37,7 @@ public sealed class ExportPlan
     public int Fps { get; init; }
     public FramePlacement Placement { get; init; }
     public int FrameMaskIndex { get; init; } = -1;
+    public int ProjectionMaskIndex { get; init; } = -1;
     public int CameraMaskIndex { get; init; } = -1;
     public int FocusMaskIndex { get; init; } = -1;
     /// <summary>光标贴图输入（-1 = 不画光标）。</summary>
@@ -118,7 +120,7 @@ public static class ExportGraph
         }
 
         // 任一片段有摄像头就导出画中画；缺摄像头的片段留空，由 overlay 的时间窗跳过。
-        var includeCamera = !options.AudioOnly && slices.Any(slice => slice.CameraPath is not null);
+        var includeCamera = !options.AudioOnly && !project.Camera.Hidden && slices.Any(slice => slice.CameraPath is not null);
         var script = new StringBuilder();
         var videoLabels = new List<string>();
         var cameraSlices = new List<(int Index, string Label, double Start, double End)>();
@@ -129,14 +131,14 @@ public static class ExportGraph
                 var slice = slices[index];
                 var label = "v" + index;
                 script.Append('[').Append(videoIndex[slice.VideoPath]).Append(":v]")
-                    .Append(VideoChain(slice, project.Width, project.Height, fps))
+                    .Append(VideoChain(slice, project.Width, project.Height, fps, project.Canvas.Crop))
                     .Append('[').Append(label).AppendLine("]");
                 videoLabels.Add(label);
                 if (includeCamera && slice.CameraPath is not null)
                 {
                     var cameraLabel = "c" + index;
                     script.Append('[').Append(cameraIndex[slice.CameraPath]).Append(":v]")
-                        .Append(CameraChain(slice, bubble.Size, fps))
+                        .Append(CameraChain(slice, bubble.Size, fps, project.Camera))
                         .Append('[').Append(cameraLabel).AppendLine("]");
                     cameraSlices.Add((index, cameraLabel, slice.TimelineStart, slice.TimelineStart + slice.TimelineDuration));
                 }
@@ -145,6 +147,7 @@ public static class ExportGraph
 
         string? videoMap = null;
         var frameMaskIndex = -1;
+        var projectionMaskIndex = -1;
         var cameraMaskIndex = -1;
         var focusMaskIndex = -1;
         var cursorIndex = -1;
@@ -157,23 +160,29 @@ public static class ExportGraph
         if (!options.AudioOnly)
         {
             var concatenated = Join(script, videoLabels, "vcat", video: true);
+            if (project.Canvas.Cursor.Mode != "hidden" && project.Assets.Any(asset => asset.Cursor.Count > 0))
+            {
+                cursorIndex = inputs.Count;
+                inputs.Add("");
+                var commands = media.CursorCommands.Replace('\\', '/').Replace(":", "\\:").Replace("'", "'\\''");
+                script.Append(concatenated).Append("sendcmd=f='").Append(commands).AppendLine("'[cursorcommands]");
+                script.Append('[').Append(cursorIndex).AppendLine(":v]setpts=PTS-STARTPTS[cursorimg]");
+                script.AppendLine("[cursorcommands][cursorimg]overlay@pointer=x=-10000:y=-10000:format=auto:shortest=1[cursored]");
+                concatenated = "[cursored]";
+                if (project.Canvas.Cursor.ClickRipple && project.Assets.Any(asset => asset.Cursor.Any(point => point.Click)))
+                {
+                    rippleIndex = inputs.Count;
+                    inputs.Add("");
+                    script.Append('[').Append(rippleIndex).AppendLine(":v]setpts=PTS-STARTPTS[rippleimg]");
+                    script.Append(concatenated).AppendLine("[rippleimg]overlay@ripple=x=-10000:y=-10000:format=auto:shortest=1[withclick]");
+                    concatenated = "[withclick]";
+                }
+            }
             var needsMask = placement.Radius > 0 || placement.ShadowBlur > 0;
             if (needsMask)
             {
                 frameMaskIndex = inputs.Count;
                 inputs.Add("");
-            }
-
-            // 开场「zoom」预设：内容流轻微放大进场（zoompan 逐帧插值）。
-            if (project.Canvas.Intro == "zoom")
-            {
-                var rampz = "min(time/" + F(CanvasLayout.IntroDuration) + ",1)";
-                script.Append(concatenated)
-                    .Append("zoompan=z='0.9+0.1*").Append(rampz)
-                    .Append("':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=")
-                    .Append(project.Width).Append('x').Append(project.Height)
-                    .Append(":fps=").Append(fps).AppendLine("[introzoom]");
-                concatenated = "[introzoom]";
             }
 
             script.Append(concatenated).Append("scale=")
@@ -244,45 +253,32 @@ public static class ExportGraph
 
             // 倾斜/透视：对圆角内容帧做四角透视变换，再叠到背景。
             var tilted = "rounded";
-            if (Math.Abs(project.Canvas.TiltX) > 0.5 || Math.Abs(project.Canvas.TiltY) > 0.5)
+            if (Math.Abs(project.Canvas.TiltX) > 0.01 || Math.Abs(project.Canvas.TiltY) > 0.01)
             {
-                var pw = placement.Width;
-                var ph = placement.Height;
-                var sy = Math.Abs(project.Canvas.TiltY) * Math.PI / 180;
-                var sx = Math.Abs(project.Canvas.TiltX) * Math.PI / 180;
-                var hd = (int)Math.Round(pw * Math.Sin(sy) * 0.55);
-                var vd = (int)Math.Round(ph * Math.Sin(sy) * 0.16);
-                var vdX = (int)Math.Round(ph * Math.Sin(sx) * 0.55);
-                var hdX = (int)Math.Round(pw * Math.Sin(sx) * 0.16);
-                // 四角顺序：左上 右上 左下 右下。
-                int x0 = 0, y0 = 0, x1 = pw, y1 = 0, x2 = 0, y2 = ph, x3 = pw, y3 = ph;
-                if (project.Canvas.TiltY > 0)
-                {
-                    x1 = pw - hd; y1 = vd; x3 = pw - hd; y3 = ph - vd;
-                }
-                else if (project.Canvas.TiltY < 0)
-                {
-                    x0 = hd; y0 = vd; x2 = hd; y2 = ph - vd;
-                }
-
-                if (project.Canvas.TiltX > 0)
-                {
-                    x2 = Math.Max(x2, hdX); y2 = ph - vdX; x3 = Math.Min(x3, pw - hdX); y3 = ph - vdX;
-                }
-                else if (project.Canvas.TiltX < 0)
-                {
-                    x0 = Math.Max(x0, hdX); y0 = vdX; x1 = Math.Min(x1, pw - hdX); y1 = vdX;
-                }
-
+                var corners = PerspectiveGeometry.Corners(placement.Width, placement.Height, project.Canvas.TiltX, project.Canvas.TiltY);
                 script.Append('[').Append(tilted).Append("]perspective=")
-                    .Append(x0).Append(':').Append(y0).Append(':')
-                    .Append(x1).Append(':').Append(y1).Append(':')
-                    .Append(x2).Append(':').Append(y2).Append(':')
-                    .Append(x3).Append(':').Append(y3)
-                    .AppendLine(":eval=frame[tilted]");
+                    .Append(string.Join(":", corners.SelectMany(p => new[] { F(p.X), F(p.Y) })))
+                    .AppendLine(":sense=destination:eval=init[tilted]");
                 tilted = "tilted";
+                projectionMaskIndex = inputs.Count;
+                inputs.Add("");
+                script.AppendLine("[tilted]format=rgba,split[tiltcolor][tiltalpha0]");
+                script.AppendLine("[tiltalpha0]alphaextract[tiltalpha]");
+                script.Append('[').Append(projectionMaskIndex).AppendLine(":v]format=gray[quadmask]");
+                script.AppendLine("[tiltalpha][quadmask]blend=all_mode=multiply[projectedalpha]");
+                script.AppendLine("[tiltcolor][projectedalpha]alphamerge[projected]");
+                tilted = "projected";
             }
 
+            if (project.Canvas.Intro == "zoom")
+            {
+                var factor = "(0.9+0.1*min(t/" + F(CanvasLayout.IntroDuration) + "\\,1))";
+                script.Append('[').Append(tilted).Append("]scale=w='trunc(iw*").Append(factor)
+                    .Append("/2)*2':h='trunc(ih*").Append(factor).Append("/2)*2':eval=frame,pad=")
+                    .Append(placement.Width).Append(':').Append(placement.Height)
+                    .AppendLine(":(ow-iw)/2:(oh-ih)/2:color=0x00000000:eval=frame[introzoom]");
+                tilted = "introzoom";
+            }
             // 开场淡入：fade alpha 让 rgba 内容帧从透明淡入，叠到背景上。
             if (project.Canvas.Intro is "fade" or "rise" or "zoom")
             {
@@ -342,7 +338,7 @@ public static class ExportGraph
                     // 只在该片段的时间窗内叠加画中画，缺摄像头的片段保持背景画面。
                     script.Append('[').Append(cameraUnder).Append("][").Append(src)
                         .Append("]overlay=").Append(bubble.X).Append(':').Append(oy)
-                        .Append(":format=auto:eval=frame:enable='gte(t,").Append(F(cam.Start))
+                        .Append(":format=auto:eval=frame:eof_action=pass:repeatlast=0:enable='gte(t,").Append(F(cam.Start))
                         .Append(")*lt(t,").Append(F(cam.End)).Append(")'")
                         .Append('[').Append(next).AppendLine("]");
                     cameraUnder = next;
@@ -364,11 +360,12 @@ public static class ExportGraph
                     Math.Max(2, (int)Math.Round(soft.Width * canvasWidth)),
                     Math.Max(2, (int)Math.Round(soft.Height * canvasHeight)));
                 var sigma = F(4 + soft.Strength * 24);
-                script.Append('[').Append(videoMap).AppendLine("]split[sclear][sblur0]");
+                script.Append('[').Append(videoMap).AppendLine("]format=gbrp,split[sclear][sblur0]");
                 script.Append("[sblur0]gblur=sigma=").Append(sigma).AppendLine("[sblur]");
                 script.Append('[').Append(softMaskIndex).Append(":v]scale=")
                     .Append(canvasWidth).Append('x').Append(canvasHeight)
-                    .AppendLine(",format=gray[smask]");
+                    .Append(",loop=loop=-1:size=1:start=0,setpts=N/").Append(fps).Append("/TB,trim=duration=").Append(F(duration))
+                    .Append(",format=gray,geq=lum='p(X,Y)*(").Append(EffectTiming.Expression(soft.Timing)).AppendLine(")',format=gbrp[smask]");
                 script.AppendLine("[sclear][sblur][smask]maskedmerge[softed]");
                 videoMap = "softed";
             }
@@ -379,45 +376,13 @@ public static class ExportGraph
                 focusMaskIndex = inputs.Count;
                 inputs.Add("");
                 var sigma = F(4 + project.Canvas.FocusBlur * 26);
-                script.Append('[').Append(videoMap).AppendLine("]format=yuv420p,split[fclear][fblur0]");
+                script.Append('[').Append(videoMap).AppendLine("]format=gbrp,split[fclear][fblur0]");
                 script.Append("[fblur0]gblur=sigma=").Append(sigma).AppendLine("[fblur]");
                 script.Append('[').Append(focusMaskIndex).Append(":v]scale=")
                     .Append(canvasWidth).Append('x').Append(canvasHeight)
-                    .AppendLine(",format=gray[fmask]");
+                    .AppendLine(",format=gray,format=gbrp[fmask]");
                 script.AppendLine("[fclear][fblur][fmask]maskedmerge[focused]");
                 videoMap = "focused";
-            }
-
-            // 光标重绘：轨迹折线表达式驱动 overlay 位置，点击处叠加反馈圈。
-            if (CursorTrack.OverlayExpression(project) is { } cursorExpr)
-            {
-                cursorIndex = inputs.Count;
-                inputs.Add("");
-                script.Append('[').Append(cursorIndex).Append(":v]loop=loop=-1:size=1:start=0")
-                    .AppendLine(",setpts=PTS-STARTPTS[cursorimg]");
-                var enable = CursorTrack.EnableExpression(project);
-                script.Append('[').Append(videoMap).Append("][cursorimg]overlay=x='")
-                    .Append(placement.X).Append("+(").Append(cursorExpr.X).Append(")*").Append(placement.Width)
-                    .Append("-overlay_w/2':y='").Append(placement.Y).Append("+(").Append(cursorExpr.Y).Append(")*").Append(placement.Height)
-                    .Append("-overlay_h/2':eval=frame");
-                if (enable != "1")
-                {
-                    script.Append(":enable='").Append(enable).Append('\'');
-                }
-
-                script.AppendLine("[cursor1]");
-                videoMap = "cursor1";
-                if (CursorClickOverlay(project, placement, out var rippleX, out var rippleY, out var rippleEnable))
-                {
-                    rippleIndex = inputs.Count;
-                    inputs.Add("");
-                    script.Append('[').Append(rippleIndex).Append(":v]loop=loop=-1:size=1:start=0")
-                        .AppendLine(",setpts=PTS-STARTPTS[rippleimg]");
-                    script.Append('[').Append(videoMap).Append("][rippleimg]overlay=x='")
-                        .Append(rippleX).Append("':y='").Append(rippleY)
-                        .Append("':eval=frame:enable='").Append(rippleEnable).AppendLine("'[cursor2]");
-                    videoMap = "cursor2";
-                }
             }
 
             // 贴图：静帧图按比例缩放到目标宽，盖在画面最上层（光标之下亦可接受，
@@ -439,10 +404,20 @@ public static class ExportGraph
                 {
                     script.Append(",colorchannelmixer=aa=").Append(F(sticker.Opacity));
                 }
+                if (sticker.Timing.Duration > 0)
+                {
+                    var fade = Math.Min(sticker.Timing.Fade, sticker.Timing.Duration / 2);
+                    if (fade > 0)
+                        script.Append(",fade=t=in:st=").Append(F(sticker.Timing.Start)).Append(":d=").Append(F(fade))
+                            .Append(":alpha=1,fade=t=out:st=").Append(F(sticker.Timing.Start + sticker.Timing.Duration - fade))
+                            .Append(":d=").Append(F(fade)).Append(":alpha=1");
+                }
 
                 script.AppendLine("[stickerimg]");
                 script.Append('[').Append(videoMap).Append("][stickerimg]overlay=")
-                    .Append(sx).Append(':').Append(sy).AppendLine(":format=auto[stickered]");
+                    .Append(sx).Append(':').Append(sy).Append(":format=auto:enable='")
+                    .Append(sticker.Timing.Duration > 0 ? $"gte(t,{F(sticker.Timing.Start)})*lt(t,{F(sticker.Timing.Start + sticker.Timing.Duration)})" : "1")
+                    .AppendLine("'[stickered]");
                 videoMap = "stickered";
             }
 
@@ -465,7 +440,7 @@ public static class ExportGraph
             {
                 mic = "m" + index;
                 script.Append('[').Append(micIndex[slice.MicrophonePath]).Append(":a]")
-                    .Append(AudioChain(slice, project.MicrophoneGain))
+                    .Append(AudioChain(slice, project.MicrophoneGain, slice.MicrophoneOffset))
                     .Append('[').Append(mic).AppendLine("]");
             }
 
@@ -518,6 +493,7 @@ public static class ExportGraph
             Fps = fps,
             Placement = placement,
             FrameMaskIndex = frameMaskIndex,
+            ProjectionMaskIndex = projectionMaskIndex,
             CameraMaskIndex = cameraMaskIndex,
             FocusMaskIndex = focusMaskIndex,
             CursorIndex = cursorIndex,
@@ -533,76 +509,6 @@ public static class ExportGraph
             CameraCorner = (int)Math.Round(bubble.Size * Math.Clamp(project.Camera.Corner, 0, 0.5)),
             Bubble = bubble,
         };
-    }
-
-    /// <summary>
-    /// 点击反馈圈 overlay 表达式：每次点击一个 between 时段，位置随点击点。
-    /// 没点击或关了开关返回 false。
-    /// </summary>
-    private static bool CursorClickOverlay(ProjectDocument project, FramePlacement placement,
-        out string xExpr, out string yExpr, out string enableExpr)
-    {
-        xExpr = yExpr = enableExpr = "";
-        if (!project.Canvas.Cursor.ClickRipple)
-        {
-            return false;
-        }
-
-        var clicks = new List<(double Time, double X, double Y)>();
-        foreach (var clip in TimelineMath.Place(project))
-        {
-            foreach (var point in clip.Asset.Cursor)
-            {
-                if (point.Click && point.Time >= clip.Clip.SourceStart && point.Time <= clip.Clip.SourceEnd)
-                {
-                    clicks.Add((clip.Start + (point.Time - clip.Clip.SourceStart) / clip.Clip.Speed,
-                        Math.Clamp(point.X, 0, 1), Math.Clamp(point.Y, 0, 1)));
-                }
-            }
-        }
-
-        if (clicks.Count == 0)
-        {
-            return false;
-        }
-
-        clicks = clicks.Take(24).ToList();
-        // enable：任一点击窗口内为真；x/y：当前点击窗口内取对应点击位，
-        // 嵌套 if 兜底最后一段的位置（enable=0 时不显示，取啥都行）。
-        // 表达式内逗号一律 \, 转义。
-        var enable = new StringBuilder();
-        var xb = new StringBuilder();
-        var yb = new StringBuilder();
-        for (var i = 0; i < clicks.Count; i++)
-        {
-            var (t, cx, cy) = clicks[i];
-            var window = "between(t\\," + F(t) + "\\," + F(t + CursorTrack.ClickDuration) + ")";
-            if (i > 0)
-            {
-                enable.Append('+');
-            }
-
-            enable.Append(window);
-            var px = F(placement.X + cx * placement.Width);
-            var py = F(placement.Y + cy * placement.Height);
-            xb.Append("if(").Append(window).Append("\\,").Append(px).Append("-overlay_w/2\\,");
-            yb.Append("if(").Append(window).Append("\\,").Append(py).Append("-overlay_h/2\\,");
-        }
-
-        var lastX = F(placement.X + clicks[^1].X * placement.Width);
-        var lastY = F(placement.Y + clicks[^1].Y * placement.Height);
-        xb.Append(lastX).Append("-overlay_w/2");
-        yb.Append(lastY).Append("-overlay_h/2");
-        for (var i = 0; i < clicks.Count; i++)
-        {
-            xb.Append(')');
-            yb.Append(')');
-        }
-
-        enableExpr = enable.ToString();
-        xExpr = xb.ToString();
-        yExpr = yb.ToString();
-        return true;
     }
 
     private static string Join(StringBuilder script, List<string> labels, string output, bool video)
@@ -623,13 +529,17 @@ public static class ExportGraph
         return "[" + output + "]";
     }
 
-    private static string VideoChain(Piece slice, int width, int height, int fps, bool zoom = true)
+    private static string VideoChain(Piece slice, int width, int height, int fps, SourceCrop sourceCrop)
     {
         var chain = new StringBuilder();
         chain.Append("trim=start=").Append(F(slice.SourceStart))
             .Append(":end=").Append(F(slice.SourceEnd))
-            .Append(",setpts=(PTS-STARTPTS)/").Append(F(slice.Speed));
-        if (zoom && slice.Zoom is { Scale: > 1.01 } span)
+            .Append(",setpts=(PTS-STARTPTS)/").Append(F(slice.Speed)).Append(",fps=").Append(fps);
+        var crop = CanvasLayout.Crop(width, height, sourceCrop);
+        chain.Append(",crop=").Append(crop.Width).Append(':').Append(crop.Height).Append(':').Append(crop.X).Append(':').Append(crop.Y);
+        width = crop.Width;
+        height = crop.Height;
+        if (slice.Zoom is { Scale: > 1.01 } span)
         {
             // zoompan 的表达式逐帧求值：time 是片段本地秒，全局时间线时刻
             // = TimelineStart + time。ramp 与预览端 CanvasLayout.ZoomRamp 同公式。
@@ -650,28 +560,35 @@ public static class ExportGraph
         return chain.ToString();
     }
 
-    private static string CameraChain(Piece slice, int size, int fps)
+    private static string CameraChain(Piece slice, int size, int fps, CameraBubble camera)
     {
         var chain = new StringBuilder();
-        chain.Append("trim=start=").Append(F(slice.SourceStart))
-            .Append(":end=").Append(F(slice.SourceEnd))
+        var offset = slice.CameraOffset + camera.TimingAdvance;
+        var start = Math.Max(0, slice.SourceStart + offset);
+        var end = Math.Max(0, slice.SourceEnd + offset);
+        var delay = Math.Max(0, -slice.SourceStart - offset) / slice.Speed;
+        chain.Append("trim=start=").Append(F(start))
+            .Append(":end=").Append(F(end))
             .Append(",setpts=(PTS-STARTPTS)/").Append(F(slice.Speed))
             .Append(",scale=").Append(size).Append(':').Append(size)
             .Append(":force_original_aspect_ratio=increase,crop=")
             .Append(size).Append(':').Append(size)
-            .Append(",setsar=1,fps=").Append(fps).Append(",format=yuv420p");
+            .Append(",setsar=1,fps=").Append(fps).Append(camera.Mirrored ? ",hflip" : "")
+            .Append(",format=yuv420p,setpts=PTS+").Append(F(slice.TimelineStart + delay)).Append("/TB");
         return chain.ToString();
     }
 
-    private static string AudioChain(Piece slice, double gain)
+    private static string AudioChain(Piece slice, double gain, double offset = 0)
     {
         var chain = new StringBuilder();
         chain.Append("aformat=channel_layouts=stereo,aresample=48000,atrim=start=")
-            .Append(F(slice.SourceStart)).Append(":end=").Append(F(slice.SourceEnd))
+            .Append(F(Math.Max(0, slice.SourceStart + offset))).Append(":end=").Append(F(Math.Max(0, slice.SourceEnd + offset)))
             .Append(",asetpts=PTS-STARTPTS");
         if (Math.Abs(slice.Speed - 1) > 0.001)
         {
-            chain.Append(",atempo=").Append(F(slice.Speed));
+            var remaining = slice.Speed;
+            while (remaining > 2) { chain.Append(",atempo=2"); remaining /= 2; }
+            chain.Append(",atempo=").Append(F(remaining));
         }
 
         if (Math.Abs(gain - 1) > 0.001)
@@ -679,7 +596,9 @@ public static class ExportGraph
             chain.Append(",volume=").Append(F(gain));
         }
 
-        chain.Append(",apad=pad_dur=2,atrim=0:").Append(F(slice.TimelineDuration));
+        var delay = Math.Max(0, -slice.SourceStart - offset) / slice.Speed;
+        if (delay > 0) chain.Append(",adelay=").Append((int)Math.Round(delay * 1000)).Append(":all=1");
+        chain.Append(",apad=pad_dur=").Append(F(slice.TimelineDuration)).Append(",atrim=0:").Append(F(slice.TimelineDuration));
         return chain.ToString();
     }
 
@@ -728,7 +647,7 @@ public static class ExportGraph
                 var zoom = zooms.FirstOrDefault(item => midpoint >= item.Start && midpoint < item.Start + item.Duration);
                 var sourceStart = clip.Clip.SourceStart + (start - clip.Start) * clip.Clip.Speed;
                 var sourceEnd = clip.Clip.SourceStart + (end - clip.Start) * clip.Clip.Speed;
-                slices.Add(new Piece(video, microphone, system, camera, sourceStart, sourceEnd, clip.Clip.Speed, start, end - start, zoom));
+                slices.Add(new Piece(video, microphone, system, camera, sourceStart, sourceEnd, clip.Clip.Speed, start, end - start, zoom, clip.Asset.CameraOffset, clip.Asset.MicrophoneOffset));
             }
         }
 
@@ -752,5 +671,7 @@ public static class ExportGraph
         double Speed,
         double TimelineStart,
         double TimelineDuration,
-        ZoomSpan? Zoom);
+        ZoomSpan? Zoom,
+        double CameraOffset,
+        double MicrophoneOffset);
 }

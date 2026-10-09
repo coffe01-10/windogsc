@@ -28,6 +28,8 @@ public enum IconKind
     Moon,
     ChevronLeft,
     ChevronRight,
+    ChevronUp,
+    ChevronDown,
 }
 
 public sealed class Icon : FrameworkElement
@@ -128,6 +130,8 @@ public sealed class Icon : FrameworkElement
         IconKind.Moon => "M19,15 A8,8 0 1 1 9,4 A7,7 0 0 0 19,15 Z",
         IconKind.ChevronLeft => "M15,5 L8,12 L15,19",
         IconKind.ChevronRight => "M9,5 L16,12 L9,19",
+        IconKind.ChevronUp => "M5,15 L12,8 L19,15",
+        IconKind.ChevronDown => "M5,9 L12,16 L19,9",
         _ => "M4,4 H20 V20 H4 Z",
     };
 }

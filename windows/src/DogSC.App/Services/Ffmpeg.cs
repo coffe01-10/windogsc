@@ -14,6 +14,9 @@ public sealed class FfmpegProcess : IDisposable
     public event Action<double>? Progress;
 
     public bool HasExited => _process.HasExited;
+    public ValueTask WriteInputAsync(ReadOnlyMemory<byte> pixels, CancellationToken cancellation) =>
+        _process.StandardInput.BaseStream.WriteAsync(pixels, cancellation);
+    public void CompleteInput() => _process.StandardInput.Close();
 
     FfmpegProcess(Process process)
     {

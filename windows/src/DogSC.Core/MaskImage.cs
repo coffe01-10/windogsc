@@ -2,6 +2,50 @@ namespace DogSC.Core;
 
 public static class MaskImage
 {
+    public static byte[] CreateProjectionMask(int width, int height, ProjectionCorner[] corners)
+    {
+        var pixels = new byte[width * height * 4];
+        var order = new[] { 0, 1, 3, 2 };
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+        {
+            var distance = double.MaxValue;
+            for (var edge = 0; edge < 4; edge++)
+            {
+                var a = corners[order[edge]];
+                var b = corners[order[(edge + 1) % 4]];
+                var dx = b.X - a.X;
+                var dy = b.Y - a.Y;
+                distance = Math.Min(distance, (dx * (y + .5 - a.Y) - dy * (x + .5 - a.X)) / Math.Sqrt(dx * dx + dy * dy));
+            }
+            var value = (byte)Math.Round(255 * Math.Clamp(distance + .5, 0, 1));
+            var i = (y * width + x) * 4;
+            pixels[i] = pixels[i + 1] = pixels[i + 2] = value;
+            pixels[i + 3] = 255;
+        }
+        return pixels;
+    }
+    public static byte[] CreateClickFrame(int size, double? progress, CursorFx fx, double zoom = 1)
+    {
+        var pixels = new byte[size * size * 4];
+        if (progress is not { } p) return pixels;
+        var color = Convert.ToInt32(ProjectFile.NormalizeColor(fx.ClickColor)[1..], 16);
+        var radius = (14 + p * 30) * fx.ClickScale * zoom / 2;
+        var center = size / 2d;
+        for (var y = 0; y < size; y++)
+        for (var x = 0; x < size; x++)
+        {
+            var distance = Math.Sqrt(Math.Pow(x + 0.5 - center, 2) + Math.Pow(y + 0.5 - center, 2));
+            var coverage = Math.Clamp(1.5 * fx.ClickScale * zoom - Math.Abs(distance - radius), 0, 1);
+            var i = (y * size + x) * 4;
+            pixels[i] = (byte)(color & 255);
+            pixels[i + 1] = (byte)((color >> 8) & 255);
+            pixels[i + 2] = (byte)((color >> 16) & 255);
+            pixels[i + 3] = (byte)Math.Round(255 * coverage * (1 - p * 0.85) * fx.ClickOpacity);
+        }
+        return pixels;
+    }
+
     public static byte[] CreateBgra(int width, int height, float radius, bool circle)
     {
         width = Math.Max(1, width);

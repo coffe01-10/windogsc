@@ -24,6 +24,8 @@ public partial class EditorWindow : Window
     double _dragY;
     string? _dragTarget;
     (int W, int H, int X, int Y, int MW, int MH)? _softMaskKey;
+    CursorTimeline? _cursorTimeline;
+    (string Mode, double Size)? _cursorBitmapKey;
 
     public EditorWindow()
     {
@@ -36,9 +38,9 @@ public partial class EditorWindow : Window
         SetToolContent(ToolAudio, IconKind.Speaker, "声音");
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/AppIconMaster.png"));
         FrameRect.Fill = new DrawingBrush { Drawing = _player.ScreenDrawing, Stretch = Stretch.Fill };
-        CameraBubble.Fill = new DrawingBrush { Drawing = _player.CameraDrawing, Stretch = Stretch.Fill };
+        CameraBubble.Fill = new DrawingBrush { Drawing = _player.CameraDrawing, Stretch = Stretch.UniformToFill };
         CameraBubble.Stroke = Brushes.White;
-        foreach (var speed in new[] { 0.5, 0.75, 1d, 1.25, 1.5, 2d })
+        foreach (var speed in new[] { 0.5, 0.75, 1d, 1.25, 1.5, 2d, 4, 8, 16, 32, 64, 100 })
         {
             SpeedBox.Items.Add(speed.ToString("0.##", CultureInfo.InvariantCulture) + "×");
         }
@@ -48,7 +50,7 @@ public partial class EditorWindow : Window
         Timeline.SeekRequested += (_, time) => _player.Seek(time, _player.IsPlaying);
         Timeline.InteractionStarted += (_, _) => { if (_player.IsPlaying) _player.Pause(); };
         Timeline.ClipSelected += (_, id) => { _selectedClip = id; _selectedZoom = null; RebuildInspector(); SyncSelection(); };
-        Timeline.ZoomSelected += (_, id) => { _selectedZoom = id; _selectedClip = null; _tool = "zoom"; RebuildInspector(); SyncSelection(); };
+        Timeline.ZoomSelected += (_, id) => { _selectedZoom = id; _selectedClip = null; _tool = "zoom"; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
         Timeline.TrimFinished += (_, trim) =>
         {
             Push();
@@ -68,6 +70,15 @@ public partial class EditorWindow : Window
             {
                 _undo.Pop();
             }
+        };
+        Timeline.DecorationFinished += (_, move) =>
+        {
+            var timing = move.ZoomId == "decoration.sticker" ? _project.Canvas.Sticker?.Timing : _project.Canvas.SoftRegion.Timing;
+            if (timing is null) return;
+            Push();
+            timing.Start = move.Start;
+            timing.Duration = move.Duration;
+            Commit();
         };
         Timeline.ClipMoved += (_, move) =>
         {
@@ -102,6 +113,7 @@ public partial class EditorWindow : Window
     {
         _directory = directory;
         _project = ProjectFile.Load(directory);
+        _cursorTimeline = new CursorTimeline(_project);
         _selectedClip = _project.Clips.FirstOrDefault()?.Id;
         NameBox.Text = _project.Name;
         Title = "DogSC — " + _project.Name;
@@ -120,7 +132,7 @@ public partial class EditorWindow : Window
     void FillAspects()
     {
         AspectRow.Children.Clear();
-        foreach (var aspect in new[] { ("适应", "source"), ("16:9", "16:9"), ("4:3", "4:3"), ("1:1", "1:1"), ("9:16", "9:16") })
+        foreach (var aspect in new[] { ("适应", "source"), ("16:9", "16:9"), ("4:3", "4:3"), ("1:1", "1:1"), ("9:16", "9:16"), ("3:4", "3:4"), ("2.39:1", "2.39:1"), ("1:2.39", "1:2.39") })
         {
             var button = new Button { Content = aspect.Item1, Tag = aspect.Item2, Style = (Style)FindResource("ChipButton") };
             button.Click += (_, _) =>
@@ -206,6 +218,8 @@ public partial class EditorWindow : Window
         AddPreset(presets, "圆角", 64, 42, 30, "#F3F1EC");
         AddPreset(presets, "深底", 72, 20, 0, "#1E1F22");
         Inspector.Children.Add(presets);
+        BuildScenePresets();
+        BuildCropControls();
         Inspector.Children.Add(Caption("边距"));
         Inspector.Children.Add(Slider(0, 180, _project.Canvas.Padding, value => _project.Canvas.Padding = value));
         Inspector.Children.Add(Caption("素材缩放"));
@@ -289,6 +303,7 @@ public partial class EditorWindow : Window
             Commit();
         };
         Inspector.Children.Add(idle);
+        BuildCursorDetails();
         Inspector.Children.Add(Caption("位置"));
         Inspector.Children.Add(PositionPad());
         Inspector.Children.Add(Caption("背景"));
@@ -359,6 +374,7 @@ public partial class EditorWindow : Window
             Inspector.Children.Add(Slider(0.1, 1, sticker.Opacity, value => sticker.Opacity = value));
             Inspector.Children.Add(Caption("贴图位置（点击画面选择）"));
             Inspector.Children.Add(StickerPad(sticker));
+            BuildEffectTiming("贴图", sticker.Timing);
         }
         else
         {
@@ -381,12 +397,14 @@ public partial class EditorWindow : Window
             Inspector.Children.Add(Slider(0, 1, soft.Strength, value => soft.Strength = value));
             Inspector.Children.Add(Caption("柔化区域（点击画面选择中心，宽高用默认矩形）"));
             Inspector.Children.Add(SoftPad(soft));
+            BuildEffectTiming("柔化", soft.Timing);
         }
 
         // —— 摄像头画中画 ——
         if (_project.HasCamera)
         {
             Inspector.Children.Add(Heading("画中画"));
+            BuildCameraDetails();
             Inspector.Children.Add(Caption("形状"));
             var shapes = new StackPanel { Orientation = Orientation.Horizontal };
             foreach (var (name, key) in new[] { ("圆形", "circle"), ("圆角", "square"), ("无边框", "none") })
@@ -714,8 +732,18 @@ public partial class EditorWindow : Window
         Canvas.SetTop(FrameHost, frame.Y * frameScale);
         FrameHost.Width = frameWidth;
         FrameHost.Height = frameHeight;
+        var crop = _project.Canvas.Crop;
+        if (FrameRect.Fill is DrawingBrush screenBrush)
+        {
+            screenBrush.ViewboxUnits = BrushMappingMode.RelativeToBoundingBox;
+            screenBrush.Viewbox = new Rect(crop.X, crop.Y, crop.Width, crop.Height);
+        }
+        CursorLayer.Width = frameWidth;
+        CursorLayer.Height = frameHeight;
         var radius = frame.Radius * frameScale;
-        FrameHost.Clip = new RectangleGeometry(new Rect(0, 0, frameWidth, frameHeight), radius, radius);
+        ScreenTexture.Width = frameWidth;
+        ScreenTexture.Height = frameHeight;
+        ScreenTexture.Clip = new RectangleGeometry(new Rect(0, 0, frameWidth, frameHeight), radius, radius);
         ShadowRect.Width = frameWidth;
         ShadowRect.Height = frameHeight;
         ShadowRect.RadiusX = radius;
@@ -728,7 +756,7 @@ public partial class EditorWindow : Window
             blur.Radius = Math.Max(0, frame.ShadowBlur * frameScale);
         }
 
-        if (_project.HasCamera)
+        if (_project.HasCamera && !_project.Camera.Hidden)
         {
             var bubble = CanvasLayout.Bubble(outputWidth, outputHeight, _project.Camera);
             var size = bubble.Size * frameScale;
@@ -746,6 +774,8 @@ public partial class EditorWindow : Window
             };
             CameraBubble.RadiusX = camRadius;
             CameraBubble.RadiusY = camRadius;
+            if (CameraBubble.Fill is DrawingBrush cameraBrush)
+                cameraBrush.RelativeTransform = _project.Camera.Mirrored ? new ScaleTransform(-1, 1, 0.5, 0.5) : Transform.Identity;
         }
         else
         {
@@ -758,37 +788,17 @@ public partial class EditorWindow : Window
     void ApplyZoomVisual()
     {
         var zoom = _project.Zooms.FirstOrDefault(item => _player.Time >= item.Start && _player.Time < item.Start + item.Duration);
+        var editingTarget = !_player.IsPlaying && _tool == "zoom" ? _project.Zooms.FirstOrDefault(item => item.Id == _selectedZoom) : null;
+        if (editingTarget is not null) zoom = editingTarget;
         var scale = zoom is { Scale: > 1.01 } ? CanvasLayout.ZoomScaleAt(zoom, _player.Time) : 1;
         var (fx, fy) = zoom is { Scale: > 1.01 } ? CanvasLayout.ZoomFocusAt(zoom, _player.Time) : (0.5, 0.5);
-        var x = (1 - 1 / scale) * fx + 0.5 / scale;
-        var y = (1 - 1 / scale) * fy + 0.5 / scale;
-        FrameRect.RenderTransformOrigin = new Point(x, y);
+        if (editingTarget is not null) { scale = editingTarget.Scale; fx = editingTarget.FocusX; fy = editingTarget.FocusY; }
+        FrameRect.RenderTransformOrigin = new Point(fx, fy);
 
-        // 倾斜/透视预览：WPF 2D 变换做不了真透视，用 skew+scale 组合
-        // 出个近似的倾斜感；导出端走 ffmpeg perspective。
-        var group = new TransformGroup();
-        var tiltX = _project.Canvas.TiltX;
-        var tiltY = _project.Canvas.TiltY;
-        if (Math.Abs(tiltY) > 0.1)
-        {
-            var rad = tiltY * Math.PI / 180;
-            group.Children.Add(new ScaleTransform(Math.Cos(rad) * 0.7 + 0.3, 1));
-            group.Children.Add(new SkewTransform(0, tiltY * 0.18));
-        }
-
-        if (Math.Abs(tiltX) > 0.1)
-        {
-            var rad = tiltX * Math.PI / 180;
-            group.Children.Add(new ScaleTransform(1, Math.Cos(rad) * 0.7 + 0.3));
-            group.Children.Add(new SkewTransform(tiltX * 0.18, 0));
-        }
-
-        if (scale > 1.001)
-        {
-            group.Children.Add(new ScaleTransform(scale, scale));
-        }
-
-        FrameRect.RenderTransform = group.Children.Count == 0 ? Transform.Identity : group;
+        FrameRect.RenderTransform = scale > 1.001 ? new ScaleTransform(scale, scale) : Transform.Identity;
+        UpdatePerspective();
+        CursorLayer.RenderTransform = FrameRect.RenderTransform;
+        CursorLayer.RenderTransformOrigin = FrameRect.RenderTransformOrigin;
         FocusBlurLayer.RenderTransform = FrameRect.RenderTransform;
         FocusBlurLayer.RenderTransformOrigin = FrameRect.RenderTransformOrigin;
 
@@ -813,6 +823,7 @@ public partial class EditorWindow : Window
         // 聚焦虚化预览：边缘一层同画面的模糊副本盖径向透明蒙板。
         UpdateFocusLayer();
         UpdateCursorLayer();
+        UpdateDecorationTiming();
     }
 
     /// <summary>画中画进出场预览：按播放头相对片段首尾的进度做透明度/位移。</summary>
@@ -825,6 +836,12 @@ public partial class EditorWindow : Window
 
         var entry = _project.Camera.Entry;
         var clip = TimelineMath.Place(_project).FirstOrDefault(c => _player.Time >= c.Start && _player.Time < c.End);
+        var source = clip is null ? 0 : clip.Clip.SourceStart + (_player.Time - clip.Start) * clip.Clip.Speed;
+        if (clip is null || clip.Asset.Camera is null || source + clip.Asset.CameraOffset + _project.Camera.TimingAdvance < 0)
+        {
+            CameraBubble.Opacity = 0;
+            return;
+        }
         var anim = 0.5;
         double opacity = 1, rise = 0;
         if (clip is not null && entry is "fade" or "rise")
@@ -954,7 +971,7 @@ public partial class EditorWindow : Window
         SoftLayer.Height = viewHeight;
         Canvas.SetLeft(SoftLayer, 0);
         Canvas.SetTop(SoftLayer, 0);
-        SoftBlur.Radius = 4 + soft.Strength * 18;
+        SoftBlur.Radius = (4 + soft.Strength * 24) * viewWidth / outputWidth;
         // 生成矩形 mask 位图（画布像素坐标）做 OpacityMask。
         var width = Math.Max(2, (int)Math.Round(viewWidth));
         var height = Math.Max(2, (int)Math.Round(viewHeight));
@@ -984,51 +1001,39 @@ public partial class EditorWindow : Window
     /// <summary>按轨迹回放光标：位置/点击圈/静止隐藏，帧内坐标映射到 FrameHost。</summary>
     void UpdateCursorLayer()
     {
-        var frame = FrameHost.ActualWidth > 4 ? FrameHost : null;
-        var position = frame is null ? null : CursorTrack.PositionAt(_project, _player.Time);
-        if (position is null)
+        CursorShape.Visibility = CursorDot.Visibility = ClickRing.Visibility = Visibility.Collapsed;
+        var fx = _project.Canvas.Cursor;
+        var sample = _cursorTimeline?.At(_player.Time) ?? default;
+        var crop = _project.Canvas.Crop;
+        var source = CanvasLayout.Crop(_project.Width, _project.Height, crop);
+        var displayScale = FrameHost.ActualWidth / source.Width;
+        var size = Math.Max(8, (int)Math.Round(18 * fx.Size));
+        var dot = fx.Mode == "dot";
+        if (_cursorBitmapKey != (fx.Mode, fx.Size))
         {
-            CursorShape.Visibility = Visibility.Collapsed;
-            CursorDot.Visibility = Visibility.Collapsed;
+            CursorBitmap.Source = BitmapSource.Create(size, dot ? size : size * 3 / 2, 96, 96, PixelFormats.Bgra32,
+                null, MaskImage.CreateCursor(size, dot), size * 4);
+            _cursorBitmapKey = (fx.Mode, fx.Size);
         }
-        else if (frame is not null)
+        CursorBitmap.Visibility = sample.Pointer is null ? Visibility.Collapsed : Visibility.Visible;
+        if (sample.Pointer is { } point)
         {
-            var (nx, ny) = position.Value;
-            var x = nx * frame.ActualWidth;
-            var y = ny * frame.ActualHeight;
-            if (_project.Canvas.Cursor.Mode == "dot")
-            {
-                CursorDot.Visibility = Visibility.Visible;
-                CursorShape.Visibility = Visibility.Collapsed;
-                Canvas.SetLeft(CursorDot, x - CursorDot.Width / 2);
-                Canvas.SetTop(CursorDot, y - CursorDot.Height / 2);
-            }
-            else
-            {
-                CursorShape.Visibility = Visibility.Visible;
-                CursorDot.Visibility = Visibility.Collapsed;
-                Canvas.SetLeft(CursorShape, x);
-                Canvas.SetTop(CursorShape, y);
-            }
+            CursorBitmap.Width = size * displayScale;
+            CursorBitmap.Height = (dot ? size : size * 3 / 2) * displayScale;
+            Canvas.SetLeft(CursorBitmap, (point.X - crop.X) / crop.Width * FrameHost.ActualWidth - (dot ? CursorBitmap.Width / 2 : 0));
+            Canvas.SetTop(CursorBitmap, (point.Y - crop.Y) / crop.Height * FrameHost.ActualHeight - (dot ? CursorBitmap.Height / 2 : 0));
         }
-
-        var clickAt = CursorTrack.LastClickAt(_project, _player.Time);
-        var progress = CursorTrack.ClickProgress(_project, _player.Time);
-        if (clickAt is null || progress is null || frame is null)
+        ClickBitmap.Visibility = sample.Click is null ? Visibility.Collapsed : Visibility.Visible;
+        if (sample.Click is { } click)
         {
-            ClickRing.Visibility = Visibility.Collapsed;
-            return;
+            var ringSize = CanvasLayout.Even((int)Math.Ceiling(44 * fx.ClickScale + 4));
+            ClickBitmap.Source = BitmapSource.Create(ringSize, ringSize, 96, 96, PixelFormats.Bgra32,
+                null, MaskImage.CreateClickFrame(ringSize, sample.Progress, fx), ringSize * 4);
+            ClickBitmap.Width = ClickBitmap.Height = ringSize * displayScale;
+            Canvas.SetLeft(ClickBitmap, (click.X - crop.X) / crop.Width * FrameHost.ActualWidth - ClickBitmap.Width / 2);
+            Canvas.SetTop(ClickBitmap, (click.Y - crop.Y) / crop.Height * FrameHost.ActualHeight - ClickBitmap.Height / 2);
         }
-
-        var size = 14 + progress.Value * 30;
-        ClickRing.Visibility = Visibility.Visible;
-        ClickRing.Width = size;
-        ClickRing.Height = size;
-        ClickRing.Opacity = 1 - progress.Value * 0.85;
-        Canvas.SetLeft(ClickRing, clickAt.Value.X * frame.ActualWidth - size / 2);
-        Canvas.SetTop(ClickRing, clickAt.Value.Y * frame.ActualHeight - size / 2);
     }
-
     /// <summary>FrameRect 上的径向虚化层：中心透明边缘显示模糊副本。</summary>
     void UpdateFocusLayer()
     {
@@ -1063,6 +1068,7 @@ public partial class EditorWindow : Window
         PlayButton.ToolTip = _player.IsPlaying ? "暂停（Space）" : "播放（Space）";
         System.Windows.Automation.AutomationProperties.SetName(PlayButton, _player.IsPlaying ? "暂停" : "播放");
         ApplyZoomVisual();
+        UpdateDecorationTiming();
     }
 
     void SyncSelection()
@@ -1082,6 +1088,7 @@ public partial class EditorWindow : Window
     void Commit(bool rebuild = true)
     {
         ProjectFile.Normalize(_project);
+        _cursorTimeline = new CursorTimeline(_project);
         _pendingSave = true;
         _saveTimer.Stop();
         _saveTimer.Start();
@@ -1438,8 +1445,10 @@ public partial class EditorWindow : Window
         }
 
         Push();
-        var px = Math.Clamp(point.X / FrameHost.ActualWidth, 0, 1);
-        var py = Math.Clamp(point.Y / FrameHost.ActualHeight, 0, 1);
+        var unprojected = PerspectiveGeometry.SourcePoint(PerspectiveGeometry.Corners(FrameHost.ActualWidth, FrameHost.ActualHeight,
+            _project.Canvas.TiltX, _project.Canvas.TiltY), point.X, point.Y);
+        var px = Math.Clamp(unprojected.X, 0, 1);
+        var py = Math.Clamp(unprojected.Y, 0, 1);
         var divisor = 1 - 1 / zoom.Scale;
         zoom.FocusX = divisor < 0.02 ? 0.5 : Math.Clamp((px - 0.5 / zoom.Scale) / divisor, 0, 1);
         zoom.FocusY = divisor < 0.02 ? 0.5 : Math.Clamp((py - 0.5 / zoom.Scale) / divisor, 0, 1);

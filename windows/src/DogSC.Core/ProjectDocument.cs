@@ -38,6 +38,8 @@ public sealed class ProjectDocument
     public List<SourceMarker> Markers { get; set; } = [];
     public CanvasSettings Canvas { get; set; } = new();
     public CameraBubble Camera { get; set; } = new();
+    public string ExportResolution { get; set; } = "source";
+    public int ExportFps { get; set; } = 30;
 
     /// <summary>增益上限：滑杆、预览和导出共用这一个值（200%）。</summary>
     public const double MaxGain = 2;
@@ -57,6 +59,8 @@ public sealed class MediaAsset
     public string? Microphone { get; set; }
     public string? SystemAudio { get; set; }
     public string? Camera { get; set; }
+    public double CameraOffset { get; set; }
+    public double MicrophoneOffset { get; set; }
     public double Duration { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }
@@ -102,6 +106,7 @@ public sealed class SourceMarker
 public sealed class CanvasSettings
 {
     public string Aspect { get; set; } = "source";
+    public SourceCrop Crop { get; set; } = new();
     public string Background { get; set; } = "#F3F1EC";
     public double Padding { get; set; } = 72;
     public double CenterX { get; set; } = 0.5;
@@ -132,6 +137,7 @@ public sealed class CanvasSettings
 /// <summary>画面上的一张贴图：位置/宽是相对 canvas 的 0..1 归一化，高按图比例。</summary>
 public sealed class StickerImage
 {
+    public EffectWindow Timing { get; set; } = new();
     public string Path { get; set; } = "";
     public double X { get; set; } = 0.5;
     public double Y { get; set; } = 0.5;
@@ -143,6 +149,7 @@ public sealed class StickerImage
 /// <summary>局部柔化：矩形区域按强度混入高斯模糊。</summary>
 public sealed class SoftRegion
 {
+    public EffectWindow Timing { get; set; } = new();
     public bool Enabled { get; set; }
     public double X { get; set; } = 0.25;
     public double Y { get; set; } = 0.25;
@@ -160,6 +167,21 @@ public sealed class CursorFx
     public bool ClickRipple { get; set; } = true;
     /// <summary>光标静止不动一段时间后隐藏。</summary>
     public bool IdleHide { get; set; }
+    public double Size { get; set; } = 1;
+    public double IdleDelay { get; set; } = 1.6;
+    /// <summary>正值提前光标与点击，使用原始素材时钟。</summary>
+    public double TimingAdvance { get; set; }
+    public string ClickColor { get; set; } = "#292929";
+    public double ClickOpacity { get; set; } = 1;
+    public double ClickScale { get; set; } = 1;
+}
+
+public sealed class SourceCrop
+{
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Width { get; set; } = 1;
+    public double Height { get; set; } = 1;
 }
 
 public sealed class CameraBubble
@@ -173,6 +195,10 @@ public sealed class CameraBubble
     public string Entry { get; set; } = "none";
     /// <summary>方形圆角半径比例 0..1（相对边长）。</summary>
     public double Corner { get; set; } = 0.18;
+    public bool Hidden { get; set; }
+    public bool Mirrored { get; set; }
+    /// <summary>摄像头画面相对原始素材提前的秒数。</summary>
+    public double TimingAdvance { get; set; }
 }
 
 public static class ProjectFile
@@ -233,6 +259,12 @@ public static class ProjectFile
             asset.Cursor ??= [];
         }
         project.Canvas.Background = NormalizeColor(project.Canvas.Background);
+        project.Canvas.Crop ??= new();
+        var crop = project.Canvas.Crop;
+        crop.Width = Math.Clamp(crop.Width, 0.02, 1);
+        crop.Height = Math.Clamp(crop.Height, 0.02, 1);
+        crop.X = Math.Clamp(crop.X, 0, 1 - crop.Width);
+        crop.Y = Math.Clamp(crop.Y, 0, 1 - crop.Height);
         project.Canvas.Scale = Math.Clamp(project.Canvas.Scale, 0.25, 2.5);
         project.Canvas.Padding = Math.Clamp(project.Canvas.Padding, 0, 240);
         project.Canvas.Corner = Math.Clamp(project.Canvas.Corner, 0, 240);
@@ -245,10 +277,18 @@ public static class ProjectFile
         project.Canvas.Intro = project.Canvas.Intro is "fade" or "rise" or "zoom" ? project.Canvas.Intro : "none";
         project.Canvas.Cursor ??= new CursorFx();
         project.Canvas.Cursor.Mode = project.Canvas.Cursor.Mode is "pointer" or "dot" or "hidden" ? project.Canvas.Cursor.Mode : "pointer";
+        project.Canvas.Cursor.Size = Math.Clamp(project.Canvas.Cursor.Size, 0.5, 4);
+        project.Canvas.Cursor.IdleDelay = Math.Clamp(project.Canvas.Cursor.IdleDelay, 0.1, 10);
+        project.Canvas.Cursor.TimingAdvance = Math.Clamp(project.Canvas.Cursor.TimingAdvance, -1, 1);
+        project.Canvas.Cursor.ClickColor = NormalizeColor(project.Canvas.Cursor.ClickColor);
+        project.Canvas.Cursor.ClickOpacity = Math.Clamp(project.Canvas.Cursor.ClickOpacity, 0, 1);
+        project.Canvas.Cursor.ClickScale = Math.Clamp(project.Canvas.Cursor.ClickScale, 0.5, 4);
         project.Canvas.Wallpaper = string.IsNullOrWhiteSpace(project.Canvas.Wallpaper) ? null : project.Canvas.Wallpaper.Trim();
         project.Canvas.WallpaperBlur = Math.Clamp(project.Canvas.WallpaperBlur, 0, 1);
         if (project.Canvas.Sticker is { } sticker)
         {
+            sticker.Timing ??= new();
+            EffectTiming.Normalize(sticker.Timing);
             sticker.Path = sticker.Path.Trim();
             sticker.X = Math.Clamp(sticker.X, 0, 1);
             sticker.Y = Math.Clamp(sticker.Y, 0, 1);
@@ -261,6 +301,8 @@ public static class ProjectFile
         }
 
         project.Canvas.SoftRegion ??= new SoftRegion();
+        project.Canvas.SoftRegion.Timing ??= new();
+        EffectTiming.Normalize(project.Canvas.SoftRegion.Timing);
         project.Canvas.SoftRegion.X = Math.Clamp(project.Canvas.SoftRegion.X, 0, 1);
         project.Canvas.SoftRegion.Y = Math.Clamp(project.Canvas.SoftRegion.Y, 0, 1);
         project.Canvas.SoftRegion.Width = Math.Clamp(project.Canvas.SoftRegion.Width, 0.02, 1);
@@ -276,7 +318,7 @@ public static class ProjectFile
         project.SystemGain = Math.Clamp(project.SystemGain, 0, ProjectDocument.MaxGain);
         foreach (var clip in project.Clips)
         {
-            clip.Speed = Math.Clamp(clip.Speed, 0.5, 2);
+            clip.Speed = Math.Clamp(clip.Speed, 0.5, 100);
             if (clip.SourceEnd < clip.SourceStart)
             {
                 (clip.SourceStart, clip.SourceEnd) = (clip.SourceEnd, clip.SourceStart);

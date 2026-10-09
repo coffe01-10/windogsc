@@ -28,13 +28,14 @@ public sealed class TimelineControl : FrameworkElement
     public event EventHandler? InteractionStarted;
     public event EventHandler<ClipTrim>? TrimFinished;
     public event EventHandler<ZoomMove>? ZoomFinished;
+    public event EventHandler<ZoomMove>? DecorationFinished;
     public event EventHandler<ClipMove>? ClipMoved;
     public event EventHandler<string>? ClipSelected;
     public event EventHandler<string>? ZoomSelected;
 
     public TimelineControl()
     {
-        MinHeight = 136;
+        MinHeight = 202;
         Focusable = true;
         Cursor = Cursors.Arrow;
         ClipToBounds = true;
@@ -187,6 +188,16 @@ public sealed class TimelineControl : FrameworkElement
             }
         }
 
+        foreach (var (id, title, window, top) in Decorations())
+        {
+            var span = new ZoomSpan { Id = id, Start = window.Start, Duration = window.Duration };
+            var visual = _drag is { } moving && moving.Id == id ? ZoomValues(span, moving) : (span.Start, span.Duration);
+            var rect = new Rect(TimeToX(visual.Item1, pixels), top, Math.Max(8, visual.Item2 * pixels), 26);
+            drawing.DrawRoundedRectangle(zoomBrush, new Pen(muted, 0.7), rect, 6, 6);
+            if (rect.Width > 48) drawing.DrawText(Text(title, 11, zoomInk), new Point(rect.X + 8, rect.Y + 5));
+            drawing.DrawLine(new Pen(zoomInk, 1), new Point(rect.Left + 4, rect.Top + 7), new Point(rect.Left + 4, rect.Bottom - 7));
+            drawing.DrawLine(new Pen(zoomInk, 1), new Point(rect.Right - 4, rect.Top + 7), new Point(rect.Right - 4, rect.Bottom - 7));
+        }
         if (_project is not null)
         {
             foreach (var marker in _project.Markers)
@@ -227,6 +238,14 @@ public sealed class TimelineControl : FrameworkElement
         InteractionStarted?.Invoke(this, EventArgs.Empty);
         var point = e.GetPosition(this);
         var pixels = PixelsPerSecond(ActualWidth);
+        var decoration = HitDecoration(point, pixels);
+        if (decoration is { } effect)
+        {
+            _drag = new Drag(effect.Edge < 0 ? DragKind.ZoomStart : effect.Edge > 0 ? DragKind.ZoomEnd : DragKind.MoveZoom, effect.Id, XToTime(point.X, pixels));
+            CaptureMouse();
+            e.Handled = true;
+            return;
+        }
         var time = XToTime(point.X, pixels);
         var zoomHit = HitZoom(point, pixels);
         if (zoomHit is not null)
@@ -274,7 +293,7 @@ public sealed class TimelineControl : FrameworkElement
         var point = e.GetPosition(this);
         if (_drag is null)
         {
-            var edge = HitZoom(point, pixels)?.Edge ?? HitClip(point, pixels)?.Edge;
+            var edge = HitDecoration(point, pixels)?.Edge ?? HitZoom(point, pixels)?.Edge ?? HitClip(point, pixels)?.Edge;
             Cursor = edge is < 0 or > 0 ? Cursors.SizeWE : edge == 0 ? Cursors.Hand : Cursors.Arrow;
             return;
         }
@@ -347,11 +366,13 @@ public sealed class TimelineControl : FrameworkElement
             case DragKind.MoveZoom:
             case DragKind.ZoomStart:
             case DragKind.ZoomEnd:
-                var zoom = _project.Zooms.FirstOrDefault(item => item.Id == drag.Id);
+                var zoom = Span(drag.Id);
                 if (zoom is not null)
                 {
                     var moved = ZoomValues(zoom, drag);
-                    ZoomFinished?.Invoke(this, new ZoomMove(drag.Id, moved.Start, moved.Duration));
+                    if (drag.Id is "decoration.sticker" or "decoration.soft")
+                        DecorationFinished?.Invoke(this, new ZoomMove(drag.Id, moved.Start, moved.Duration));
+                    else ZoomFinished?.Invoke(this, new ZoomMove(drag.Id, moved.Start, moved.Duration));
                 }
 
                 break;
@@ -433,10 +454,36 @@ public sealed class TimelineControl : FrameworkElement
     }
 
     double ZoomOrigin(Drag drag) =>
-        _project?.Zooms.FirstOrDefault(item => item.Id == drag.Id)?.Start ?? 0;
+        Span(drag.Id)?.Start ?? 0;
 
     double ZoomDuration(Drag drag) =>
-        _project?.Zooms.FirstOrDefault(item => item.Id == drag.Id)?.Duration ?? 0;
+        Span(drag.Id)?.Duration ?? 0;
+
+    ZoomSpan? Span(string id)
+    {
+        foreach (var effect in Decorations())
+            if (effect.Id == id) return new ZoomSpan { Id = id, Start = effect.Window.Start, Duration = effect.Window.Duration };
+        return _project?.Zooms.FirstOrDefault(item => item.Id == id);
+    }
+
+    IEnumerable<(string Id, string Title, EffectWindow Window, double Top)> Decorations()
+    {
+        if (_project?.Canvas.Sticker is { Timing.Duration: > 0 } sticker)
+            yield return ("decoration.sticker", "贴图", sticker.Timing, 134);
+        if (_project?.Canvas.SoftRegion is { Enabled: true, Timing.Duration: > 0 } soft)
+            yield return ("decoration.soft", "柔化", soft.Timing, 168);
+    }
+
+    (string Id, int Edge)? HitDecoration(Point point, double pixels)
+    {
+        foreach (var (id, _, window, top) in Decorations())
+        {
+            var x = TimeToX(window.Start, pixels);
+            var rect = new Rect(x, top, Math.Max(8, window.Duration * pixels), 26);
+            if (rect.Contains(point)) return (id, point.X - rect.Left < 7 ? -1 : rect.Right - point.X < 7 ? 1 : 0);
+        }
+        return null;
+    }
 
     double? MoveClipEdge(Drag drag, double delta)
     {
@@ -605,17 +652,18 @@ public sealed class TimelineControl : FrameworkElement
         var duration = zoom.Duration;
         if (drag.Kind == DragKind.MoveZoom)
         {
-            start = Math.Clamp(zoom.Start + drag.Delta, 0, total - duration);
+            duration = Math.Min(duration, total);
+            start = Math.Clamp(zoom.Start + drag.Delta, 0, Math.Max(0, total - duration));
         }
         else if (drag.Kind == DragKind.ZoomStart)
         {
             var end = zoom.Start + zoom.Duration;
-            start = Math.Clamp(zoom.Start + drag.Delta, 0, end - 0.2);
+            start = Math.Clamp(zoom.Start + drag.Delta, 0, Math.Max(0, end - 0.12));
             duration = end - start;
         }
         else if (drag.Kind == DragKind.ZoomEnd)
         {
-            duration = Math.Clamp(zoom.Duration + drag.Delta, 0.2, total - zoom.Start);
+            duration = Math.Clamp(zoom.Duration + drag.Delta, 0.12, Math.Max(0.12, total - zoom.Start));
         }
 
         return (start, duration);

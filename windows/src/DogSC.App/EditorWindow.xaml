@@ -10,7 +10,7 @@
             <RowDefinition Height="56"/>
             <RowDefinition Height="*" MinHeight="140"/>
             <RowDefinition Height="10"/>
-            <RowDefinition Height="248" MinHeight="226"/>
+            <RowDefinition Height="304" MinHeight="294"/>
         </Grid.RowDefinitions>
         <Grid Grid.Row="0" Margin="16,0">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -41,7 +41,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
-                <StackPanel x:Name="AspectRow" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,8,0,8"/>
+                <WrapPanel x:Name="AspectRow" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,8,0,8"/>
                 <Grid x:Name="PreviewSlot" Grid.Row="1" SizeChanged="Preview_SizeChanged">
                     <Canvas x:Name="PreviewCanvas" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Canvas x:Name="SceneCanvas">
@@ -56,7 +56,8 @@
                                 <BlurEffect Radius="12"/>
                             </Rectangle.Effect>
                         </Rectangle>
-                        <Grid x:Name="FrameHost" Background="Transparent" Cursor="SizeAll" MouseLeftButtonDown="Frame_Down" MouseMove="Frame_Move" MouseLeftButtonUp="Frame_Up">
+                        <Canvas x:Name="FrameHost" Background="Transparent" ClipToBounds="True" Cursor="SizeAll" MouseLeftButtonDown="Frame_Down" MouseMove="Frame_Move" MouseLeftButtonUp="Frame_Up">
+                          <Grid x:Name="ScreenTexture">
                             <Rectangle x:Name="FrameRect"/>
                             <Rectangle x:Name="FocusBlurLayer" Visibility="Collapsed" IsHitTestVisible="False">
                                 <Rectangle.Effect>
@@ -74,8 +75,12 @@
                                 <Ellipse x:Name="ClickRing" Visibility="Collapsed" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" Fill="Transparent"/>
                                 <Path x:Name="CursorShape" Data="M0,0 L0,17 L4.5,13 L7,19 L9.4,18 L7,12.4 L12,12 Z" Fill="White" Stroke="Black" StrokeThickness="1" Visibility="Collapsed"/>
                                 <Ellipse x:Name="CursorDot" Width="10" Height="10" Fill="{DynamicResource AccentBrush}" Stroke="White" StrokeThickness="1.5" Visibility="Collapsed"/>
+                                <Image x:Name="CursorBitmap" Visibility="Collapsed"/>
+                                <Image x:Name="ClickBitmap" Visibility="Collapsed"/>
                             </Canvas>
-                        </Grid>
+                          </Grid>
+                          <Viewport3D x:Name="ScreenPerspective" Visibility="Collapsed" IsHitTestVisible="False"/>
+                        </Canvas>
                         </Canvas>
                         <!-- 局部柔化：全屏模糊副本，OpacityMask 由代码按 SoftRegion 生成 -->
                         <Rectangle x:Name="SoftLayer" Visibility="Collapsed" IsHitTestVisible="False">
