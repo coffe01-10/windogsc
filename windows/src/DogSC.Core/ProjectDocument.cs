@@ -171,6 +171,28 @@ public sealed class StickerImage
     /// <summary>整体不透明度 0..1。</summary>
     public double Opacity { get; set; } = 1;
     public double Rotation { get; set; }
+
+    // —— Mac StickerClip 外观与动画（字段名和默认值对齐）——
+    public double CornerRadius { get; set; } = 18;
+    public double BorderWidth { get; set; }
+    public string BorderColor { get; set; } = "#FFFFFF";
+    public double ShadowOpacity { get; set; } = .28;
+    public double ShadowRadius { get; set; } = 24;
+    public double ShadowOffsetX { get; set; }
+    public double ShadowOffsetY { get; set; } = 10;
+    /// <summary>none/fade/pop/slideLeft/Right/Up/Down/TopLeft/TopRight/BottomLeft/BottomRight。</summary>
+    public string Animation { get; set; } = "pop";
+    /// <summary>smooth/swift/gentle。</summary>
+    public string AnimationCurve { get; set; } = "swift";
+    /// <summary>null/"" 跟随 Animation 的互补方向。</summary>
+    public string? ExitAnimation { get; set; }
+    public double EnterDuration { get; set; } = .7;
+    public double ExitDuration { get; set; } = .22;
+    /// <summary>贴纸背后的屏幕虚化强度（对齐 Mac 的 1080 短边基准）。</summary>
+    public double BackdropBlur { get; set; } = 20;
+    public bool BackdropBlurIncludesCamera { get; set; }
+    public bool HidesScreen { get; set; }
+    public bool HidesCamera { get; set; }
 }
 
 /// <summary>局部柔化：矩形区域按强度混入高斯模糊。</summary>

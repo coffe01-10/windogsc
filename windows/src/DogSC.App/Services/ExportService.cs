@@ -16,7 +16,7 @@ public sealed class ExportService
 
     public async Task<string> ExportAsync(ProjectDocument project, string projectDirectory, ExportOptions options, string outputPath, CancellationToken cancellation)
     {
-        var resolved = Resolve(project, projectDirectory);
+        var resolved = await Resolve(project, projectDirectory, options);
         if (project.Camera.Shape == "original" && project.Clips.Select(c => resolved.Cameras.GetValueOrDefault(c.AssetId)).FirstOrDefault(path => path is not null) is { } cameraPath
             && FfmpegTools.LocateFfprobe(_ffmpeg) is { } probe && await FfmpegTools.Probe(probe, cameraPath) is { } info)
             resolved.CameraAspect = info.Width / (double)info.Height;
@@ -29,6 +29,7 @@ public sealed class ExportService
             resolved.CursorCommands = Path.Combine(temp, "cursor.commands");
             var plan = ExportGraph.Build(project, options, resolved);
             await CursorExport.PrepareAsync(_ffmpeg, project, plan, temp, cancellation);
+            await StickerBackdropExport.PrepareAsync(_ffmpeg, project, plan, temp, cancellation);
             if (plan.FrameMaskIndex >= 0)
             {
                 var mask = Path.Combine(temp, "frame.bmp");
@@ -147,7 +148,7 @@ public sealed class ExportService
         }
     }
 
-    public static ResolvedMedia Resolve(ProjectDocument project, string projectDirectory)
+    public static async Task<ResolvedMedia> Resolve(ProjectDocument project, string projectDirectory, ExportOptions options)
     {
         string? PathOf(string? relative) =>
             string.IsNullOrWhiteSpace(relative) ? null : ProjectFile.Media(projectDirectory, relative);
@@ -167,13 +168,20 @@ public sealed class ExportService
 
         string? wallpaper = Decoration(project.Canvas.Wallpaper);
         var stickers = new Dictionary<string, ResolvedSticker>();
+        var (canvasW, canvasH) = CanvasLayout.OutputSize(project.Width, project.Height,
+            project.Canvas.Aspect, options.Resolution);
+        var bakeDir = Path.Combine(Path.GetTempPath(), "DogSC-StickerBake");
         foreach (var image in project.Canvas.Stickers)
         {
             var path = Decoration(image.Path);
             if (path is null) continue;
             var frame = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(path),
                 System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-            stickers[image.Id] = new(path, frame.PixelWidth / (double)frame.PixelHeight);
+            var aspect = frame.PixelWidth / (double)frame.PixelHeight;
+            var contentW = CanvasLayout.Even((int)Math.Round(Math.Max(image.Width, 0.02) * canvasW));
+            var contentH = CanvasLayout.Even(Math.Max(2, (int)Math.Round(contentW / aspect)));
+            var baked = StickerArt.Bake(path, image, contentW, contentH, bakeDir);
+            stickers[image.Id] = new(baked.Path, aspect, baked.Margin);
         }
 
         var videos = new Dictionary<string, string>();

@@ -109,6 +109,70 @@ public partial class EditorWindow
             Control("不透明度", 0, 1, sticker.Opacity, x => sticker.Opacity = x);
             Control("水平位置", 0, 1, sticker.X, x => sticker.X = x);
             Control("垂直位置", 0, 1, sticker.Y, x => sticker.Y = x);
+
+            var body = Disclosure("外观与动画");
+            // Mac 贴纸外观：圆角 / 描边 / 投影。
+            void DetailControl(string title, double min, double max, double value, Action<double> assign)
+            { body.Children.Add(Caption(title)); body.Children.Add(Slider(min, max, value, assign)); }
+            DetailControl("圆角", 0, 120, sticker.CornerRadius, x => sticker.CornerRadius = x);
+            DetailControl("描边宽度", 0, 40, sticker.BorderWidth, x => sticker.BorderWidth = x);
+            var borderRow = new WrapPanel();
+            foreach (var (name, hex) in new[] { ("白", "#FFFFFF"), ("黑", "#000000"), ("黄", "#FFD60A"), ("蓝", "#0A84FF"), ("红", "#FF453A") })
+            {
+                var swatch = new Button
+                {
+                    Content = name, Tag = hex, Margin = new Thickness(0, 0, 4, 4), Padding = new Thickness(8, 2, 8, 2),
+                    Style = (Style)FindResource("ChipButton"),
+                };
+                if (string.Equals(sticker.BorderColor, hex, StringComparison.OrdinalIgnoreCase))
+                    swatch.Background = (Brush)FindResource("AccentBrush");
+                swatch.Click += (_, _) => { Push(); sticker.BorderColor = hex; Commit(); };
+                borderRow.Children.Add(swatch);
+            }
+            body.Children.Add(Caption("描边颜色")); body.Children.Add(borderRow);
+            DetailControl("阴影强度", 0, 1, sticker.ShadowOpacity, x => sticker.ShadowOpacity = x);
+            DetailControl("阴影半径", 0, 80, sticker.ShadowRadius, x => sticker.ShadowRadius = x);
+            DetailControl("阴影偏移 X", -40, 40, sticker.ShadowOffsetX, x => sticker.ShadowOffsetX = x);
+            DetailControl("阴影偏移 Y", -40, 40, sticker.ShadowOffsetY, x => sticker.ShadowOffsetY = x);
+            // Mac 动画：预设 × 曲线 × 时长；退出预设 null = 自动互补。
+            void Chips(string caption, (string Label, string? Value)[] presets, string? current, Action<string?> assign)
+            {
+                body.Children.Add(Caption(caption));
+                var row = new WrapPanel();
+                foreach (var (label, value) in presets)
+                {
+                    var chip = new Button
+                    {
+                        Content = label, Tag = value, Margin = new Thickness(0, 0, 4, 4), Padding = new Thickness(8, 2, 8, 2),
+                        Style = (Style)FindResource("ChipButton"),
+                    };
+                    var selected = string.Equals(current ?? "", value ?? "", StringComparison.OrdinalIgnoreCase);
+                    chip.Background = (Brush)FindResource(selected ? "AccentBrush" : "WellBrush");
+                    chip.Foreground = (Brush)FindResource(selected ? "OnAccentBrush" : "InkBrush");
+                    chip.Click += (_, _) => { Push(); assign(value); Commit(); };
+                    row.Children.Add(chip);
+                }
+                body.Children.Add(row);
+            }
+            (string, string?)[] animPresets = [("无", "none"), ("淡入", "fade"), ("弹出", "pop"),
+                ("左滑入", "slideLeft"), ("右滑入", "slideRight"), ("上滑入", "slideUp"), ("下滑入", "slideDown"),
+                ("左上", "slideTopLeft"), ("右上", "slideTopRight"), ("左下", "slideBottomLeft"), ("右下", "slideBottomRight")];
+            Chips("进入动画", animPresets, sticker.Animation, x => sticker.Animation = x ?? "pop");
+            Chips("退出动画", [("自动", null), .. animPresets], sticker.ExitAnimation, x => sticker.ExitAnimation = x);
+            Chips("动画曲线", [("平缓", "smooth"), ("迅速", "swift"), ("柔和", "gentle"), ("线性", "linear")],
+                sticker.AnimationCurve, x => sticker.AnimationCurve = x ?? "swift");
+            DetailControl("进入时长", 0, 2, sticker.EnterDuration, x => sticker.EnterDuration = x);
+            DetailControl("退出时长", 0, 2, sticker.ExitDuration, x => sticker.ExitDuration = x);
+            DetailControl("背景虚化", 0, 60, sticker.BackdropBlur, x => sticker.BackdropBlur = x);
+            void Toggle(string title, bool value, Action<bool> assign)
+            {
+                var box = new CheckBox { Content = title, IsChecked = value, Margin = new Thickness(0, 6, 0, 2) };
+                box.Click += (_, _) => { Push(); assign(box.IsChecked == true); Commit(); };
+                body.Children.Add(box);
+            }
+            Toggle("虚化处理含摄像头", sticker.BackdropBlurIncludesCamera, x => sticker.BackdropBlurIncludesCamera = x);
+            Toggle("显示时隐藏屏幕内容", sticker.HidesScreen, x => sticker.HidesScreen = x);
+            Toggle("显示时隐藏摄像头", sticker.HidesCamera, x => sticker.HidesCamera = x);
         }
         if (soft is not null)
         {

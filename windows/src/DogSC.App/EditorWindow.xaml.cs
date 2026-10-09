@@ -26,7 +26,8 @@ public partial class EditorWindow : Window
     string? _selectedDecoration;
     readonly RegionPreview _sourceRegions = new();
     readonly RegionPreview _canvasRegions = new();
-    readonly Dictionary<string, Image> _stickerImages = [];
+    readonly Dictionary<string, Border> _stickerImages = [];
+    StickerMotion.Track? _stickerTrack;
     CursorTimeline? _cursorTimeline;
     (string Mode, double Size)? _cursorBitmapKey;
 
@@ -122,6 +123,7 @@ public partial class EditorWindow : Window
         _directory = directory;
         _project = ProjectFile.Load(directory);
         _cursorTimeline = new CursorTimeline(_project);
+        _stickerTrack = new StickerMotion.Track(_project.Canvas.Stickers);
         _selectedClip = _project.Clips.FirstOrDefault()?.Id;
         NameBox.Text = _project.Name;
         Title = "DogSC — " + _project.Name;
@@ -905,6 +907,19 @@ public partial class EditorWindow : Window
     /// <summary>贴图预览：按归一化矩形摆一张图。</summary>
     void UpdateSticker(double viewWidth, double viewHeight, int outputWidth, int outputHeight)
     {
+        _stickerTrack ??= new StickerMotion.Track(_project.Canvas.Stickers);
+        var viewScale = viewWidth / outputWidth;
+        var (samples, backdrop) = _stickerTrack.SampleAt(_player.Time);
+        var byId = samples.ToDictionary(s => s.Clip.Id);
+        // 背景通道：压屏幕/虚化屏幕作用于画面矩形，压/虚化摄像头作用于气泡。
+        FrameRect.Opacity = 1 - backdrop.ScreenSuppression;
+        FrameRect.Effect = backdrop.ScreenBlur > 0.01
+            ? new BlurEffect { Radius = backdrop.ScreenBlur * viewScale }
+            : null;
+        CameraBubble.Opacity = _project.Camera.Hidden ? 0 : 1 - backdrop.CameraSuppression;
+        CameraBubble.Effect = backdrop.CameraBlur > 0.01
+            ? new BlurEffect { Radius = backdrop.CameraBlur * viewScale }
+            : null;
         foreach (var id in _stickerImages.Keys.Where(id => !_project.Canvas.Stickers.Any(x => x.Id == id)).ToArray())
         {
             StickerLayers.Children.Remove(_stickerImages[id]);
@@ -912,15 +927,16 @@ public partial class EditorWindow : Window
         }
         foreach (var sticker in _project.Canvas.Stickers)
         {
-            if (!_stickerImages.TryGetValue(sticker.Id, out var image))
+            if (!_stickerImages.TryGetValue(sticker.Id, out var holder))
             {
-                image = new Image();
-                _stickerImages[sticker.Id] = image;
-                StickerLayers.Children.Add(image);
+                holder = new Border { Child = new Image { Stretch = Stretch.Fill } };
+                _stickerImages[sticker.Id] = holder;
+                StickerLayers.Children.Add(holder);
             }
-            Panel.SetZIndex(image, _project.Canvas.Stickers.IndexOf(sticker));
+            var image = (Image)holder.Child;
+            Panel.SetZIndex(holder, _project.Canvas.Stickers.IndexOf(sticker));
             var path = DecorationPath(sticker.Path);
-            image.Visibility = path is null ? Visibility.Collapsed : Visibility.Visible;
+            holder.Visibility = path is null ? Visibility.Collapsed : Visibility.Visible;
             if (path is null) continue;
             if (!Equals(image.Tag, path))
             {
@@ -930,12 +946,41 @@ public partial class EditorWindow : Window
             }
             var aspect = image.Source is BitmapSource bmp ? bmp.PixelWidth / (double)bmp.PixelHeight : 1;
             var box = CanvasLayout.Sticker(outputWidth, outputHeight, sticker, aspect);
-            var scale = viewWidth / outputWidth;
-            image.Width = CanvasLayout.Even((int)Math.Round(box.Width)) * scale;
-            image.Height = CanvasLayout.Even((int)Math.Round(box.Height)) * scale;
-            image.RenderTransformOrigin = new Point(.5, .5); image.RenderTransform = new RotateTransform(sticker.Rotation);
-            Canvas.SetLeft(image, box.X * scale - image.Width / 2);
-            Canvas.SetTop(image, box.Y * scale - image.Height / 2);
+            holder.Width = CanvasLayout.Even((int)Math.Round(box.Width)) * viewScale;
+            holder.Height = CanvasLayout.Even((int)Math.Round(box.Height)) * viewScale;
+            // Mac 外观参数：圆角 / 描边 / 投影（像素值跟随画布缩放）。
+            holder.CornerRadius = new CornerRadius(Math.Max(0, sticker.CornerRadius) * viewScale);
+            holder.BorderThickness = new Thickness(Math.Max(0, sticker.BorderWidth) * viewScale);
+            if (sticker.BorderWidth > 0)
+            {
+                var bc = (Color)ColorConverter.ConvertFromString(
+                    string.IsNullOrWhiteSpace(sticker.BorderColor) ? "#FFFFFF" : sticker.BorderColor);
+                holder.BorderBrush = new SolidColorBrush(bc);
+            }
+            else holder.BorderBrush = null;
+            holder.Effect = sticker.ShadowOpacity > 0.001 ? new DropShadowEffect
+            {
+                Opacity = sticker.ShadowOpacity,
+                BlurRadius = Math.Max(0, sticker.ShadowRadius) * viewScale,
+                Direction = Math.Atan2(sticker.ShadowOffsetY, sticker.ShadowOffsetX) * 180 / Math.PI,
+                ShadowDepth = Math.Sqrt(sticker.ShadowOffsetX * sticker.ShadowOffsetX
+                    + sticker.ShadowOffsetY * sticker.ShadowOffsetY) * viewScale,
+                Color = Colors.Black,
+            } : null;
+            // 运动采样：透明度 + 缩放 + 归一化位移（转到画布像素）。
+            var sample = byId.GetValueOrDefault(sticker.Id);
+            holder.Opacity = sticker.Opacity * sample.Visibility;
+            var (scale, offsetX, offsetY) = StickerMotion.Transform(
+                sample.Preset, sample.Progress, sticker.X, sticker.Y, sticker.Width);
+            var motion = new TransformGroup();
+            motion.Children.Add(new ScaleTransform(scale, scale));
+            motion.Children.Add(new RotateTransform(sticker.Rotation));
+            motion.Children.Add(new TranslateTransform(offsetX * outputWidth * viewScale,
+                offsetY * outputHeight * viewScale));
+            holder.RenderTransformOrigin = new Point(.5, .5);
+            holder.RenderTransform = motion;
+            Canvas.SetLeft(holder, box.X * viewScale - holder.Width / 2);
+            Canvas.SetTop(holder, box.Y * viewScale - holder.Height / 2);
         }
     }
 
@@ -1005,6 +1050,7 @@ public partial class EditorWindow : Window
     {
         ProjectFile.Normalize(_project);
         _cursorTimeline = new CursorTimeline(_project);
+        _stickerTrack = new StickerMotion.Track(_project.Canvas.Stickers);
         _pendingSave = true;
         _saveTimer.Stop();
         _saveTimer.Start();

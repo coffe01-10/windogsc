@@ -683,7 +683,7 @@ public class TimelineAndExportTests
         var plan = ExportGraph.Build(project, new ExportOptions(), resolved);
         Assert.True(plan.StickerIndex >= 0);
         Assert.Contains("stickerimg", plan.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("colorchannelmixer=aa=0.5", plan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("alpha(X,Y)*(1)*0.5", plan.FilterScript, StringComparison.Ordinal);
         Assert.True(plan.StickerRect.W > 0);
         File.Delete(sticker);
     }

@@ -359,17 +359,20 @@ public static class MacProjectImporter
                     Id = Text(clip, "id") ?? Guid.NewGuid().ToString("N"), Path = path, Name = Path.GetFileName(path), Timing = Timing(clip, false),
                     X = position is { } x ? Num(x, "x", .5) : .5, Y = position is { } y ? Num(y, "y", .5) : .5,
                     Width = Num(clip, "width", .38), Opacity = Num(clip, "opacity", 1), Rotation = Num(clip, "rotationDegrees"),
+                    CornerRadius = Num(clip, "cornerRadius", 18), BorderWidth = Num(clip, "borderWidth"),
+                    BorderColor = Text(clip, "borderColor") ?? "#FFFFFF",
+                    ShadowOpacity = Num(clip, "shadowOpacity", .28), ShadowRadius = Num(clip, "shadowRadius", 24),
+                    ShadowOffsetX = Num(clip, "shadowOffsetX"), ShadowOffsetY = Num(clip, "shadowOffsetY", 10),
+                    Animation = Text(clip, "animation") ?? "pop",
+                    AnimationCurve = Text(clip, "animationCurve") ?? "swift",
+                    ExitAnimation = Text(clip, "exitAnimation"),
+                    EnterDuration = Num(clip, "enterDuration", .7), ExitDuration = Num(clip, "exitDuration", .22),
+                    BackdropBlur = Num(clip, "backdropBlur", 20),
+                    BackdropBlurIncludesCamera = clip.TryGetProperty("backdropBlurIncludesCamera", out var bic) && bic.ValueKind == JsonValueKind.True,
+                    HidesScreen = clip.TryGetProperty("hidesScreen", out var hs) && hs.ValueKind == JsonValueKind.True,
+                    HidesCamera = clip.TryGetProperty("hidesCamera", out var hc) && hc.ValueKind == JsonValueKind.True,
                 });
                 references.Add(path);
-                var unsupported = new List<string>();
-                if (Num(clip, "cornerRadius") > 0 || Num(clip, "borderWidth") > 0 || Num(clip, "shadowOpacity") > 0) unsupported.Add("圆角、边框或阴影");
-                if (Num(clip, "backdropBlur") > 0) unsupported.Add("背景虚化");
-                if (clip.TryGetProperty("hidesScreen", out var hideScreen) && hideScreen.ValueKind == JsonValueKind.True
-                    || clip.TryGetProperty("hidesCamera", out var hideCamera) && hideCamera.ValueKind == JsonValueKind.True) unsupported.Add("隐藏画面/摄像头");
-                if (Text(clip, "animation") is { } animation && animation is not "none" and not "fade"
-                    || Text(clip, "exitAnimation") is { } exit && exit is not "none" and not "fade") unsupported.Add("位移/弹出动画（改为平滑淡入淡出）");
-                if (Text(clip, "animation") == "fade" && Text(clip, "animationCurve") != "linear") unsupported.Add("动画曲线（采用 Windows 平滑过渡）");
-                if (unsupported.Count > 0) dropped.Add("贴图 " + Path.GetFileName(path) + "：" + string.Join("、", unsupported));
             }
     }
 
