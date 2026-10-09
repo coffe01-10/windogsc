@@ -7,6 +7,7 @@ namespace DogSC;
 public partial class RecorderBarWindow : Window
 {
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(200) };
+    readonly DispatcherTimer _barSettingsTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     readonly HwndSourceHook _hook;
     RecordingSession? _session;
     string? _directory;
@@ -16,13 +17,29 @@ public partial class RecorderBarWindow : Window
     bool _closing;
     IReadOnlyList<string> _cameras = [];
     HwndSource? _source;
+    bool _barLayoutReady;
+    bool _collapsed;
 
     public RecorderBarWindow()
     {
         InitializeComponent();
+        _collapsed = SettingsStore.Current.BarCollapsed;
+        BarSizeSlider.Value = SettingsStore.Current.BarScale;
+        SizePopup.Opened += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => BarSizeSlider.Focus()));
+        SizePopup.Closed += (_, _) => (SizePopup.PlacementTarget as UIElement)?.Focus();
+        BarSizeSlider.PreviewKeyDown += (_, args) =>
+        {
+            if (args.Key != Key.Escape) return;
+            SizePopup.IsOpen = false;
+            args.Handled = true;
+        };
+        _barSettingsTimer.Tick += (_, _) => { _barSettingsTimer.Stop(); SettingsStore.Save(); };
         KeyboardNavigation.SetTabNavigation(ListItems, KeyboardNavigationMode.Cycle);
-        ListPopup.Opened += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Input,
-            new Action(() => ListItems.Children.OfType<Button>().FirstOrDefault()?.Focus()));
+        ListPopup.Opened += (_, _) =>
+        {
+            Motion.Reveal(ListItems);
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => ListItems.Children.OfType<Button>().FirstOrDefault()?.Focus()));
+        };
         ListPopup.Closed += (_, _) => (ListPopup.PlacementTarget as UIElement)?.Focus();
         ListItems.PreviewKeyDown += (_, args) =>
         {
@@ -47,19 +64,14 @@ public partial class RecorderBarWindow : Window
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/AppIconMaster.png"));
         FolderLabel.Text = Path.GetFileName(SettingsStore.Current.ProjectsDirectory);
         PaintToggles();
-        _timer.Tick += (_, _) =>
-        {
-            if (_session is null)
-            {
-                return;
-            }
-
-            var elapsed = TimeSpan.FromSeconds(_session.Elapsed);
-            TimerLabel.Text = elapsed.ToString(elapsed.TotalHours >= 1 ? @"h\:mm\:ss" : @"mm\:ss");
-        };
+        _timer.Tick += (_, _) => PaintElapsedTime();
         Loaded += async (_, _) => await LoadDevicesAsync();
         MouseLeftButtonDown += DragBar;
-        Loaded += (_, _) => WindowPlacement.KeepInWorkArea(this);
+        Loaded += (_, _) =>
+        {
+            _barLayoutReady = true;
+            ApplyBarLayout(false);
+        };
         if (!double.IsNaN(SettingsStore.Current.BarLeft))
         {
             WindowStartupLocation = WindowStartupLocation.Manual;
@@ -72,7 +84,91 @@ public partial class RecorderBarWindow : Window
         }
     }
 
-    void DragBar(object sender, MouseButtonEventArgs args) => WindowPlacement.Drag(this, args);
+    void DragBar(object sender, MouseButtonEventArgs args)
+    {
+        foreach (var property in new[] { LeftProperty, TopProperty }) BeginAnimation(property, null);
+        BarRoot.BeginAnimation(WidthProperty, null);
+        WindowPlacement.Drag(this, args);
+    }
+
+    void ApplyBarLayout(bool animate)
+    {
+        if (!_barLayoutReady) return;
+        var recording = _session is not null;
+        SetupPanel.Visibility = !_collapsed && !recording ? Visibility.Visible : Visibility.Collapsed;
+        RecordingPanel.Visibility = !_collapsed && recording ? Visibility.Visible : Visibility.Collapsed;
+        CompactPanel.Visibility = _collapsed ? Visibility.Visible : Visibility.Collapsed;
+        CompactRecord.Visibility = recording ? Visibility.Collapsed : Visibility.Visible;
+        CompactRecording.Visibility = recording ? Visibility.Visible : Visibility.Collapsed;
+        CollapseIcon.Kind = _collapsed ? IconKind.ChevronRight : IconKind.ChevronLeft;
+        CollapseButton.ToolTip = _collapsed ? "展开工具条" : "收起工具条";
+        System.Windows.Automation.AutomationProperties.SetName(CollapseButton, (string)CollapseButton.ToolTip);
+
+        var designWidth = _collapsed ? recording ? 340d : 280d : recording ? 620d : 860d;
+        var designHeight = _collapsed ? 88d : recording ? 100d : 124d;
+        var work = WindowPlacement.WorkArea(this);
+        var scale = Math.Min(SettingsStore.Current.BarScale, Math.Min((work.Width - 24) / designWidth, (work.Height - 24) / designHeight));
+        BarScale.ScaleX = BarScale.ScaleY = scale;
+        var width = designWidth * scale;
+        var height = designHeight * scale;
+        var duration = animate ? 180 : 0;
+        Motion.To(this, LeftProperty, Left, Math.Clamp(Left, work.Left, work.Right - width), duration);
+        Motion.To(this, TopProperty, Top, Math.Clamp(Top, work.Top, work.Bottom - height), duration);
+        // Let SizeToContent keep the native window and its scaled content in sync.
+        // Height changes immediately so expanded labels are never clipped by the compact height.
+        BarRoot.Height = designHeight;
+        Motion.To(BarRoot, WidthProperty, BarRoot.Width, designWidth, duration);
+        BarSizeLabel.Text = SettingsStore.Current.BarScale.ToString("P0");
+        if (animate) Motion.Reveal(_collapsed ? CompactPanel : recording ? RecordingPanel : SetupPanel);
+    }
+
+    void Collapse_Click(object sender, RoutedEventArgs e)
+    {
+        ListPopup.IsOpen = SizePopup.IsOpen = false;
+        _collapsed = !_collapsed;
+        SettingsStore.Current.BarCollapsed = _collapsed;
+        ApplyBarLayout(true);
+        CollapseButton.Focus();
+        QueueBarSettings();
+    }
+
+    void BarSize_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!_barLayoutReady) return;
+        SettingsStore.Current.BarScale = e.NewValue;
+        ApplyBarLayout(false);
+        QueueBarSettings();
+    }
+
+    void ResetBarSize_Click(object sender, RoutedEventArgs e) => BarSizeSlider.Value = 0.85;
+
+    void Bar_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;
+        BarSizeSlider.Value = Math.Clamp(Math.Round((BarSizeSlider.Value + Math.Sign(e.Delta) * 0.05) * 20) / 20, 0.7, 1.1);
+        e.Handled = true;
+    }
+
+    void QueueBarSettings()
+    {
+        _barSettingsTimer.Stop();
+        _barSettingsTimer.Start();
+    }
+
+    void PaintPauseState()
+    {
+        PauseLabel.Text = _paused ? "继续" : "暂停";
+        PauseIcon.Kind = CompactPauseIcon.Kind = _paused ? IconKind.Play : IconKind.Pause;
+        CompactPause.ToolTip = _paused ? "继续录制" : "暂停录制";
+        System.Windows.Automation.AutomationProperties.SetName(CompactPause, (string)CompactPause.ToolTip);
+    }
+
+    void PaintElapsedTime()
+    {
+        if (_session is null) return;
+        var elapsed = TimeSpan.FromSeconds(_session.Elapsed);
+        TimerLabel.Text = CompactTimer.Text = elapsed.ToString(elapsed.TotalHours >= 1 ? @"h\:mm\:ss" : @"mm\:ss");
+    }
 
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -84,6 +180,7 @@ public partial class RecorderBarWindow : Window
 
     protected override async void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
+        _barSettingsTimer.Stop();
         SettingsStore.Current.BarLeft = Left;
         SettingsStore.Current.BarTop = Top;
         SettingsStore.Save();
@@ -115,7 +212,7 @@ public partial class RecorderBarWindow : Window
     void Display_Click(object sender, RoutedEventArgs e)
     {
         var monitors = Native.Monitors();
-        ShowList(DisplayButton, monitors.Select(monitor => (monitor.Name, monitor.Width + " × " + monitor.Height, (Action)(() =>
+        ShowList(sender as FrameworkElement ?? DisplayButton, monitors.Select(monitor => (monitor.Name, monitor.Width + " × " + monitor.Height, (Action)(() =>
         {
             var region = Native.EvenRegion(monitor.Left, monitor.Top, monitor.Width, monitor.Height);
             _ = BeginAsync(new CaptureTarget(CaptureKind.Display, monitor.Name, region.X, region.Y, region.Width, region.Height, null));
@@ -260,6 +357,12 @@ public partial class RecorderBarWindow : Window
             ("导入 macOS 项目", "打开 Mac 版 .dogscproject 包", () => _ = ImportMacAsync()),
             ("打开项目", "打开 .dogscproject 文件夹", () => OpenProject()),
             ("备忘录", "不进入录制画面", () => MemoWindow.Toggle()),
+            ("工具条大小", "70%–110% · Ctrl + 滚轮", () =>
+            {
+                SizePopup.PlacementTarget = _collapsed ? CompactMenu : CollapseButton;
+                SizePopup.IsOpen = true;
+                BarSizeSlider.Focus();
+            }),
             ("设置", "帧率、ffmpeg、关于", () => new SettingsWindow { Owner = this }.ShowDialog()),
         };
         foreach (var recent in SettingsStore.Current.RecentProjects.Where(Directory.Exists).Take(5))
@@ -296,18 +399,15 @@ public partial class RecorderBarWindow : Window
             {
                 await _session.ResumeAsync();
                 _paused = false;
-                PauseLabel.Text = "暂停";
-                PauseIcon.Kind = IconKind.Pause;
-                _timer.Start();
             }
             else
             {
+                _timer.Stop();
                 await _session.PauseAsync();
                 _paused = true;
-                PauseLabel.Text = "继续";
-                PauseIcon.Kind = IconKind.Play;
-                _timer.Stop();
             }
+            PaintElapsedTime();
+            PaintPauseState();
         }
         catch (Exception ex)
         {
@@ -316,6 +416,7 @@ public partial class RecorderBarWindow : Window
         finally
         {
             _busy = false;
+            if (!_paused && _session is not null) _timer.Start();
         }
     }
 
@@ -361,11 +462,10 @@ public partial class RecorderBarWindow : Window
             _session = session;
             _directory = directory;
             _paused = false;
-            PauseLabel.Text = "暂停";
-            PauseIcon.Kind = IconKind.Pause;
+            PaintPauseState();
+            TimerLabel.Text = CompactTimer.Text = "00:00";
             RecordingLabel.Text = target.Label;
-            SetupPanel.Visibility = Visibility.Collapsed;
-            RecordingPanel.Visibility = Visibility.Visible;
+            ApplyBarLayout(true);
             ErrorText.Text = "";
             RegisterHotkeys();
             _timer.Start();
@@ -409,8 +509,7 @@ public partial class RecorderBarWindow : Window
         _busy = true;
         UnregisterHotkeys();
         _timer.Stop();
-        SetupPanel.Visibility = Visibility.Visible;
-        RecordingPanel.Visibility = Visibility.Collapsed;
+        ContentHost.IsEnabled = false;
         try
         {
             var project = await session.FinishAsync();
@@ -436,6 +535,8 @@ public partial class RecorderBarWindow : Window
             _session = null;
             _directory = null;
             _busy = false;
+            ContentHost.IsEnabled = true;
+            ApplyBarLayout(true);
         }
     }
 
@@ -567,33 +668,7 @@ public partial class RecorderBarWindow : Window
 
     void ShowError(string message)
     {
-        UpdateText.Visibility = Visibility.Collapsed;
         ErrorText.Text = message.ReplaceLineEndings(" ");
-    }
-
-    /// <summary>录制条角落提示新版本；点击用默认浏览器打开 release 页。
-    /// 用独立的 UpdateText，不改 ErrorText 的样式/事件，避免污染错误文本。</summary>
-    public void ShowUpdateNotice(UpdateInfo info)
-    {
-        if (!info.HasUpdate || info.Url.Length == 0)
-        {
-            return;
-        }
-
-        ErrorText.Text = "";
-        UpdateText.Text = $"发现新版本 {info.Latest} — 点击查看";
-        UpdateText.Visibility = Visibility.Visible;
-        UpdateText.MouseLeftButtonDown += (_, _) =>
-        {
-            try
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(info.Url) { UseShellExecute = true });
-            }
-            catch
-            {
-                // 打不开浏览器就算了，提示还在。
-            }
-        };
     }
 
     void RegisterHotkeys()

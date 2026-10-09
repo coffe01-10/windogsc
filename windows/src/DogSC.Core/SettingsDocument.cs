@@ -24,6 +24,8 @@ public sealed class AppSettings
     public double BarLeft { get; set; } = double.NaN;
     [JsonConverter(typeof(NonFiniteToNullConverter))]
     public double BarTop { get; set; } = double.NaN;
+    public double BarScale { get; set; } = 0.85;
+    public bool BarCollapsed { get; set; }
     public string MemoText { get; set; } = "";
     public double MemoSize { get; set; } = 18;
     public double MemoOpacity { get; set; } = 0.94;
@@ -105,6 +107,7 @@ public static class SettingsFile
         // 坐标字段 NaN 是合法哨兵（未存过位置），Infinity 没有语义、回到 NaN。
         settings.BarLeft = double.IsInfinity(settings.BarLeft) ? defaults.BarLeft : settings.BarLeft;
         settings.BarTop = double.IsInfinity(settings.BarTop) ? defaults.BarTop : settings.BarTop;
+        settings.BarScale = Math.Clamp(FiniteOr(settings.BarScale, defaults.BarScale), 0.7, 1.1);
         settings.MemoText ??= "";
         settings.MemoSize = FiniteOr(settings.MemoSize, defaults.MemoSize);
         settings.MemoSize = Math.Clamp(settings.MemoSize, 8, 96);

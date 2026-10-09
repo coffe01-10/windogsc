@@ -33,7 +33,7 @@ static class WindowPlacement
         }
     }
 
-    public static void KeepInWorkArea(Window window, bool center = false)
+    public static Rect WorkArea(Window window)
     {
         var work = SystemParameters.WorkArea;
         var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
@@ -44,6 +44,12 @@ static class WindowPlacement
             var bottomRight = target.TransformFromDevice.Transform(new Point(info.Work.Right, info.Work.Bottom));
             work = new Rect(topLeft, bottomRight);
         }
+        return work;
+    }
+
+    public static void KeepInWorkArea(Window window, bool center = false)
+    {
+        var work = WorkArea(window);
         var width = Math.Max(1, work.Width - 24);
         var height = Math.Max(1, work.Height - 24);
         window.MinWidth = Math.Min(window.MinWidth, width);

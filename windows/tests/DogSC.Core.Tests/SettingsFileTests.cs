@@ -37,11 +37,13 @@ public class SettingsFileTests
         Assert.Equal(double.NaN, loaded.MemoTop);
         Assert.Equal(0.94, loaded.MemoOpacity, 2);
 
-        var restored = new AppSettings { BarLeft = 120.5, BarTop = 40, MemoText = "x" };
+        var restored = new AppSettings { BarLeft = 120.5, BarTop = 40, MemoText = "x", BarScale = 0.75, BarCollapsed = true };
         SettingsFile.Save(path, restored);
         var pinned = SettingsFile.Load(path);
         Assert.Equal(120.5, pinned.BarLeft, 3);
         Assert.Equal(40, pinned.BarTop, 3);
+        Assert.Equal(0.75, pinned.BarScale, 3);
+        Assert.True(pinned.BarCollapsed);
 
         File.Delete(path);
     }
@@ -57,6 +59,8 @@ public class SettingsFileTests
         Assert.False(defaults.RecordMicrophone);
         Assert.Equal(18, defaults.MemoSize, 2);
         Assert.True(double.IsNaN(defaults.BarLeft));
+        Assert.Equal(0.85, defaults.BarScale, 3);
+        Assert.False(defaults.BarCollapsed);
 
         File.WriteAllText(missing, "{ \"theme\": \"dark\", broken");
         var corrupt = SettingsFile.Load(missing);

@@ -18,43 +18,7 @@ public partial class SettingsWindow : Window
         Fps60.Background = fps60 ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("WellBrush");
         Fps60.Foreground = fps60 ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
         FfmpegLabel.Text = FfmpegTools.LocateFfmpeg() ?? "未找到";
-        UpdatesCheck.IsChecked = SettingsStore.Current.CheckUpdates;
-        UpdateLabel.Text = "当前版本 " + UpdateService.CurrentVersion;
-    }
-
-    void UpdatesCheck_Click(object sender, RoutedEventArgs e)
-    {
-        SettingsStore.Current.CheckUpdates = UpdatesCheck.IsChecked == true;
-        SettingsStore.Save();
-    }
-
-    async void CheckUpdates_Click(object sender, RoutedEventArgs e)
-    {
-        UpdateLabel.Text = "检查中…";
-        var info = await UpdateService.CheckAsync();
-        if (info.HasUpdate)
-        {
-            UpdateLabel.Text = $"发现新版本 {info.Latest}";
-            try
-            {
-                if (info.Url.Length > 0)
-                {
-                    Process.Start(new ProcessStartInfo(info.Url) { UseShellExecute = true });
-                }
-            }
-            catch
-            {
-                // 打不开浏览器就只留文字。
-            }
-        }
-        else if (info.Error is not null)
-        {
-            UpdateLabel.Text = info.Error;
-        }
-        else
-        {
-            UpdateLabel.Text = $"已是最新（{UpdateService.CurrentVersion}）";
-        }
+        UpdateLabel.Text = "当前版本 " + AppVersion.Current;
     }
 
     void Fps30_Click(object sender, RoutedEventArgs e)

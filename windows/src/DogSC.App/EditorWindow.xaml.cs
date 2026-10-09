@@ -1136,8 +1136,11 @@ public partial class EditorWindow : Window
 
     void Tool_Click(object sender, RoutedEventArgs e)
     {
-        _tool = (string)((Button)sender).Tag;
+        var tool = (string)((Button)sender).Tag;
+        if (tool == _tool) return;
+        _tool = tool;
         RebuildInspector();
+        Motion.Reveal(Inspector);
     }
 
     void Name_LostFocus(object sender, RoutedEventArgs e)

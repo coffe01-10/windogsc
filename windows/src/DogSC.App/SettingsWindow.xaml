@@ -16,13 +16,9 @@
             <Button DockPanel.Dock="Right" Content="浏览" Style="{StaticResource QuietButton}" Click="BrowseFfmpeg_Click"/>
             <TextBlock x:Name="FfmpegLabel" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
         </DockPanel>
-        <CheckBox x:Name="UpdatesCheck" Margin="0,18,0,0" Content="启动时检查新版本" Foreground="{DynamicResource InkBrush}" Click="UpdatesCheck_Click"/>
-        <DockPanel Margin="0,8,0,0">
-            <Button DockPanel.Dock="Right" Content="检查更新" Style="{StaticResource QuietButton}" Click="CheckUpdates_Click"/>
-            <TextBlock x:Name="UpdateLabel" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource InkSecondaryBrush}"/>
-        </DockPanel>
+        <TextBlock x:Name="UpdateLabel" Margin="0,18,0,0" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource InkSecondaryBrush}"/>
         <TextBlock Margin="0,18,0,0" TextWrapping="Wrap" Foreground="{DynamicResource InkSecondaryBrush}"
-                   Text="DogSC Windows 0.1.0。录制、剪辑和导出按 macOS 版的流程重写。macOS 项目包不能在这里打开。屏幕 3D、自动运镜和效果复制还没有移植。"/>
+                   Text="DogSC Windows。支持屏幕录制、剪辑、效果复制及导出，也可导入 macOS 项目；部分 macOS 画面效果暂未支持。"/>
         <TextBlock Margin="0,8,0,0" Foreground="{DynamicResource InkSecondaryBrush}">
             <Hyperlink NavigateUri="https://github.com/laogou717/dogsc" RequestNavigate="Link_Click">github.com/laogou717/dogsc</Hyperlink>
         </TextBlock>

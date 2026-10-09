@@ -26,6 +26,8 @@ public enum IconKind
     Zoom,
     Sun,
     Moon,
+    ChevronLeft,
+    ChevronRight,
 }
 
 public sealed class Icon : FrameworkElement
@@ -124,6 +126,8 @@ public sealed class Icon : FrameworkElement
         IconKind.Zoom => "M10,3 A7,7 0 1 0 10,17 A7,7 0 1 0 10,3 M15,15 L21,21 M7,10 H13 M10,7 V13",
         IconKind.Sun => "M12,7 A5,5 0 1 0 12,17 A5,5 0 1 0 12,7 M12,2 V4 M12,20 V22 M2,12 H4 M20,12 H22 M5,5 L6.5,6.5 M17.5,17.5 L19,19 M5,19 L6.5,17.5 M17.5,6.5 L19,5",
         IconKind.Moon => "M19,15 A8,8 0 1 1 9,4 A7,7 0 0 0 19,15 Z",
+        IconKind.ChevronLeft => "M15,5 L8,12 L15,19",
+        IconKind.ChevronRight => "M9,5 L16,12 L9,19",
         _ => "M4,4 H20 V20 H4 Z",
     };
 }
