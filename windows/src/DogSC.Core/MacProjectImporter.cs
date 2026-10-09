@@ -273,14 +273,30 @@ public static class MacProjectImporter
             var start = Num(clip, "startTime");
             var end = Num(clip, "endTime");
             var focus = Obj(clip, "focus");
-            project.Zooms.Add(new ZoomSpan
+            var span = new ZoomSpan
             {
                 Start = start,
                 Duration = Math.Max(0.12, end - start),
                 Scale = Num(clip, "scale", 1.45),
                 FocusX = focus is { } f ? Num(f, "x", 0.5) : 0.5,
                 FocusY = focus is { } f2 ? Num(f2, "y", 0.5) : 0.5,
-            });
+            };
+            span.Easing = Text(clip, "easing") switch
+            {
+                "quintic" => "smooth",
+                "quadratic" or "cubic" or "custom" or "spring" or "linear" => Text(clip, "easing")!,
+                _ => span.Easing,
+            };
+            if (Obj(clip, "customCurve") is { } curve)
+            {
+                span.CurveX1 = Num(curve, "x1", 0.65);
+                span.CurveY1 = Num(curve, "y1", 0);
+                span.CurveX2 = Num(curve, "x2", 0.35);
+                span.CurveY2 = Num(curve, "y2", 1);
+            }
+            if (clip.TryGetProperty("enterDuration", out var enter)) span.EnterDuration = Num(clip, "enterDuration");
+            if (clip.TryGetProperty("exitDuration", out var exit)) span.ExitDuration = Num(clip, "exitDuration");
+            project.Zooms.Add(span);
         }
     }
 
@@ -294,7 +310,11 @@ public static class MacProjectImporter
 
         var c = cursor.Value;
         var assetId = Text(c, "assetID") ?? "";
-        project.Canvas.Cursor.Mode = assetId switch
+        if (CursorCatalog.Find(assetId) is { } known && known.Id != "system.automatic")
+        {
+            project.Canvas.Cursor.Asset = known.Id;
+        }
+        project.Canvas.Cursor.Mode = (project.Canvas.Cursor.Asset ?? assetId) switch
         {
             "system.hidden" => "hidden",
             "system.touch-dot" => "dot",
@@ -304,18 +324,24 @@ public static class MacProjectImporter
         project.Canvas.Cursor.Size = Num(c, "size", 1);
         project.Canvas.Cursor.IdleDelay = Num(c, "idleDelay", 1.6);
         var clickStyle = Text(c, "clickEffectStyle");
+        if (clickStyle is not null && CursorCatalog.ClickStyles.Any(s => s.Id == clickStyle))
+        {
+            project.Canvas.Cursor.ClickStyle = clickStyle;
+        }
         project.Canvas.Cursor.ClickRipple = clickStyle is null or not "none";
+        if (Text(c, "motionSmoothing") is { } smoothing
+            && smoothing is "smooth" or "medium" or "rapid" or "none")
+        {
+            project.Canvas.Cursor.Motion = smoothing;
+        }
+        project.Canvas.Cursor.MotionTilt = Num(c, "motionTiltStrength", 2);
         project.Canvas.Cursor.ClickColor = Text(c, "clickColor") ?? "#292929";
         project.Canvas.Cursor.ClickOpacity = Num(c, "clickOpacity", 0.8);
         project.Canvas.Cursor.ClickScale = Num(c, "clickScale", 1);
-        foreach (var key in new[] { "motionTiltStrength", "motionSmoothing", "assetID" })
+        if (assetId.Length > 0 && !assetId.StartsWith("system."))
         {
-            if (c.TryGetProperty(key, out _))
-            {
-                if (key != "assetID" || !assetId.StartsWith("system.")) dropped.Add("cursorStyle." + key);
-            }
+            dropped.Add("cursorStyle.assetID");
         }
-
     }
 
     static void MapOverlays(JsonElement? timeline, ProjectDocument project, List<string> references, List<string> dropped)
@@ -399,7 +425,8 @@ public static class MacProjectImporter
             if (Obj(entry, "location") is not { } location) continue;
             var point = new CursorPoint { Time = Num(entry, "time") - advance,
                 X = Num(location, "x"), Y = Num(location, "y"),
-                Click = Text(entry, "kind") is "leftClick" or "rightClick" };
+                Click = Text(entry, "kind") is "leftClick" or "rightClick",
+                Cursor = Text(entry, "cursorAssetID") is { } id && id.StartsWith("system.") ? id : null };
             if (point.Time < 0) { seed = point; continue; }
             if (points.Count == 0 && seed is not null && point.Time > 0)
                 points.Add(new CursorPoint { Time = 0, X = seed.X, Y = seed.Y });

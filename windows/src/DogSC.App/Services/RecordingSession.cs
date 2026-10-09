@@ -335,6 +335,7 @@ public sealed class RecordingSession : IAsyncDisposable
             X = nx,
             Y = ny,
             Click = click,
+            Cursor = Native.CursorAssetId(),
         });
     }
 
