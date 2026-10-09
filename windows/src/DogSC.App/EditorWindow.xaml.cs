@@ -522,7 +522,7 @@ public partial class EditorWindow : Window
         Inspector.Children.Add(MotionSlider("进入时长", 0, 5, zoom.EnterDuration ?? .4, value => zoom.EnterDuration = value, " 秒"));
         Inspector.Children.Add(MotionSlider("退出时长", 0, 5, zoom.ExitDuration ?? .4, value => zoom.ExitDuration = value, " 秒"));
         Inspector.Children.Add(Caption("片段不足以容纳两段过渡时，按比例缩短；相邻镜头直接衔接。"));
-        var curves = new StackPanel { Orientation = Orientation.Horizontal };
+        var curves = new WrapPanel();
         foreach (var (label, curve) in new[] { ("弹簧", "spring"), ("平滑", "smooth"), ("线性", "linear"),
             ("二次", "quadratic"), ("三次", "cubic"), ("自定义", "custom") })
         {

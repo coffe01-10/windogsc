@@ -110,20 +110,62 @@ public static class CursorArt
             GetIconInfo(icon, out var info);
             var hotX = info.xHotspot;
             var hotY = info.yHotspot;
-            var source = Imaging.CreateBitmapSourceFromHIcon(
-                icon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-            var bgra = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
-            var scale = referenceHeight / (double)bgra.PixelHeight;
-            var w = Math.Max(1, (int)Math.Round(bgra.PixelWidth * scale));
-            var pixels = new byte[w * referenceHeight * 4];
-            var resized = new TransformedBitmap(bgra, new ScaleTransform(scale, scale));
-            resized.CopyPixels(pixels, w * 4, 0);
-            return new CursorSprite(pixels, w, referenceHeight, hotX * scale, hotY * scale);
+            try
+            {
+                if (info.hbmColor == IntPtr.Zero)
+                {
+                    // 单色光标（I 型 / 十字）：hbmColor 为 NULL，CreateBitmapSourceFromHIcon
+                    // 产出全透明；改为从 hbmMask 上半 AND / 下半 XOR 重建 BGRA。
+                    return RenderMonoCursor(info, referenceHeight, hotX, hotY);
+                }
+                var source = Imaging.CreateBitmapSourceFromHIcon(
+                    icon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                var bgra = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
+                var scale = referenceHeight / (double)bgra.PixelHeight;
+                var w = Math.Max(1, (int)Math.Round(bgra.PixelWidth * scale));
+                var pixels = new byte[w * referenceHeight * 4];
+                var resized = new TransformedBitmap(bgra, new ScaleTransform(scale, scale));
+                resized.CopyPixels(pixels, w * 4, 0);
+                return new CursorSprite(pixels, w, referenceHeight, hotX * scale, hotY * scale);
+            }
+            finally
+            {
+                if (info.hbmMask != IntPtr.Zero) DeleteObject(info.hbmMask);
+                if (info.hbmColor != IntPtr.Zero) DeleteObject(info.hbmColor);
+            }
         }
         finally
         {
             DestroyIcon(icon);
         }
+    }
+
+    /// <summary>单色光标：mask 高 = 2×图标高，上半 AND（0=覆盖）、下半 XOR（1=白）。</summary>
+    static CursorSprite? RenderMonoCursor(IconInfo info, int referenceHeight, int hotX, int hotY)
+    {
+        if (info.hbmMask == IntPtr.Zero) return null;
+        if (GetObjectW(info.hbmMask, Marshal.SizeOf<Bitmap>(), out var bm) == 0) return null;
+        var iconH = bm.bmHeight / 2;
+        if (bm.bmBitsPixel != 1 || bm.bmWidth <= 0 || iconH <= 0) return null;
+        var bits = new byte[bm.bmWidthBytes * bm.bmHeight];
+        if (GetBitmapBits(info.hbmMask, bits.Length, bits) == 0) return null;
+        bool Bit(int x, int y) => (bits[y * bm.bmWidthBytes + x / 8] >> (7 - x % 8) & 1) == 1;
+        var src = new byte[bm.bmWidth * iconH * 4];
+        for (var y = 0; y < iconH; y++)
+        for (var x = 0; x < bm.bmWidth; x++)
+        {
+            if (Bit(x, y)) continue;                      // AND=1 → 透明（含反相区）
+            var white = Bit(x, y + iconH);                // XOR=1 → 白身，否则黑身
+            var i = (y * bm.bmWidth + x) * 4;
+            src[i] = src[i + 1] = src[i + 2] = (byte)(white ? 255 : 0);
+            src[i + 3] = 255;
+        }
+        var bitmap = BitmapSource.Create(bm.bmWidth, iconH, 96, 96, PixelFormats.Bgra32, null, src, bm.bmWidth * 4);
+        var scale = referenceHeight / (double)iconH;
+        var w = Math.Max(1, (int)Math.Round(bm.bmWidth * scale));
+        var pixels = new byte[w * referenceHeight * 4];
+        new TransformedBitmap(bitmap, new ScaleTransform(scale, scale)).CopyPixels(pixels, w * 4, 0);
+        return new CursorSprite(pixels, w, referenceHeight, hotX * scale, hotY * scale);
     }
 
     /// <summary>Mac 风格箭头：白身黑边的多边形，按 24×24 设计网格光栅化（4× 超采样）。</summary>
@@ -255,6 +297,24 @@ public static class CursorArt
     static extern bool DestroyIcon(IntPtr hIcon);
     [DllImport("user32.dll")]
     static extern bool GetIconInfo(IntPtr hIcon, out IconInfo pIconInfo);
+    [DllImport("gdi32.dll")]
+    static extern bool DeleteObject(IntPtr hObject);
+    [DllImport("gdi32.dll", EntryPoint = "GetObjectW")]
+    static extern int GetObjectW(IntPtr h, int c, out Bitmap lpvObject);
+    [DllImport("gdi32.dll")]
+    static extern int GetBitmapBits(IntPtr hbit, int cb, byte[] lpvBits);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Bitmap
+    {
+        public int bmType;
+        public int bmWidth;
+        public int bmHeight;
+        public int bmWidthBytes;
+        public ushort bmPlanes;
+        public ushort bmBitsPixel;
+        public IntPtr bmBits;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct IconInfo
