@@ -7,11 +7,14 @@ public partial class EditorWindow
 {
     void UpdateDecorationTiming()
     {
-        if (_project.Canvas.Sticker is { } sticker)
-            StickerImage.Opacity = sticker.Opacity * EffectTiming.OpacityAt(sticker.Timing, _player.Time);
-        SoftLayer.Opacity = EffectTiming.OpacityAt(_project.Canvas.SoftRegion.Timing, _player.Time);
+        foreach (var sticker in _project.Canvas.Stickers)
+            if (_stickerImages.TryGetValue(sticker.Id, out var image))
+                image.Opacity = sticker.Opacity * EffectTiming.OpacityAt(sticker.Timing, _player.Time);
+        var drawing = EditingRegions && _regionDrawingStyle is not null;
+        _sourceRegions.Update(_player.Time, EditingRegions ? _selectedDecoration : null, drawing);
+        _canvasRegions.Update(_player.Time, EditingRegions ? _selectedDecoration : null, drawing);
     }
-    readonly HashSet<string> _expandedDetails = [];
+    readonly HashSet<string> _expandedDetails = ["贴图、柔化与聚光"];
     StackPanel Disclosure(string title)
     {
         var content = new StackPanel { Margin = new Thickness(0, 6, 0, 8) };
@@ -194,8 +197,19 @@ public partial class EditorWindow
         panel.Children.Add(Slider(0, Math.Max(0, total - timing.Duration), timing.Start, value => timing.Start = value, refresh: true));
         panel.Children.Add(Caption("持续（秒）"));
         panel.Children.Add(Slider(0.12, Math.Max(0.12, total - timing.Start), timing.Duration, value => timing.Duration = value, refresh: true));
-        panel.Children.Add(Caption("淡入 / 淡出（秒）"));
-        panel.Children.Add(Slider(0, Math.Min(2, timing.Duration / 2), Math.Min(timing.Fade, timing.Duration / 2), value => timing.Fade = value));
+        var transitions = new ComboBox { Margin = new Thickness(0, 8, 0, 4) };
+        foreach (var (transitionTitle, key) in new[] { ("无过渡", "none"), ("线性过渡", "linear"), ("平滑过渡", "smooth") })
+            transitions.Items.Add(new ComboBoxItem { Content = transitionTitle, Tag = key });
+        transitions.SelectedItem = transitions.Items.Cast<ComboBoxItem>().First(x => Equals(x.Tag, timing.Transition));
+        transitions.SelectionChanged += (_, _) => { Push(); timing.Transition = (string)((ComboBoxItem)transitions.SelectedItem).Tag; Commit(); };
+        panel.Children.Add(transitions);
+        if (timing.Transition != "none")
+        {
+            panel.Children.Add(Caption("淡入（秒）"));
+            panel.Children.Add(Slider(0, 5, timing.FadeIn ?? Math.Min(timing.Fade, timing.Duration / 2), value => timing.FadeIn = value));
+            panel.Children.Add(Caption("淡出（秒）"));
+            panel.Children.Add(Slider(0, 5, timing.FadeOut ?? Math.Min(timing.Fade, timing.Duration / 2), value => timing.FadeOut = value));
+        }
         var row = new WrapPanel();
         Add("从播放头开始", () => { timing.Start = Math.Clamp(_player.Time, 0, Math.Max(0, total - 0.12)); timing.Duration = Math.Min(timing.Duration, total - timing.Start); });
         Add("结束设为播放头", () => timing.Duration = Math.Max(0.12, _player.Time - timing.Start));

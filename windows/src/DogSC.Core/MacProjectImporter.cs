@@ -97,6 +97,7 @@ public static class MacProjectImporter
             MapCamera(root, project, r.DroppedFields);
             MapAudio(root, project);
             MapZooms(timeline, project);
+            MapOverlays(timeline, project, r.MediaReferences, r.DroppedFields);
             MapCursor(root, project, r.DroppedFields);
             CollectUnmappedEffects(root, r.DroppedFields);
             if (Arr(root, "recordingMarkers") is { } markers)
@@ -315,6 +316,61 @@ public static class MacProjectImporter
 
     }
 
+    static void MapOverlays(JsonElement? timeline, ProjectDocument project, List<string> references, List<string> dropped)
+    {
+        if (timeline is not { } track) return;
+        EffectWindow Timing(JsonElement clip, bool region)
+        {
+            var time = Obj(clip, "timing");
+            var enterAnimation = Text(clip, "animation") ?? "pop";
+            var exitAnimation = Text(clip, "exitAnimation") ?? enterAnimation;
+            return new()
+            {
+                Start = time is { } t ? Num(t, "startTime") : 0,
+                Duration = time is { } d ? Num(d, "duration", 3) : 3,
+                Transition = region ? Text(clip, "transitionStyle") ?? "none" : enterAnimation == "none" && exitAnimation == "none" ? "none" : Text(clip, "animationCurve") == "linear" ? "linear" : "smooth",
+                FadeIn = !region && enterAnimation == "none" ? 0 : Num(clip, region ? "transitionInDuration" : "enterDuration", region ? .3 : .7),
+                FadeOut = !region && exitAnimation == "none" ? 0 : Num(clip, region ? "transitionOutDuration" : "exitDuration", region ? .3 : .22),
+            };
+        }
+        if (Arr(track, "mosaicClips") is { } mosaics)
+            foreach (var clip in mosaics.EnumerateArray())
+            {
+                var rect = Obj(clip, "sourceRect");
+                project.Canvas.SoftRegions.Add(new()
+                {
+                    Id = Text(clip, "id") ?? Guid.NewGuid().ToString("N"), Enabled = true, CoordinateSpace = "source",
+                    Style = Text(clip, "style") ?? "blur", Timing = Timing(clip, true),
+                    X = rect is { } x ? Num(x, "x", .25) : .25, Y = rect is { } y ? Num(y, "y", .25) : .25,
+                    Width = rect is { } w ? Num(w, "width", .5) : .5, Height = rect is { } h ? Num(h, "height", .5) : .5,
+                    Corner = Num(clip, "cornerRadius", .08), Strength = Num(clip, "intensity", .55), Dimming = Num(clip, "spotlightDimming", .22),
+                });
+            }
+        if (Arr(track, "stickerClips") is { } stickers)
+            foreach (var clip in stickers.EnumerateArray().OrderBy(x => Num(x, "layerIndex")))
+            {
+                var path = Text(clip, "relativePath");
+                if (string.IsNullOrWhiteSpace(path)) continue;
+                var position = Obj(clip, "position");
+                project.Canvas.Stickers.Add(new()
+                {
+                    Id = Text(clip, "id") ?? Guid.NewGuid().ToString("N"), Path = path, Name = Path.GetFileName(path), Timing = Timing(clip, false),
+                    X = position is { } x ? Num(x, "x", .5) : .5, Y = position is { } y ? Num(y, "y", .5) : .5,
+                    Width = Num(clip, "width", .38), Opacity = Num(clip, "opacity", 1), Rotation = Num(clip, "rotationDegrees"),
+                });
+                references.Add(path);
+                var unsupported = new List<string>();
+                if (Num(clip, "cornerRadius") > 0 || Num(clip, "borderWidth") > 0 || Num(clip, "shadowOpacity") > 0) unsupported.Add("圆角、边框或阴影");
+                if (Num(clip, "backdropBlur") > 0) unsupported.Add("背景虚化");
+                if (clip.TryGetProperty("hidesScreen", out var hideScreen) && hideScreen.ValueKind == JsonValueKind.True
+                    || clip.TryGetProperty("hidesCamera", out var hideCamera) && hideCamera.ValueKind == JsonValueKind.True) unsupported.Add("隐藏画面/摄像头");
+                if (Text(clip, "animation") is { } animation && animation is not "none" and not "fade"
+                    || Text(clip, "exitAnimation") is { } exit && exit is not "none" and not "fade") unsupported.Add("位移/弹出动画（改为平滑淡入淡出）");
+                if (Text(clip, "animation") == "fade" && Text(clip, "animationCurve") != "linear") unsupported.Add("动画曲线（采用 Windows 平滑过渡）");
+                if (unsupported.Count > 0) dropped.Add("贴图 " + Path.GetFileName(path) + "：" + string.Join("、", unsupported));
+            }
+    }
+
     static void CollectUnmappedEffects(JsonElement root, List<string> dropped)
     {
         foreach (var key in new[] { "openingSequence", "motion" })
@@ -325,7 +381,7 @@ public static class MacProjectImporter
             }
         }
         if (Obj(root, "timeline") is { } timeline)
-            foreach (var key in new[] { "stickerClips", "mosaicClips", "screenMotionClips", "cameraMotionClips" })
+            foreach (var key in new[] { "screenMotionClips", "cameraMotionClips" })
                 if (timeline.TryGetProperty(key, out var clips) && clips.ValueKind == JsonValueKind.Array && clips.GetArrayLength() > 0)
                     dropped.Add("timeline." + key);
     }

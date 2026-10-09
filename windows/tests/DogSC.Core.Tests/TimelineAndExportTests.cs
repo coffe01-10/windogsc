@@ -694,7 +694,8 @@ public class TimelineAndExportTests
         project.Canvas.SoftRegion = new SoftRegion { Enabled = true, X = 0.1, Y = 0.1, Width = 0.5, Height = 0.5, Strength = 0.8 };
         var plan = ExportGraph.Build(project, new ExportOptions(), Media(project));
         Assert.True(plan.SoftMaskIndex >= 0);
-        Assert.Contains("smask", plan.FilterScript, StringComparison.Ordinal);
+        Assert.Single(plan.RegionMasks);
+        Assert.Contains("format=gbrp", plan.FilterScript, StringComparison.Ordinal);
         Assert.Contains("maskedmerge", plan.FilterScript, StringComparison.Ordinal);
         Assert.Contains("gblur", plan.FilterScript, StringComparison.Ordinal);
         Assert.True(plan.SoftRect.W > 0);

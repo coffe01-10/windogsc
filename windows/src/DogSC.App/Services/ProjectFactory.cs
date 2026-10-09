@@ -105,7 +105,7 @@ public static class ProjectFactory
             // 拷贝 media 引用文件，并把 asset 的相对路径改成 Windows 约定。
             var mediaDir = Path.Combine(directory, "media");
             var copied = new Dictionary<string, string>();
-            foreach (var reference in result.MediaReferences)
+            foreach (var reference in result.MediaReferences.Distinct(StringComparer.Ordinal))
             {
                 var source = Path.Combine(packagePath, reference.Replace('/', Path.DirectorySeparatorChar));
                 if (!File.Exists(source))
@@ -132,6 +132,9 @@ public static class ProjectFactory
             asset.Camera = asset.Camera is { } camera && copied.TryGetValue(camera, out var cameraCopy) ? cameraCopy : null;
             asset.Microphone = asset.Microphone is { } mic && copied.TryGetValue(mic, out var micCopy) ? micCopy : null;
             if (project.Canvas.Wallpaper is { } wall && copied.TryGetValue(wall, out var wallCopy)) project.Canvas.Wallpaper = wallCopy;
+            foreach (var sticker in project.Canvas.Stickers.ToArray())
+                if (copied.TryGetValue(sticker.Path, out var stickerCopy)) sticker.Path = stickerCopy;
+                else { result.DroppedFields.Add("贴图文件缺失：" + sticker.Path); project.Canvas.Stickers.Remove(sticker); }
             if (result.PointerPath is { } pointer)
             {
                 var pointerFile = Path.Combine(packagePath, pointer.Replace('/', Path.DirectorySeparatorChar));

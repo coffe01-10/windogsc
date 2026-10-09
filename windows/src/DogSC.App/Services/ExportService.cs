@@ -59,12 +59,11 @@ public sealed class ExportService
                 plan.Inputs[plan.FocusMaskIndex] = mask;
             }
 
-            if (plan.SoftMaskIndex >= 0)
+            foreach (var region in plan.RegionMasks)
             {
-                var mask = Path.Combine(temp, "soft.bmp");
-                var (sx, sy, sw, sh) = plan.SoftRect;
-                MaskImage.WriteBmp(mask, MaskImage.CreateRectMask(plan.Width, plan.Height, sx, sy, sw, sh, Math.Max(8, sw / 12)), plan.Width, plan.Height);
-                plan.Inputs[plan.SoftMaskIndex] = mask;
+                var mask = Path.Combine(temp, "region" + region.Index + ".bmp");
+                MaskImage.WriteBmp(mask, MaskImage.CreateRegionMask(region.Width, region.Height, region.Region), region.Width, region.Height);
+                plan.Inputs[region.Index] = mask;
             }
 
             var graph = string.Join(";", plan.FilterScript.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
@@ -75,8 +74,8 @@ public sealed class ExportService
             for (var index = 0; index < plan.Inputs.Count; index++)
             {
                 if (index == plan.FrameMaskIndex || index == plan.ProjectionMaskIndex || index == plan.CameraMaskIndex || index == plan.FocusMaskIndex
-                    || index == plan.SoftMaskIndex
-                    || index == plan.WallpaperIndex || index == plan.StickerIndex)
+                    || plan.RegionMasks.Any(mask => mask.Index == index)
+                    || index == plan.WallpaperIndex || plan.StickerIndices.Contains(index))
                 {
                     args.Add("-framerate");
                     args.Add(plan.Fps.ToString());
@@ -164,26 +163,15 @@ public sealed class ExportService
         }
 
         string? wallpaper = Decoration(project.Canvas.Wallpaper);
-        string? sticker = Decoration(project.Canvas.Sticker?.Path);
-        double stickerAspect = 1;
-        if (sticker is not null)
+        var stickers = new Dictionary<string, ResolvedSticker>();
+        foreach (var image in project.Canvas.Stickers)
         {
-            try
-            {
-                var frame = System.Windows.Media.Imaging.BitmapFrame.Create(
-                    new Uri(sticker), System.Windows.Media.Imaging.BitmapCreateOptions.DelayCreation,
-                    System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-                if (frame.PixelWidth > 0 && frame.PixelHeight > 0)
-                {
-                    stickerAspect = frame.PixelWidth / (double)frame.PixelHeight;
-                }
-            }
-            catch
-            {
-                // 读不出宽高比就当方形，导出端仍可跑。
-            }
+            var path = Decoration(image.Path);
+            if (path is null) continue;
+            var frame = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(path),
+                System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+            stickers[image.Id] = new(path, frame.PixelWidth / (double)frame.PixelHeight);
         }
-
 
         var videos = new Dictionary<string, string>();
         var mics = new Dictionary<string, string>();
@@ -223,8 +211,7 @@ public sealed class ExportService
             Systems = systems,
             Cameras = cameras,
             Wallpaper = wallpaper,
-            Sticker = sticker,
-            StickerAspect = stickerAspect,
+            Stickers = stickers,
         };
     }
 }

@@ -32,6 +32,9 @@ public sealed class TimelineControl : FrameworkElement
     public event EventHandler<ClipMove>? ClipMoved;
     public event EventHandler<string>? ClipSelected;
     public event EventHandler<string>? ZoomSelected;
+    public event EventHandler<string>? DecorationSelected;
+    string? _selectedDecoration;
+    public string? SelectedDecorationId { get => _selectedDecoration; set { _selectedDecoration = value; InvalidateVisual(); } }
 
     public TimelineControl()
     {
@@ -51,6 +54,7 @@ public sealed class TimelineControl : FrameworkElement
         set
         {
             _project = value;
+            MinHeight = Math.Max(168, Decorations().Select(x => x.Top + 34).DefaultIfEmpty(168).Max());
             InvalidateVisual();
         }
     }
@@ -193,7 +197,7 @@ public sealed class TimelineControl : FrameworkElement
             var span = new ZoomSpan { Id = id, Start = window.Start, Duration = window.Duration };
             var visual = _drag is { } moving && moving.Id == id ? ZoomValues(span, moving) : (span.Start, span.Duration);
             var rect = new Rect(TimeToX(visual.Item1, pixels), top, Math.Max(8, visual.Item2 * pixels), 26);
-            drawing.DrawRoundedRectangle(zoomBrush, new Pen(muted, 0.7), rect, 6, 6);
+            drawing.DrawRoundedRectangle(zoomBrush, new Pen(id == SelectedDecorationId ? accent : muted, id == SelectedDecorationId ? 2 : .7), rect, 6, 6);
             if (rect.Width > 48) drawing.DrawText(Text(title, 11, zoomInk), new Point(rect.X + 8, rect.Y + 5));
             drawing.DrawLine(new Pen(zoomInk, 1), new Point(rect.Left + 4, rect.Top + 7), new Point(rect.Left + 4, rect.Bottom - 7));
             drawing.DrawLine(new Pen(zoomInk, 1), new Point(rect.Right - 4, rect.Top + 7), new Point(rect.Right - 4, rect.Bottom - 7));
@@ -241,6 +245,9 @@ public sealed class TimelineControl : FrameworkElement
         var decoration = HitDecoration(point, pixels);
         if (decoration is { } effect)
         {
+            SelectedDecorationId = effect.Id;
+            DecorationSelected?.Invoke(this, effect.Id);
+            InvalidateVisual();
             _drag = new Drag(effect.Edge < 0 ? DragKind.ZoomStart : effect.Edge > 0 ? DragKind.ZoomEnd : DragKind.MoveZoom, effect.Id, XToTime(point.X, pixels));
             CaptureMouse();
             e.Handled = true;
@@ -370,7 +377,7 @@ public sealed class TimelineControl : FrameworkElement
                 if (zoom is not null)
                 {
                     var moved = ZoomValues(zoom, drag);
-                    if (drag.Id is "decoration.sticker" or "decoration.soft")
+                    if (Decorations().Any(effect => effect.Id == drag.Id))
                         DecorationFinished?.Invoke(this, new ZoomMove(drag.Id, moved.Start, moved.Duration));
                     else ZoomFinished?.Invoke(this, new ZoomMove(drag.Id, moved.Start, moved.Duration));
                 }
@@ -383,6 +390,8 @@ public sealed class TimelineControl : FrameworkElement
 
     protected override void OnMouseWheel(MouseWheelEventArgs e)
     {
+        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) && Parent is ScrollViewer viewer && ActualHeight > viewer.ViewportHeight + 1)
+        { base.OnMouseWheel(e); return; }
         var max = Math.Max(0, TimelineMath.Duration(_project ?? new ProjectDocument()) * PixelsPerSecond(ActualWidth) - ActualWidth + 16);
         _scroll = Math.Clamp(_scroll - e.Delta * 0.25, 0, max);
         InvalidateVisual();
@@ -468,10 +477,19 @@ public sealed class TimelineControl : FrameworkElement
 
     IEnumerable<(string Id, string Title, EffectWindow Window, double Top)> Decorations()
     {
-        if (_project?.Canvas.Sticker is { Timing.Duration: > 0 } sticker)
-            yield return ("decoration.sticker", "贴图", sticker.Timing, 134);
-        if (_project?.Canvas.SoftRegion is { Enabled: true, Timing.Duration: > 0 } soft)
-            yield return ("decoration.soft", "柔化", soft.Timing, 168);
+        if (_project is null) yield break;
+        var effects = _project.Canvas.Stickers.Select((x, i) => (x.Id, Title: $"贴图 {i + 1}", x.Timing))
+            .Concat(_project.Canvas.SoftRegions.Where(x => x.Enabled).Select((x, i) => (x.Id, Title: $"{(x.Style == "spotlight" ? "聚光" : "柔化")} {i + 1}", x.Timing)))
+            .OrderBy(x => x.Timing.Duration <= 0 ? 0 : x.Timing.Start);
+        var ends = new List<double>();
+        foreach (var effect in effects)
+        {
+            var window = effect.Timing.Duration > 0 ? effect.Timing : new EffectWindow { Duration = TimelineMath.Duration(_project), Fade = 0 };
+            var lane = ends.FindIndex(end => end <= window.Start);
+            if (lane < 0) { lane = ends.Count; ends.Add(0); }
+            ends[lane] = window.Start + window.Duration;
+            yield return (effect.Id, effect.Title, window, 134 + lane * 34);
+        }
     }
 
     (string Id, int Edge)? HitDecoration(Point point, double pixels)
@@ -502,6 +520,12 @@ public sealed class TimelineControl : FrameworkElement
         if (_project is null)
         {
             yield break;
+        }
+
+        foreach (var effect in Decorations().Where(x => x.Id != excludeId))
+        {
+            yield return effect.Window.Start;
+            yield return effect.Window.Start + effect.Window.Duration;
         }
 
         foreach (var placed in TimelineMath.Place(_project))

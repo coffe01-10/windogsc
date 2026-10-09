@@ -10,6 +10,9 @@ public sealed class ExportOptions
     public int Fps { get; init; } = 30;
 }
 
+public sealed record ResolvedSticker(string Path, double Aspect);
+public sealed record RegionMask(int Index, int Width, int Height, SoftRegion Region);
+
 public sealed class ResolvedMedia
 {
     public required IReadOnlyDictionary<string, string> Videos { get; init; }
@@ -22,11 +25,14 @@ public sealed class ResolvedMedia
     public string? Sticker { get; init; }
     /// <summary>贴图原始宽高比（宽/高），解析不出来就 1。</summary>
     public double StickerAspect { get; init; } = 1;
+    public IReadOnlyDictionary<string, ResolvedSticker> Stickers { get; init; } = new Dictionary<string, ResolvedSticker>();
     public string CursorCommands { get; set; } = "cursor.commands";
 }
 
 public sealed class ExportPlan
 {
+    public List<RegionMask> RegionMasks { get; init; } = [];
+    public List<int> StickerIndices { get; init; } = [];
     public required List<string> Inputs { get; init; }
     public required string FilterScript { get; init; }
     public string? VideoLabel { get; init; }
@@ -123,6 +129,9 @@ public static class ExportGraph
         var includeCamera = !options.AudioOnly && !project.Camera.Hidden && slices.Any(slice => slice.CameraPath is not null);
         var script = new StringBuilder();
         var videoLabels = new List<string>();
+        var regionMasks = new List<RegionMask>();
+        var regionStep = 0;
+        var stickerIndices = new List<int>();
         var cameraSlices = new List<(int Index, string Label, double Start, double End)>();
         if (!options.AudioOnly)
         {
@@ -131,6 +140,14 @@ public static class ExportGraph
                 var slice = slices[index];
                 var label = "v" + index;
                 script.Append('[').Append(videoIndex[slice.VideoPath]).Append(":v]")
+                    .Append("trim=start=").Append(F(slice.SourceStart)).Append(":end=").Append(F(slice.SourceEnd))
+                    .Append(",setpts=(PTS-STARTPTS)/").Append(F(slice.Speed)).Append(",fps=").Append(fps)
+                    .Append(",scale=").Append(project.Width).Append(':').Append(project.Height).Append("[source").Append(index).AppendLine("]");
+                var sourceLabel = "source" + index;
+                foreach (var soft in project.Canvas.SoftRegions.Where(x => x.Enabled && x.CoordinateSpace == "source"))
+                    sourceLabel = ApplyRegion(script, inputs, regionMasks, sourceLabel, soft, project.Width, project.Height,
+                        fps, slice.TimelineDuration, slice.TimelineStart, regionStep++);
+                script.Append('[').Append(sourceLabel).Append(']')
                     .Append(VideoChain(slice, project.Width, project.Height, fps, project.Canvas.Crop))
                     .Append('[').Append(label).AppendLine("]");
                 videoLabels.Add(label);
@@ -348,26 +365,15 @@ public static class ExportGraph
                 videoMap = "vfinal";
             }
 
-            // 局部柔化：矩形 mask 把选中区域混进 gblur 的模糊层。
-            var soft = project.Canvas.SoftRegion;
-            if (soft.Enabled && soft.Width > 0.02 && soft.Height > 0.02 && soft.Strength > 0.02)
+            foreach (var soft in project.Canvas.SoftRegions.Where(x => x.Enabled && x.CoordinateSpace == "canvas"))
             {
-                softMaskIndex = inputs.Count;
-                inputs.Add("");
-                softRect = (
-                    (int)Math.Round(soft.X * canvasWidth),
-                    (int)Math.Round(soft.Y * canvasHeight),
-                    Math.Max(2, (int)Math.Round(soft.Width * canvasWidth)),
-                    Math.Max(2, (int)Math.Round(soft.Height * canvasHeight)));
-                var sigma = F(4 + soft.Strength * 24);
-                script.Append('[').Append(videoMap).AppendLine("]format=gbrp,split[sclear][sblur0]");
-                script.Append("[sblur0]gblur=sigma=").Append(sigma).AppendLine("[sblur]");
-                script.Append('[').Append(softMaskIndex).Append(":v]scale=")
-                    .Append(canvasWidth).Append('x').Append(canvasHeight)
-                    .Append(",loop=loop=-1:size=1:start=0,setpts=N/").Append(fps).Append("/TB,trim=duration=").Append(F(duration))
-                    .Append(",format=gray,geq=lum='p(X,Y)*(").Append(EffectTiming.Expression(soft.Timing)).AppendLine(")',format=gbrp[smask]");
-                script.AppendLine("[sclear][sblur][smask]maskedmerge[softed]");
-                videoMap = "softed";
+                videoMap = ApplyRegion(script, inputs, regionMasks, videoMap!, soft, canvasWidth, canvasHeight, fps, duration, 0, regionStep++);
+                if (softMaskIndex < 0)
+                {
+                    softMaskIndex = regionMasks[^1].Index;
+                    softRect = ((int)Math.Round(soft.X * canvasWidth), (int)Math.Round(soft.Y * canvasHeight),
+                        (int)Math.Round(soft.Width * canvasWidth), (int)Math.Round(soft.Height * canvasHeight));
+                }
             }
 
             // 移轴虚化：径向 mask 把边缘混进 gblur 的模糊层。
@@ -385,15 +391,18 @@ public static class ExportGraph
                 videoMap = "focused";
             }
 
-            // 贴图：静帧图按比例缩放到目标宽，盖在画面最上层（光标之下亦可接受，
-            // 但贴图一般是水印性质，放最后简单可预期）。
-            if (media.Sticker is { Length: > 0 } stickerPath && File.Exists(stickerPath)
-                && project.Canvas.Sticker is { } sticker)
+            foreach (var sticker in project.Canvas.Stickers)
             {
+                var resolvedSticker = media.Stickers.GetValueOrDefault(sticker.Id)
+                    ?? (sticker == project.Canvas.Sticker && media.Sticker is not null ? new ResolvedSticker(media.Sticker, media.StickerAspect) : null);
+                if (resolvedSticker is null || !File.Exists(resolvedSticker.Path)) continue;
+                var stickerPath = resolvedSticker.Path;
+                var suffix = stickerIndices.Count.ToString();
                 stickerIndex = inputs.Count;
                 inputs.Add(stickerPath);
+                stickerIndices.Add(stickerIndex);
                 var w = Math.Max(4, (int)Math.Round(sticker.Width * canvasWidth)) & ~1;
-                var h = Math.Max(4, (int)Math.Round(w / Math.Max(0.1, media.StickerAspect))) & ~1;
+                var h = Math.Max(4, (int)Math.Round(w / Math.Max(0.1, resolvedSticker.Aspect))) & ~1;
                 var sx = Math.Clamp((int)Math.Round(sticker.X * canvasWidth - w / 2.0), 0, Math.Max(0, canvasWidth - w));
                 var sy = Math.Clamp((int)Math.Round(sticker.Y * canvasHeight - h / 2.0), 0, Math.Max(0, canvasHeight - h));
                 stickerRect = (sx, sy, w, h);
@@ -406,19 +415,21 @@ public static class ExportGraph
                 }
                 if (sticker.Timing.Duration > 0)
                 {
-                    var fade = Math.Min(sticker.Timing.Fade, sticker.Timing.Duration / 2);
-                    if (fade > 0)
-                        script.Append(",fade=t=in:st=").Append(F(sticker.Timing.Start)).Append(":d=").Append(F(fade))
-                            .Append(":alpha=1,fade=t=out:st=").Append(F(sticker.Timing.Start + sticker.Timing.Duration - fade))
-                            .Append(":d=").Append(F(fade)).Append(":alpha=1");
+                    script.Append(",format=gbrap,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*(")
+                        .Append(EffectTiming.Expression(sticker.Timing)).Append(")',format=rgba");
+                }
+                if (Math.Abs(sticker.Rotation) > .01)
+                {
+                    var angle = F(sticker.Rotation * Math.PI / 180);
+                    script.Append(",rotate=").Append(angle).Append(":ow=rotw(").Append(angle).Append("):oh=roth(").Append(angle).Append("):c=none");
                 }
 
-                script.AppendLine("[stickerimg]");
-                script.Append('[').Append(videoMap).Append("][stickerimg]overlay=")
-                    .Append(sx).Append(':').Append(sy).Append(":format=auto:enable='")
+                script.Append("[stickerimg").Append(suffix).AppendLine("]");
+                script.Append('[').Append(videoMap).Append("][stickerimg").Append(suffix).Append("]overlay=")
+                    .Append(F(sx + w / 2.0)).Append("-w/2:").Append(F(sy + h / 2.0)).Append("-h/2:format=auto:enable='")
                     .Append(sticker.Timing.Duration > 0 ? $"gte(t,{F(sticker.Timing.Start)})*lt(t,{F(sticker.Timing.Start + sticker.Timing.Duration)})" : "1")
-                    .AppendLine("'[stickered]");
-                videoMap = "stickered";
+                    .Append("'[stickered").Append(suffix).AppendLine("]");
+                videoMap = "stickered" + suffix;
             }
 
             script.Append('[').Append(videoMap).Append("]format=yuv420p[vout]").AppendLine();
@@ -483,6 +494,8 @@ public static class ExportGraph
 
         return new ExportPlan
         {
+            RegionMasks = regionMasks,
+            StickerIndices = stickerIndices,
             Inputs = inputs,
             FilterScript = script.ToString().Trim(),
             VideoLabel = videoMap,
@@ -511,6 +524,31 @@ public static class ExportGraph
         };
     }
 
+    private static string ApplyRegion(StringBuilder script, List<string> inputs, List<RegionMask> masks,
+        string input, SoftRegion soft, int width, int height, int fps, double duration, double start, int step)
+    {
+        var mask = masks.FirstOrDefault(x => x.Region.Id == soft.Id && x.Width == width && x.Height == height);
+        var index = mask?.Index ?? inputs.Count;
+        if (mask is null) { inputs.Add(""); masks.Add(new(index, width, height, soft)); }
+        var prefix = "region" + index + "_" + step;
+        script.Append('[').Append(input).Append("]format=gbrp,split[").Append(prefix).Append("clear][").Append(prefix).AppendLine("fx0]");
+        script.Append('[').Append(prefix).Append("fx0]");
+        if (soft.Style == "spotlight")
+        {
+            var factor = F(1 - soft.Dimming);
+            script.Append("lutrgb=r='val*").Append(factor).Append("':g='val*").Append(factor).Append("':b='val*").Append(factor).Append("'");
+        }
+        else script.Append("gblur=sigma=").Append(F(4 + soft.Strength * 24));
+        script.Append('[').Append(prefix).AppendLine("fx]");
+        script.Append('[').Append(index).Append(":v]loop=loop=-1:size=1:start=0,setpts=N/").Append(fps)
+            .Append("/TB,trim=duration=").Append(F(duration)).Append(",format=gray,geq=lum='")
+            .Append(soft.Style == "spotlight" ? "(255-p(X,Y))" : "p(X,Y)")
+            .Append("*(").Append(EffectTiming.Expression(soft.Timing, "(T+" + F(start) + ")")).Append(")',format=gbrp[").Append(prefix).AppendLine("mask]");
+        script.Append('[').Append(prefix).Append("clear][").Append(prefix).Append("fx][").Append(prefix)
+            .Append("mask]maskedmerge[").Append(prefix).AppendLine("out]");
+        return prefix + "out";
+    }
+
     private static string Join(StringBuilder script, List<string> labels, string output, bool video)
     {
         if (labels.Count == 1)
@@ -532,11 +570,8 @@ public static class ExportGraph
     private static string VideoChain(Piece slice, int width, int height, int fps, SourceCrop sourceCrop)
     {
         var chain = new StringBuilder();
-        chain.Append("trim=start=").Append(F(slice.SourceStart))
-            .Append(":end=").Append(F(slice.SourceEnd))
-            .Append(",setpts=(PTS-STARTPTS)/").Append(F(slice.Speed)).Append(",fps=").Append(fps);
         var crop = CanvasLayout.Crop(width, height, sourceCrop);
-        chain.Append(",crop=").Append(crop.Width).Append(':').Append(crop.Height).Append(':').Append(crop.X).Append(':').Append(crop.Y);
+        chain.Append("crop=").Append(crop.Width).Append(':').Append(crop.Height).Append(':').Append(crop.X).Append(':').Append(crop.Y);
         width = crop.Width;
         height = crop.Height;
         if (slice.Zoom is { Scale: > 1.01 } span)

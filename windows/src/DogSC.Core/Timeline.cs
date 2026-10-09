@@ -387,57 +387,7 @@ public static class TimelineEdits
         return true;
     }
 
-    static CanvasSettings Copy(CanvasSettings source) => new()
-    {
-        Aspect = source.Aspect,
-        Crop = new SourceCrop { X = source.Crop.X, Y = source.Crop.Y, Width = source.Crop.Width, Height = source.Crop.Height },
-        Background = source.Background,
-        Padding = source.Padding,
-        CenterX = source.CenterX,
-        CenterY = source.CenterY,
-        Scale = source.Scale,
-        Corner = source.Corner,
-        Shadow = source.Shadow,
-        TiltX = source.TiltX,
-        TiltY = source.TiltY,
-        FocusBlur = source.FocusBlur,
-        Intro = source.Intro,
-        Cursor = new CursorFx
-        {
-            Mode = source.Cursor.Mode,
-            ClickRipple = source.Cursor.ClickRipple,
-            IdleHide = source.Cursor.IdleHide,
-            Size = source.Cursor.Size,
-            IdleDelay = source.Cursor.IdleDelay,
-            TimingAdvance = source.Cursor.TimingAdvance,
-            ClickColor = source.Cursor.ClickColor,
-            ClickScale = source.Cursor.ClickScale,
-            ClickOpacity = source.Cursor.ClickOpacity,
-        },
-        Wallpaper = source.Wallpaper,
-        WallpaperBlur = source.WallpaperBlur,
-        Sticker = source.Sticker is null
-            ? null
-            : new StickerImage
-            {
-                Path = source.Sticker.Path,
-                Timing = ScenePreset.Clone(source.Sticker.Timing),
-                X = source.Sticker.X,
-                Y = source.Sticker.Y,
-                Width = source.Sticker.Width,
-                Opacity = source.Sticker.Opacity,
-            },
-        SoftRegion = new SoftRegion
-        {
-            Enabled = source.SoftRegion.Enabled,
-            Timing = ScenePreset.Clone(source.SoftRegion.Timing),
-            X = source.SoftRegion.X,
-            Y = source.SoftRegion.Y,
-            Width = source.SoftRegion.Width,
-            Height = source.SoftRegion.Height,
-            Strength = source.SoftRegion.Strength,
-        },
-    };
+    static CanvasSettings Copy(CanvasSettings source) => ScenePreset.Clone(source);
 
     static CameraBubble Copy(CameraBubble source) => new()
     {

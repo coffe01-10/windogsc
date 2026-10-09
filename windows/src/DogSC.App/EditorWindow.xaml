@@ -34,6 +34,7 @@
             <StackPanel Grid.Column="0" Margin="12,12,12,0">
                 <Button x:Name="ToolLayout" Content="画面" Width="64" Height="64" Padding="0" Style="{StaticResource QuietButton}" Click="Tool_Click" Tag="layout" Margin="0,0,0,8"/>
                 <Button x:Name="ToolZoom" Content="缩放" Width="64" Height="64" Padding="0" Style="{StaticResource QuietButton}" Click="Tool_Click" Tag="zoom" Margin="0,0,0,8"/>
+                <Button x:Name="ToolEffects" Content="效果" Width="64" Height="64" Padding="0" Style="{StaticResource QuietButton}" Click="Tool_Click" Tag="effects" Margin="0,0,0,8"/>
                 <Button x:Name="ToolAudio" Content="声音" Width="64" Height="64" Padding="0" Style="{StaticResource QuietButton}" Click="Tool_Click" Tag="audio" Margin="0,0,0,8"/>
             </StackPanel>
             <Grid Grid.Column="1" Margin="8,0,8,8">
@@ -43,7 +44,8 @@
                 </Grid.RowDefinitions>
                 <WrapPanel x:Name="AspectRow" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,8,0,8"/>
                 <Grid x:Name="PreviewSlot" Grid.Row="1" SizeChanged="Preview_SizeChanged">
-                    <Canvas x:Name="PreviewCanvas" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Canvas ClipToBounds="True" x:Name="PreviewCanvas" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Grid x:Name="CanvasEffects">
                         <Canvas x:Name="SceneCanvas">
                         <Rectangle x:Name="StageRect" IsHitTestVisible="False"/>
                         <Image x:Name="WallpaperImage" Stretch="UniformToFill" Visibility="Collapsed" IsHitTestVisible="False">
@@ -58,19 +60,7 @@
                         </Rectangle>
                         <Canvas x:Name="FrameHost" Background="Transparent" ClipToBounds="True" Cursor="SizeAll" MouseLeftButtonDown="Frame_Down" MouseMove="Frame_Move" MouseLeftButtonUp="Frame_Up">
                           <Grid x:Name="ScreenTexture">
-                            <Rectangle x:Name="FrameRect"/>
-                            <Rectangle x:Name="FocusBlurLayer" Visibility="Collapsed" IsHitTestVisible="False">
-                                <Rectangle.Effect>
-                                    <BlurEffect Radius="10"/>
-                                </Rectangle.Effect>
-                                <Rectangle.OpacityMask>
-                                    <RadialGradientBrush GradientOrigin="0.5,0.5" RadiusX="0.72" RadiusY="0.72">
-                                        <GradientStop Color="Transparent" Offset="0"/>
-                                        <GradientStop Color="Transparent" Offset="0.55"/>
-                                        <GradientStop Color="Black" Offset="1"/>
-                                    </RadialGradientBrush>
-                                </Rectangle.OpacityMask>
-                            </Rectangle>
+                            <Grid x:Name="SourceEffects"><Rectangle x:Name="FrameRect"/></Grid>
                             <Canvas x:Name="CursorLayer" IsHitTestVisible="False" ClipToBounds="True">
                                 <Ellipse x:Name="ClickRing" Visibility="Collapsed" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" Fill="Transparent"/>
                                 <Path x:Name="CursorShape" Data="M0,0 L0,17 L4.5,13 L7,19 L9.4,18 L7,12.4 L12,12 Z" Fill="White" Stroke="Black" StrokeThickness="1" Visibility="Collapsed"/>
@@ -81,16 +71,11 @@
                           </Grid>
                           <Viewport3D x:Name="ScreenPerspective" Visibility="Collapsed" IsHitTestVisible="False"/>
                         </Canvas>
-                        </Canvas>
-                        <!-- 局部柔化：全屏模糊副本，OpacityMask 由代码按 SoftRegion 生成 -->
-                        <Rectangle x:Name="SoftLayer" Visibility="Collapsed" IsHitTestVisible="False">
-                            <Rectangle.Effect>
-                                <BlurEffect x:Name="SoftBlur" Radius="12"/>
-                            </Rectangle.Effect>
-                        </Rectangle>
-                        <!-- 贴图：盖在最上层 -->
-                        <Image x:Name="StickerImage" Visibility="Collapsed" IsHitTestVisible="False"/>
                         <Rectangle x:Name="CameraBubble" Visibility="Collapsed" Cursor="SizeAll" StrokeThickness="2" MouseLeftButtonDown="Camera_Down" MouseMove="Camera_Move" MouseLeftButtonUp="Camera_Up"/>
+                        </Canvas>
+                        </Grid>
+                        <Canvas x:Name="StickerLayers" IsHitTestVisible="False"/>
+                        <local:RegionEditSurface x:Name="RegionEditor" Visibility="Collapsed"/>
                     </Canvas>
                 </Grid>
             </Grid>
@@ -143,7 +128,7 @@
                         <Slider x:Name="TimelineZoom" Width="110" Minimum="1" Maximum="6" Value="1" ValueChanged="TimelineZoom_Changed"/>
                     </StackPanel>
                 </Grid>
-                <local:TimelineControl x:Name="Timeline" Grid.Row="1"/>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><local:TimelineControl x:Name="Timeline" Grid.Row="1"/></ScrollViewer>
             </Grid>
         </Border>
     </Grid>

@@ -43,7 +43,7 @@ static class ScenePresets
     static void CopyImages(CanvasSettings canvas, string sourceDirectory, string targetDirectory, bool absolute, string? projectDirectory = null)
     {
         canvas.Wallpaper = Copy(canvas.Wallpaper);
-        if (canvas.Sticker is { } sticker) sticker.Path = Copy(sticker.Path) ?? "";
+        foreach (var sticker in canvas.Stickers) sticker.Path = Copy(sticker.Path) ?? "";
         string? Copy(string? path)
         {
             if (string.IsNullOrWhiteSpace(path)) return path;

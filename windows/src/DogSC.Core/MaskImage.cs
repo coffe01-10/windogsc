@@ -168,6 +168,29 @@ public static class MaskImage
     /// 局部柔化遮罩（灰度 Bgra）：矩形内 255（取模糊层），边缘 feather 像素
     /// 线性过渡，矩形外 0（保留清晰层）。尺寸 = 画布尺寸，rect = 像素矩形。
     /// </summary>
+    public static byte[] CreateRegionMask(int width, int height, SoftRegion region)
+    {
+        var bytes = new byte[width * height * 4];
+        var rw = region.Width * width;
+        var rh = region.Height * height;
+        var radius = Math.Min(rw, rh) * region.Corner;
+        var cx = (region.X + region.Width / 2) * width;
+        var cy = (region.Y + region.Height / 2) * height;
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+        {
+            var dx = Math.Abs(x + .5 - cx) - rw / 2 + radius;
+            var dy = Math.Abs(y + .5 - cy) - rh / 2 + radius;
+            var distance = Math.Sqrt(Math.Pow(Math.Max(dx, 0), 2) + Math.Pow(Math.Max(dy, 0), 2))
+                + Math.Min(Math.Max(dx, dy), 0) - radius;
+            var level = (byte)Math.Round(Math.Clamp(.5 - distance, 0, 1) * 255);
+            var index = (y * width + x) * 4;
+            bytes[index] = bytes[index + 1] = bytes[index + 2] = level;
+            bytes[index + 3] = 255;
+        }
+        return bytes;
+    }
+
     public static byte[] CreateRectMask(int width, int height, int rx, int ry, int rw, int rh, int feather)
     {
         width = Math.Max(1, width);

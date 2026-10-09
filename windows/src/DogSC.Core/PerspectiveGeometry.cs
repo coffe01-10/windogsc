@@ -30,6 +30,16 @@ public static class PerspectiveGeometry
             height / 2 + (p.Y - height / 2) * fit, p.Weight)).ToArray();
     }
 
+    public static (double X, double Y) DestinationPoint(ProjectionCorner[] quad, double u, double v)
+    {
+        var p = quad[0]; var right = quad[1]; var bottom = quad[2];
+        var weight = p.Weight + (right.Weight - p.Weight) * u + (bottom.Weight - p.Weight) * v;
+        return ((p.X * p.Weight + (right.X * right.Weight - p.X * p.Weight) * u
+            + (bottom.X * bottom.Weight - p.X * p.Weight) * v) / weight,
+            (p.Y * p.Weight + (right.Y * right.Weight - p.Y * p.Weight) * u
+            + (bottom.Y * bottom.Weight - p.Y * p.Weight) * v) / weight);
+    }
+
     public static (double X, double Y) SourcePoint(ProjectionCorner[] quad, double x, double y)
     {
         var p = quad[0];

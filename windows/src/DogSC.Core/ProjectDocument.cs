@@ -5,7 +5,7 @@ namespace DogSC.Core;
 
 public static class ProjectSchema
 {
-    public const int Current = 1;
+    public const int Current = 2;
     public const string Platform = "windows";
 
     public static readonly JsonSerializerOptions Json = new()
@@ -128,15 +128,34 @@ public sealed class CanvasSettings
     public string? Wallpaper { get; set; }
     /// <summary>壁纸模糊强度 0..1（垫在画面下做氛围虚化）。</summary>
     public double WallpaperBlur { get; set; } = 0.35;
-    /// <summary>贴图：项目相对或绝对路径的图片；null/空路径 = 不画。</summary>
-    public StickerImage? Sticker { get; set; }
-    /// <summary>局部柔化：canvas 归一化矩形 + 强度。</summary>
-    public SoftRegion SoftRegion { get; set; } = new();
+    public List<StickerImage> Stickers { get; set; } = [];
+    public List<SoftRegion> SoftRegions { get; set; } = [];
+
+    // Old projects and callers use the first decoration; new projects persist lists.
+    [JsonIgnore]
+    public StickerImage? Sticker
+    {
+        get => Stickers.FirstOrDefault();
+        set { Stickers.Clear(); if (value is not null) Stickers.Add(value); }
+    }
+    [JsonIgnore]
+    public SoftRegion SoftRegion
+    {
+        get { if (SoftRegions.Count == 0) SoftRegions.Add(new()); return SoftRegions[0]; }
+        set { SoftRegions.Clear(); if (value is not null) SoftRegions.Add(value); }
+    }
+    [JsonPropertyName("sticker")]
+    public StickerImage? LegacySticker { get => null; set { if (value is not null && Stickers.Count == 0) Stickers.Add(value); } }
+    [JsonPropertyName("softRegion")]
+    public SoftRegion? LegacySoftRegion { get => null; set { if (value is not null && SoftRegions.Count == 0) SoftRegions.Add(value); } }
+
 }
 
 /// <summary>画面上的一张贴图：位置/宽是相对 canvas 的 0..1 归一化，高按图比例。</summary>
 public sealed class StickerImage
 {
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "";
     public EffectWindow Timing { get; set; } = new();
     public string Path { get; set; } = "";
     public double X { get; set; } = 0.5;
@@ -144,11 +163,18 @@ public sealed class StickerImage
     public double Width { get; set; } = 0.2;
     /// <summary>整体不透明度 0..1。</summary>
     public double Opacity { get; set; } = 1;
+    public double Rotation { get; set; }
 }
 
 /// <summary>局部柔化：矩形区域按强度混入高斯模糊。</summary>
 public sealed class SoftRegion
 {
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Style { get; set; } = "blur";
+    // Legacy masks were placed on the output canvas. New masks attach to source pixels.
+    public string CoordinateSpace { get; set; } = "canvas";
+    public double Corner { get; set; } = 0.08;
+    public double Dimming { get; set; } = 0.22;
     public EffectWindow Timing { get; set; } = new();
     public bool Enabled { get; set; }
     public double X { get; set; } = 0.25;
@@ -285,29 +311,39 @@ public static class ProjectFile
         project.Canvas.Cursor.ClickScale = Math.Clamp(project.Canvas.Cursor.ClickScale, 0.5, 4);
         project.Canvas.Wallpaper = string.IsNullOrWhiteSpace(project.Canvas.Wallpaper) ? null : project.Canvas.Wallpaper.Trim();
         project.Canvas.WallpaperBlur = Math.Clamp(project.Canvas.WallpaperBlur, 0, 1);
-        if (project.Canvas.Sticker is { } sticker)
+        project.Canvas.Stickers ??= [];
+        project.Canvas.SoftRegions ??= [];
+        foreach (var sticker in project.Canvas.Stickers.ToArray())
         {
             sticker.Timing ??= new();
             EffectTiming.Normalize(sticker.Timing);
             sticker.Path = sticker.Path.Trim();
+            if (string.IsNullOrWhiteSpace(sticker.Name)) sticker.Name = Path.GetFileName(sticker.Path);
             sticker.X = Math.Clamp(sticker.X, 0, 1);
             sticker.Y = Math.Clamp(sticker.Y, 0, 1);
             sticker.Width = Math.Clamp(sticker.Width, 0.02, 1);
-            sticker.Opacity = Math.Clamp(sticker.Opacity, 0.05, 1);
+            sticker.Opacity = Math.Clamp(sticker.Opacity, 0, 1);
+            sticker.Rotation = Math.Clamp(sticker.Rotation, -180, 180);
             if (sticker.Path.Length == 0)
             {
-                project.Canvas.Sticker = null;
+                project.Canvas.Stickers.Remove(sticker);
             }
         }
 
-        project.Canvas.SoftRegion ??= new SoftRegion();
-        project.Canvas.SoftRegion.Timing ??= new();
-        EffectTiming.Normalize(project.Canvas.SoftRegion.Timing);
-        project.Canvas.SoftRegion.X = Math.Clamp(project.Canvas.SoftRegion.X, 0, 1);
-        project.Canvas.SoftRegion.Y = Math.Clamp(project.Canvas.SoftRegion.Y, 0, 1);
-        project.Canvas.SoftRegion.Width = Math.Clamp(project.Canvas.SoftRegion.Width, 0.02, 1);
-        project.Canvas.SoftRegion.Height = Math.Clamp(project.Canvas.SoftRegion.Height, 0.02, 1);
-        project.Canvas.SoftRegion.Strength = Math.Clamp(project.Canvas.SoftRegion.Strength, 0, 1);
+        foreach (var soft in project.Canvas.SoftRegions)
+        {
+            soft.Timing ??= new();
+            EffectTiming.Normalize(soft.Timing);
+            soft.Style = soft.Style == "spotlight" ? "spotlight" : "blur";
+            soft.CoordinateSpace = soft.CoordinateSpace == "source" ? "source" : "canvas";
+            soft.Width = Math.Clamp(soft.Width, project.Width > 0 ? 1d / project.Width : .0001, 1);
+            soft.Height = Math.Clamp(soft.Height, project.Height > 0 ? 1d / project.Height : .0001, 1);
+            soft.X = Math.Clamp(soft.X, 0, 1 - soft.Width);
+            soft.Y = Math.Clamp(soft.Y, 0, 1 - soft.Height);
+            soft.Strength = Math.Clamp(soft.Strength, 0, 1);
+            soft.Corner = Math.Clamp(soft.Corner, 0, 0.5);
+            soft.Dimming = Math.Clamp(soft.Dimming, 0, 1);
+        }
         project.Camera.Size = Math.Clamp(project.Camera.Size, 0.08, 0.46);
         project.Camera.CenterX = Math.Clamp(project.Camera.CenterX, 0, 1);
         project.Camera.CenterY = Math.Clamp(project.Camera.CenterY, 0, 1);

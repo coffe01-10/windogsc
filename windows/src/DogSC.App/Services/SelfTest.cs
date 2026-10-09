@@ -21,6 +21,11 @@ public static class SelfTest
         {
             return await RunInDirectoryAsync(ffmpeg, ffprobe, root);
         }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("SELFTEST_FAIL " + ex);
+            return 1;
+        }
         finally
         {
             try
@@ -133,6 +138,7 @@ public static class SelfTest
             throw new InvalidOperationException("取消导出覆盖了旧文件或留下半成品。");
         Console.WriteLine("SELFTEST_OK timed-sticker/soft/fades/perspective/intro");
         Console.WriteLine("SELFTEST_OK color/projection-edges/cancel-keeps-existing");
+        await CheckMultiOverlayAsync(ffmpeg, ffprobe, root);
         await CheckMacImportAsync(ffmpeg, ffprobe, root, source);
         var monitor = Native.Monitors().First();
         var grabPath = Path.Combine(root, "grab.mp4");
@@ -157,6 +163,80 @@ public static class SelfTest
         return 0;
     }
 
+    static async Task CheckMultiOverlayAsync(string ffmpeg, string ffprobe, string root)
+    {
+        var white = Path.Combine(root, "media", "white.mp4");
+        using (var generate = FfmpegProcess.Start(ffmpeg, ["-y", "-f", "lavfi", "-i", "color=white:s=640x360:r=30:d=2",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", white]))
+            if (await generate.WaitAsync() != 0) throw new InvalidOperationException(generate.ErrorText());
+        var asset = new MediaAsset { Video = "media/white.mp4", Duration = 2, Width = 640, Height = 360 };
+        var project = new ProjectDocument
+        {
+            Width = 640, Height = 360, Assets = [asset], Clips = [new() { AssetId = asset.Id, SourceEnd = 2 }],
+            Canvas = new()
+            {
+                Padding = 0, Corner = 0, Shadow = 0, Aspect = "8:9", Cursor = new() { Mode = "hidden" },
+                Crop = new() { X = .25, Width = .5 },
+                SoftRegions = [new() { Enabled = true, CoordinateSpace = "source", Style = "spotlight", Dimming = .5,
+                    X = .375, Y = .25, Width = .25, Height = .5, Timing = new() { Start = .2, Duration = 1.4, Transition = "none" } }],
+            },
+            Zooms = [new() { Start = .8, Duration = .8, Scale = 2 }],
+        };
+        var output = Path.Combine(root, "source-spotlight.mp4");
+        await new ExportService(ffmpeg).ExportAsync(project, root, new(), output, CancellationToken.None);
+        async Task<byte> Pixel(double time, double x, double y, string? video = null, int channel = 0)
+        {
+            var path = Path.Combine(root, "pixel.png");
+            try
+            {
+                using var extract = FfmpegProcess.Start(ffmpeg, ["-y", "-ss", time.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "-i", video ?? output, "-frames:v", "1", path]);
+                if (await extract.WaitAsync() != 0) throw new InvalidOperationException(extract.ErrorText());
+                using var stream = File.OpenRead(path);
+                var frame = BitmapFrame.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                var image = new FormatConvertedBitmap(frame, PixelFormats.Bgr32, null, 0);
+                var pixels = new byte[image.PixelWidth * image.PixelHeight * 4];
+                image.CopyPixels(pixels, image.PixelWidth * 4, 0);
+                return pixels[((int)(y * image.PixelHeight) * image.PixelWidth + (int)(x * image.PixelWidth)) * 4 + channel];
+            }
+            finally { if (File.Exists(path)) File.Delete(path); }
+        }
+        var before = await Pixel(.1, .1, .5);
+        var center = await Pixel(.5, .5, .5);
+        var outside = await Pixel(.5, .1, .5);
+        var zoomed = await Pixel(1.2, .1, .5);
+        var after = await Pixel(1.8, .1, .5);
+        if (before < 235 || center < 235 || outside is not (>= 110 and <= 145) || zoomed < 235 || after < 235)
+            throw new InvalidOperationException($"源坐标聚光没有正确跟随裁切、缩放或时间窗：before={before}, center={center}, outside={outside}, zoomed={zoomed}, after={after}。");
+
+        foreach (var (name, red, blue) in new[] { ("red.bmp", (byte)255, (byte)0), ("blue.bmp", (byte)0, (byte)255) })
+        {
+            var pixels = MaskImage.CreateBgra(64, 64, 8, false);
+            for (var i = 0; i < pixels.Length; i += 4) { pixels[i] = blue; pixels[i + 1] = 0; pixels[i + 2] = red; }
+            MaskImage.WriteBmp(Path.Combine(root, "media", name), pixels, 64, 64);
+        }
+        project.Canvas.FocusBlur = .3;
+        project.Canvas.Stickers = [new() { Path = "media/red.bmp", X = .2, Y = .2, Width = .15,
+            Timing = new() { Start = .1, Duration = 1.5, Transition = "smooth", FadeIn = .4, FadeOut = .1 } },
+            new() { Path = "media/blue.bmp", X = .8, Y = .8, Width = .2, Rotation = 25,
+                Timing = new() { Start = .4, Duration = 1.4, Transition = "linear", FadeIn = 0, FadeOut = .3 } }];
+        project.Canvas.SoftRegions.Add(new() { Enabled = true, CoordinateSpace = "source", X = .3, Y = .3, Width = .1, Height = .1 });
+        project.Canvas.SoftRegions.Add(new() { Enabled = true, CoordinateSpace = "canvas", X = .2, Y = .2, Width = .2, Height = .2 });
+        var overlays = Path.Combine(root, "multiple-overlays.mp4");
+        await new ExportService(ffmpeg).ExportAsync(project, root, new(), overlays, CancellationToken.None);
+        if ((await FfmpegTools.Probe(ffprobe, overlays))?.Duration < 1.9)
+            throw new InvalidOperationException("多贴图、多柔化导出时长被截断。");
+        if (await Pixel(.7, .2, .2, overlays) > 40 || await Pixel(.7, .2, .2, overlays, 2) < 220
+            || await Pixel(.7, .8, .8, overlays) < 220 || await Pixel(.7, .8, .8, overlays, 1) > 40)
+            throw new InvalidOperationException("多贴图导出漏层、颜色或旋转中心异常。");
+        project.Canvas.Stickers[1].X = project.Canvas.Stickers[1].Y = .2;
+        var layered = Path.Combine(root, "overlay-order.mp4");
+        await new ExportService(ffmpeg).ExportAsync(project, root, new(), layered, CancellationToken.None);
+        if (await Pixel(.7, .2, .2, layered) < 220 || await Pixel(.7, .2, .2, layered, 2) > 40)
+            throw new InvalidOperationException("贴图图层顺序没有反映到成片。");
+        Console.WriteLine("SELFTEST_OK multiple-stickers/rotation/blur/spotlight/source-crop-zoom/independent-transitions");
+    }
+
     static async Task CheckMacImportAsync(string ffmpeg, string ffprobe, string root, string source)
     {
         var package = Path.Combine(root, "mac-input");
@@ -167,9 +247,14 @@ public static class SelfTest
             {"time":0,"location":{"x":0.2,"y":0.2},"kind":"move"}
             {"time":0.5,"location":{"x":0.5,"y":0.5},"kind":"leftClick"}
             """);
+        File.Copy(Path.Combine(root, "media", "logo.bmp"), Path.Combine(package, "logo.bmp"));
         await File.WriteAllTextAsync(Path.Combine(package, "project.json"), """
             {"version":27,"title":"import-selftest","media":{"screen":{"relativePath":"screen.mov"},"pointerEvents":{"relativePath":"pointer.jsonl"}},
-             "timeline":{"sourceSequence":{"kind":"fullRecording"}},"recordingMarkers":[{"sourceTime":0.5,"number":1}]}
+             "timeline":{"sourceSequence":{"kind":"fullRecording"},
+               "stickerClips":[{"relativePath":"logo.bmp","animation":"fade","timing":{"startTime":0.1,"duration":1.5}},
+                 {"relativePath":"logo.bmp","rotationDegrees":20,"animation":"none","position":{"x":0.8,"y":0.8},"timing":{"startTime":0.5,"duration":1}}],
+               "mosaicClips":[{"style":"spotlight","sourceRect":{"x":0.2,"y":0.2,"width":0.5,"height":0.5},"transitionStyle":"smooth","timing":{"startTime":0.1,"duration":1.5}}]},
+             "recordingMarkers":[{"sourceTime":0.5,"number":1}]}
             """);
         var previousDirectory = SettingsStore.Current.ProjectsDirectory;
         var previousRecent = SettingsStore.Current.RecentProjects.ToList();
@@ -180,10 +265,13 @@ public static class SelfTest
             var importedProject = imported.Result.Project;
             if (importedProject.Assets[0].SystemAudio is null || importedProject.Assets[0].Cursor.Count != 2 || importedProject.Markers.Count != 1)
                 throw new InvalidOperationException("Mac 音频、指针或标记迁移异常。");
+            if (importedProject.Canvas.Stickers.Count != 2 || importedProject.Canvas.SoftRegions.Count != 1
+                || importedProject.Canvas.Stickers.Any(x => !File.Exists(ProjectFile.Media(imported.Directory, x.Path))))
+                throw new InvalidOperationException("Mac 多效果或贴图文件迁移异常。");
             var output = Path.Combine(root, "mac-export.mp4");
             await new ExportService(ffmpeg).ExportAsync(importedProject, imported.Directory, new ExportOptions(), output, CancellationToken.None);
             if ((await FfmpegTools.Probe(ffprobe, output))?.HasAudio != true) throw new InvalidOperationException("Mac 导入后导出丢失声音。");
-            Console.WriteLine("SELFTEST_OK mac-import audio/pointer/markers/export");
+            Console.WriteLine("SELFTEST_OK mac-import audio/pointer/markers/multiple-overlays/export");
         }
         finally
         {
