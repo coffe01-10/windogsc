@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text;
 
 namespace DogSC.Core;
@@ -252,6 +252,16 @@ public static class ExportGraph
             }
 
             var under = "bg";
+            if (project.Canvas.ScreenBorderWidth > 0)
+            {
+                var b = project.Canvas.ScreenBorderWidth * Math.Min(canvasWidth, canvasHeight) / 1080d;
+                var radius = placement.Radius;
+                var edge = "lt(X," + F(b) + ")+gt(X,W-1-" + F(b) + ")+lt(Y," + F(b) + ")+gt(Y,H-1-" + F(b) + ")";
+                if (radius > 0)
+                    edge += "+gt(hypot(max(abs(X-(W-1)/2)-(W/2-" + radius + "),0),max(abs(Y-(H-1)/2)-(H/2-" + radius + "),0))," + F(Math.Max(0, radius - b)) + ")";
+                script.Append("[rounded]geq=r='if(").Append(edge).Append(",255,r(X,Y))':g='if(").Append(edge)
+                    .Append(",255,g(X,Y))':b='if(").Append(edge).Append(",255,b(X,Y))':a='alpha(X,Y)'[bordered]").AppendLine();
+            }
             var proceduralWallpaper = PatternLibrary.IsProcedural(media.Wallpaper);
             var wallpaperBake = proceduralWallpaper
                 ? PatternLibrary.Resolve(media.Wallpaper, canvasWidth, canvasHeight,
@@ -339,7 +349,7 @@ public static class ExportGraph
             }
 
             // 倾斜/透视：对圆角内容帧做四角透视变换，再叠到背景。
-            var tilted = "rounded";
+            var tilted = project.Canvas.ScreenBorderWidth > 0 ? "bordered" : "rounded";
             if (Math.Abs(project.Canvas.TiltX) > 0.01 || Math.Abs(project.Canvas.TiltY) > 0.01)
             {
                 var corners = PerspectiveGeometry.Corners(placement.Width, placement.Height, project.Canvas.TiltX, project.Canvas.TiltY);
@@ -495,16 +505,29 @@ public static class ExportGraph
                         screenTrack.SampleLayout(mid, null, viewport), baseSample,
                         canvasWidth, canvasHeight, placement.X, placement.Y, placement.Width, placement.Height,
                         OpeningMotion.Sample(project, "screen", mid, canvasWidth, canvasHeight));
-                    // 线性模糊（Mac Linear Blur 近似）：处于启用片段窗口内的分段加高斯模糊。
-                    var blur = project.ScreenMotions.Any(c => c.LinearBlur
-                        && mid >= c.Timing.StartTime
-                        && mid <= c.Timing.StartTime + c.Timing.Duration + c.Timing.ReturnDuration)
-                        ? ",gblur=sigma=7" : "";
+                    var focus = project.ScreenMotions.LastOrDefault(c => c.LinearBlur && c.LinearBlurStrength > .001
+                        && mid >= c.Timing.StartTime && LinearFocus.Progress(c, mid) > .001);
+                    var segment = "pmsbase" + i;
                     script.Append("[pms").Append(i).Append("]trim=start_frame=").Append(firstFrame)
-                        .Append(":end_frame=").Append(endFrame)
-                        .Append(",setpts=PTS-STARTPTS,perspective=")
+                        .Append(":end_frame=").Append(endFrame).Append(",setpts=PTS-STARTPTS[").Append(segment).AppendLine("]");
+                    if (focus is not null)
+                    {
+                        var angle = focus.LinearBlurAngle * Math.PI / 180;
+                        var distance = "abs(-(X-" + F(placement.X + placement.Width / 2d) + ")*" + F(Math.Sin(angle))
+                            + "+(Y-" + F(placement.Y + placement.Height / 2d) + ")*" + F(Math.Cos(angle)) + ")";
+                        var edge = Math.Min(placement.Width, placement.Height);
+                        var mask = "clip((" + distance + "-" + F(edge * focus.LinearBlurSize / 2) + ")/"
+                            + F(Math.Max(1, edge * focus.LinearBlurSoftness * .4)) + ",0,1)*" + F(LinearFocus.Progress(focus, mid));
+                        script.Append('[').Append(segment).Append("]split=3[lfsharp").Append(i).Append("][lfblur").Append(i).Append("][lfmask").Append(i).AppendLine("]");
+                        script.Append("[lfmask").Append(i).Append("]alphaextract,format=gray,geq=lum='lum(X,Y)*").Append(mask).Append("'[lfm").Append(i).AppendLine("]");
+                        script.Append("[lfblur").Append(i).Append("]gblur=sigma=").Append(F(focus.LinearBlurStrength * 36)).Append(",format=rgb24[lfb").Append(i).AppendLine("]");
+                        script.Append("[lfb").Append(i).Append("][lfm").Append(i).Append("]alphamerge[lfmasked").Append(i).AppendLine("]");
+                        script.Append("[lfsharp").Append(i).Append("][lfmasked").Append(i).Append("]overlay=0:0:format=auto:shortest=1[lfresult").Append(i).AppendLine("]");
+                        segment = "lfresult" + i;
+                    }
+                    script.Append('[').Append(segment).Append("]perspective=")
                         .Append(string.Join(":", corners.SelectMany(p => new[] { F(p.X), F(p.Y) })))
-                        .Append(":sense=destination:eval=init").Append(blur)
+                        .Append(":sense=destination:eval=init")
                         .Append(",format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*")
                         .Append(F(OpeningMotion.Sample(project, "screen", mid, canvasWidth, canvasHeight).Opacity)).Append("'")
                         .Append("[pmsq").Append(i).AppendLine("]");
@@ -847,29 +870,27 @@ public static class ExportGraph
         }
 
         var audioLabels = new List<string>();
-        var wantMic = project.MicrophoneGain > 0.001;
-        var wantSystem = project.SystemGain > 0.001;
         // 任一片段有声音就导出音轨；缺轨的片段补等长静音，保证 concat 后时长一致。
         var hasAnyAudio = slices.Any(slice =>
-            (wantMic && slice.MicrophonePath is not null) || (wantSystem && slice.SystemPath is not null));
+            (slice.MicrophoneGain > .001 && slice.MicrophonePath is not null) || (slice.SystemGain > .001 && slice.SystemPath is not null));
         for (var index = 0; index < slices.Count && hasAnyAudio; index++)
         {
             var slice = slices[index];
             string? mic = null;
             string? system = null;
-            if (wantMic && slice.MicrophonePath is not null)
+            if (slice.MicrophoneGain > .001 && slice.MicrophonePath is not null)
             {
                 mic = "m" + index;
                 script.Append('[').Append(micIndex[slice.MicrophonePath]).Append(":a]")
-                    .Append(AudioChain(slice, project.MicrophoneGain, slice.MicrophoneOffset))
+                    .Append(AudioChain(slice, slice.MicrophoneGain, slice.MicrophoneOffset))
                     .Append('[').Append(mic).AppendLine("]");
             }
 
-            if (wantSystem && slice.SystemPath is not null)
+            if (slice.SystemGain > .001 && slice.SystemPath is not null)
             {
                 system = "s" + index;
                 script.Append('[').Append(systemIndex[slice.SystemPath]).Append(":a]")
-                    .Append(AudioChain(slice, project.SystemGain))
+                    .Append(AudioChain(slice, slice.SystemGain))
                     .Append('[').Append(system).AppendLine("]");
             }
 
@@ -1180,7 +1201,9 @@ public static class ExportGraph
                 var camEndOffset = clip.Asset.CameraOffset + SyncAnchorCurve.Offset(anchors, end);
                 slices.Add(new Piece(video, microphone, system, camera, start, end, clip.Clip.Speed,
                     clip.Start + (start - clip.Clip.SourceStart) / clip.Clip.Speed,
-                    (end - start) / clip.Clip.Speed, camStartOffset, camEndOffset, clip.Asset.MicrophoneOffset, clip.Start, clip.End));
+                    (end - start) / clip.Clip.Speed, camStartOffset, camEndOffset, clip.Asset.MicrophoneOffset, clip.Start, clip.End,
+                    (clip.Clip.MicrophoneEnabled ?? project.MicrophoneEnabled) ? clip.Clip.MicrophoneGain ?? project.MicrophoneGain : 0,
+                    (clip.Clip.SystemEnabled ?? project.SystemEnabled) ? clip.Clip.SystemGain ?? project.SystemGain : 0));
             }
         }
 
@@ -1212,5 +1235,7 @@ public static class ExportGraph
         double CameraEndOffset,
         double MicrophoneOffset,
         double ClipStart,
-        double ClipEnd);
+        double ClipEnd,
+        double MicrophoneGain,
+        double SystemGain);
 }

@@ -1,4 +1,4 @@
-namespace DogSC;
+﻿namespace DogSC;
 
 public enum IconKind
 {
@@ -44,6 +44,18 @@ public enum IconKind
     GridPattern,
     WaveformRectangle,
     PhotoPlus,
+    Scissors,
+    Trash,
+    Cube,
+    Eye,
+    Bookmark,
+    Magnet,
+    Share,
+    Settings,
+    Converge,
+    SideSlide,
+    Ban,
+    Sparkles,
 }
 
 public sealed class Icon : FrameworkElement
@@ -96,12 +108,13 @@ public sealed class Icon : FrameworkElement
         set => SetValue(ForegroundProperty, value);
     }
 
-    protected override void OnRender(DrawingContext drawing)
+    protected override void OnRender(DrawingContext drawing) => DrawSymbol(drawing, Kind, Foreground ?? Brushes.Black, ActualWidth, ActualHeight);
+
+    internal static void DrawSymbol(DrawingContext drawing, IconKind kind, Brush brush, double width, double height)
     {
-        var brush = Foreground ?? Brushes.Black;
-        if (Kind == IconKind.Record)
+        if (kind == IconKind.Record)
         {
-            drawing.DrawEllipse(brush, null, new Point(ActualWidth / 2, ActualHeight / 2), ActualWidth * 0.34, ActualHeight * 0.34);
+            drawing.DrawEllipse(brush, null, new Point(width / 2, height / 2), width * 0.34, height * 0.34);
             return;
         }
 
@@ -112,19 +125,19 @@ public sealed class Icon : FrameworkElement
             LineJoin = PenLineJoin.Round,
         };
         pen.Freeze();
-        var scale = Math.Min(ActualWidth, ActualHeight) / 24;
-        drawing.PushTransform(new TranslateTransform((ActualWidth - 24 * scale) / 2, (ActualHeight - 24 * scale) / 2));
+        var scale = Math.Min(width, height) / 24;
+        drawing.PushTransform(new TranslateTransform((width - 24 * scale) / 2, (height - 24 * scale) / 2));
         drawing.PushTransform(new ScaleTransform(scale, scale));
-        var filled = Kind is IconKind.Play or IconKind.Pause or IconKind.Stop or IconKind.SkipStart or IconKind.SkipEnd;
-        var geometry = Geometries[Kind];
+        var filled = kind is IconKind.Play or IconKind.Pause or IconKind.Stop or IconKind.SkipStart or IconKind.SkipEnd;
+        var geometry = Geometries[kind];
         var bounds = geometry.Bounds;
-        if (Kind == IconKind.OpeningStack) bounds.Union(OpeningSparkles.Bounds);
+        if (kind == IconKind.OpeningStack) bounds.Union(OpeningSparkles.Bounds);
         // 按图形的实际边界居中，麦克风、扬声器等非对称路径不再偏向画布一侧。
-        drawing.PushTransform(new TranslateTransform(12 - (bounds.Left + bounds.Width / 2) + (Kind == IconKind.Play ? 1 : 0), 12 - (bounds.Top + bounds.Height / 2)));
+        drawing.PushTransform(new TranslateTransform(12 - (bounds.Left + bounds.Width / 2) + (kind == IconKind.Play ? 1 : 0), 12 - (bounds.Top + bounds.Height / 2)));
         drawing.DrawGeometry(filled ? brush : null, filled ? null : pen, geometry);
-        if (Kind is IconKind.CanvasPicture or IconKind.Photo or IconKind.PhotoPlus)
-            drawing.DrawEllipse(brush, null, Kind == IconKind.CanvasPicture ? new Point(15.5, 9.2) : new Point(8, 8), 1.3, 1.3);
-        if (Kind == IconKind.OpeningStack)
+        if (kind is IconKind.CanvasPicture or IconKind.Photo or IconKind.PhotoPlus)
+            drawing.DrawEllipse(brush, null, kind == IconKind.CanvasPicture ? new Point(15.5, 9.2) : new Point(8, 8), 1.3, 1.3);
+        if (kind == IconKind.OpeningStack)
             drawing.DrawGeometry(brush, null, OpeningSparkles);
         drawing.Pop();
         drawing.Pop();
@@ -133,6 +146,16 @@ public sealed class Icon : FrameworkElement
 
     static string PathFor(IconKind kind) => kind switch
     {
+        IconKind.Ban => "M21,12 A9,9 0 1 0 3,12 A9,9 0 1 0 21,12 M5.6,5.6 L18.4,18.4",
+        IconKind.Sparkles => "M12,3 L14.2,9.8 L21,12 L14.2,14.2 L12,21 L9.8,14.2 L3,12 L9.8,9.8 Z M20,2 V6 M18,4 H22",
+        IconKind.Settings => "M10,2 H14 L15,5 L18,6 L21,5 L23,9 L20.5,11 V14 L23,16 L21,20 L18,19 L15,20 L14,23 H10 L9,20 L6,19 L3,20 L1,16 L3.5,14 V11 L1,9 L3,5 L6,6 L9,5 Z M16,12.5 A4,4 0 1 0 8,12.5 A4,4 0 1 0 16,12.5",
+        IconKind.Converge => "M3,3 L9,9 M4,9 H9 V4 M21,21 L15,15 M20,15 H15 V20",
+        IconKind.SideSlide => "M3,8 H21 M7,4 L3,8 L7,12 M3,16 H21 M17,12 L21,16 L17,20",
+        IconKind.Share => "M8,9 H5 Q3,9 3,11 V20 Q3,22 5,22 H19 Q21,22 21,20 V11 Q21,9 19,9 H16 M12,16 V2 M7,7 L12,2 L17,7",
+        IconKind.Cube => "M12,3 L21,8 V17 L12,22 L3,17 V8 Z M3,8 L12,13 L21,8 M12,13 V22 M7.5,5.5 L16.5,10.5",
+        IconKind.Eye => "M2,12 C6,4 18,4 22,12 C18,20 6,20 2,12 Z M15,12 A3,3 0 1 0 9,12 A3,3 0 1 0 15,12",
+        IconKind.Bookmark => "M7,3 H17 Q18,3 18,4 V21 L12,17 L6,21 V4 Q6,3 7,3 Z",
+        IconKind.Magnet => "M5,3 H9 V13 A3,3 0 0 0 15,13 V3 H19 V13 A7,7 0 0 1 5,13 Z M5,7 H9 M15,7 H19",
         IconKind.Monitor => "M5,5 H19 Q21,5 21,7 V15 Q21,17 19,17 H5 Q3,17 3,15 V7 Q3,5 5,5 Z M8,20 H16 M12,17 V20",
         IconKind.Window => "M6,4 H18 Q20,4 20,6 V18 Q20,20 18,20 H6 Q4,20 4,18 V6 Q4,4 6,4 Z M4,9 H20 M7,6.5 H7.1 M10,6.5 H10.1",
         IconKind.Region => "M9,4 H4 V9 M15,4 H20 V9 M20,15 V20 H15 M4,15 V20 H9",
@@ -173,6 +196,8 @@ public sealed class Icon : FrameworkElement
         IconKind.Crop => "M6,2 V16 Q6,18 8,18 H22 M2,6 H16 Q18,6 18,8 V22 M9,6 H18 M6,9 V18",
         IconKind.Sliders => "M3,6 H8 M12,6 H21 M3,12 H15 M19,12 H21 M3,18 H5 M9,18 H21 M10,4 V8 M17,10 V14 M7,16 V20",
         IconKind.Plus => "M12,4 V20 M4,12 H20",
+        IconKind.Scissors => "M8,8 L20,20 M8,16 L20,4 M9,6 A3,3 0 1 0 3,6 A3,3 0 1 0 9,6 M9,18 A3,3 0 1 0 3,18 A3,3 0 1 0 9,18",
+        IconKind.Trash => "M4,6 H20 M9,6 V3 H15 V6 M6,6 L7,21 H17 L18,6 M10,10 V17 M14,10 V17",
         IconKind.Layers => "M12,3 L22,8 L12,13 L2,8 Z M3,12 L12,16.5 L21,12 M3,16 L12,20.5 L21,16",
         IconKind.InsetRectangle => "M4,5 H20 Q22,5 22,7 V17 Q22,19 20,19 H4 Q2,19 2,17 V7 Q2,5 4,5 Z M6,9 H18 V15 H6 Z",
         IconKind.Photo => "M4,4 H20 Q22,4 22,6 V18 Q22,20 20,20 H4 Q2,20 2,18 V6 Q2,4 4,4 Z M2,17 L8.5,10.5 L13,14.7 L16.7,11 L22,17",

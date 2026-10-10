@@ -30,6 +30,7 @@ public sealed class AppSettings
     public bool BarAnchorRight { get; set; }
     public bool BarAnchorBottom { get; set; }
     public string MemoText { get; set; } = "";
+    public bool MemoReadMode { get; set; }
     public double MemoSize { get; set; } = 18;
     public double MemoOpacity { get; set; } = 0.94;
     [JsonConverter(typeof(NonFiniteToNullConverter))]
@@ -46,6 +47,7 @@ public sealed class AppSettings
     public int TimelineTracks { get; set; } = 1;
     public List<ScenePreset> ScenePresets { get; set; } = [];
     public bool TourSeen { get; set; }
+    public bool RecorderTourSeen { get; set; }
     public string CameraDefaultShape { get; set; } = "circle";
     public int RecordCountdownSeconds { get; set; } = 3;
     public string? DefaultScenePresetId { get; set; }

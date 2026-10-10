@@ -61,8 +61,12 @@ public sealed class ScreenMotionClip
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public TransitionTiming Timing { get; set; } = new();
     public ScreenMotionState Target { get; set; } = new();
-    /// <summary>线性模糊：运动窗口内对卡片加高斯模糊（Mac Linear Blur 近似）。</summary>
+    /// <summary>线性柔化：清晰带外逐渐混合模糊层，随运动的进入与退出过渡。</summary>
     public bool LinearBlur { get; set; }
+    public double LinearBlurSize { get; set; } = .32;
+    public double LinearBlurSoftness { get; set; } = .5;
+    public double LinearBlurStrength { get; set; } = .35;
+    public double LinearBlurAngle { get; set; }
     /// <summary>组合布局预设插入的跨轨道配对 ID。</summary>
     public string? GroupId { get; set; }
 }

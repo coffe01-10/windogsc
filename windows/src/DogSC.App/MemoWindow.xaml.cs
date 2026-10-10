@@ -14,7 +14,7 @@ public partial class MemoWindow : Window
         SizeSlider.Value = SettingsStore.Current.MemoSize;
         OpacitySlider.Value = SettingsStore.Current.MemoOpacity;
         Body.FontSize = SizeSlider.Value;
-        Shell.Opacity = OpacitySlider.Value;
+        BackgroundLayer.Opacity = OpacitySlider.Value;
         if (!double.IsNaN(SettingsStore.Current.MemoLeft))
         {
             WindowStartupLocation = WindowStartupLocation.Manual;
@@ -23,6 +23,7 @@ public partial class MemoWindow : Window
         }
 
         _ready = true;
+        PaintMemo();
         Loaded += (_, _) => WindowPlacement.KeepInWorkArea(this);
     }
 
@@ -35,6 +36,7 @@ public partial class MemoWindow : Window
         }
 
         _current = new MemoWindow();
+        _current.Owner = Application.Current.Windows.OfType<RecorderBarWindow>().FirstOrDefault();
         _current.Show();
     }
 
@@ -64,6 +66,25 @@ public partial class MemoWindow : Window
 
     void Close_Click(object sender, RoutedEventArgs e) => Close();
 
+    void EditMode_Click(object sender, RoutedEventArgs e) => SetReadMode(false);
+    void ReadMode_Click(object sender, RoutedEventArgs e) => SetReadMode(true);
+    void Smaller_Click(object sender, RoutedEventArgs e) => SizeSlider.Value = Math.Max(SizeSlider.Minimum, SizeSlider.Value - 2);
+    void Larger_Click(object sender, RoutedEventArgs e) => SizeSlider.Value = Math.Min(SizeSlider.Maximum, SizeSlider.Value + 2);
+    void SetReadMode(bool read)
+    {
+        SettingsStore.Current.MemoReadMode = read; PaintMemo(); QueueSave();
+        if (!read) Body.Focus();
+    }
+    void PaintMemo()
+    {
+        Body.IsReadOnly = SettingsStore.Current.MemoReadMode;
+        Body.CaretBrush = Body.IsReadOnly ? Brushes.Transparent : (Brush)FindResource("InkBrush");
+        ControlAppearance.SelectChip(EditModeButton, !Body.IsReadOnly);
+        ControlAppearance.SelectChip(ReadModeButton, Body.IsReadOnly);
+        SizeLabel.Text = Math.Round(SizeSlider.Value).ToString();
+        OpacityLabel.Text = Math.Round(OpacitySlider.Value * 100) + "%";
+    }
+
     void Body_Changed(object sender, TextChangedEventArgs e)
     {
         if (!_ready)
@@ -84,6 +105,7 @@ public partial class MemoWindow : Window
 
         Body.FontSize = e.NewValue;
         SettingsStore.Current.MemoSize = e.NewValue;
+        PaintMemo();
         QueueSave();
     }
 
@@ -94,8 +116,9 @@ public partial class MemoWindow : Window
             return;
         }
 
-        Shell.Opacity = e.NewValue;
+        BackgroundLayer.Opacity = e.NewValue;
         SettingsStore.Current.MemoOpacity = e.NewValue;
+        PaintMemo();
         QueueSave();
     }
 

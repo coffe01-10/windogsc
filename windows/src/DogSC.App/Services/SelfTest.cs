@@ -2,7 +2,7 @@ using DogSC.Core;
 
 namespace DogSC;
 
-public static class SelfTest
+public static partial class SelfTest
 {
     public static async Task<int> RunAsync()
     {
@@ -88,6 +88,7 @@ public static class SelfTest
         ProjectFile.Save(root, project);
         await CheckRecordingCompletionAsync(ffmpeg, root, project);
         var output = Path.Combine(root, "out.mp4");
+        await CheckVideoReferenceAsync(ffmpeg, ffprobe, root);
         var exporter = new ExportService(ffmpeg);
         try
         {

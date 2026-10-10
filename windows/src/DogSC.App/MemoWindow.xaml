@@ -3,23 +3,40 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="备忘录" Width="400" Height="300" MinWidth="340" MinHeight="200" WindowStyle="None" AllowsTransparency="True"
         Background="Transparent" Topmost="True" ShowInTaskbar="False" ResizeMode="CanResizeWithGrip">
-    <Border x:Name="Shell" Margin="12" Background="{DynamicResource CardBrush}" CornerRadius="18" Padding="14">
+    <Border x:Name="Shell" Margin="12" Background="Transparent" CornerRadius="18" Padding="14">
         <Border.Effect>
             <DropShadowEffect BlurRadius="18" ShadowDepth="4" Opacity="0.18" Direction="90"/>
         </Border.Effect>
+        <Grid>
+        <Border x:Name="BackgroundLayer" Margin="-14" Background="{DynamicResource CardBrush}" CornerRadius="18" IsHitTestVisible="False"/>
         <DockPanel>
             <DockPanel DockPanel.Dock="Top" LastChildFill="False" Background="Transparent" Cursor="SizeAll" Margin="0,0,0,8" MouseLeftButtonDown="Drag" ToolTip="拖动备忘录">
                 <TextBlock DockPanel.Dock="Left" Text="备忘录" VerticalAlignment="Center" FontFamily="{DynamicResource FontSemi}" FontSize="14"/>
-                <Button DockPanel.Dock="Right" Cursor="Hand" Style="{StaticResource QuietButton}" Click="Close_Click" Content="关闭"/>
+                <Button DockPanel.Dock="Right" Cursor="Hand" Style="{StaticResource QuietButton}" Click="Close_Click" Content="×" AutomationProperties.Name="关闭备忘录" Padding="8,4"/>
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" Margin="0,0,6,0">
+                    <Button x:Name="EditModeButton" Content="编辑" Style="{StaticResource ChipButton}" Click="EditMode_Click" Padding="8,4"/>
+                    <Button x:Name="ReadModeButton" Content="阅读" Style="{StaticResource ChipButton}" Click="ReadMode_Click" Padding="8,4"/>
+                </StackPanel>
             </DockPanel>
-            <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
-                <TextBlock Text="字号" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                <Slider x:Name="SizeSlider" Minimum="14" Maximum="32" Width="120" Margin="8,0" ValueChanged="Size_Changed"/>
-                <TextBlock Text="透明" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                <Slider x:Name="OpacitySlider" Minimum="0.55" Maximum="1" Width="90" Margin="8,0,0,0" ValueChanged="Opacity_Changed"/>
-            </DockPanel>
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                <DockPanel>
+                    <TextBlock Text="已保存到本机" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10" Foreground="{DynamicResource InkSecondaryBrush}"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="A−" Click="Smaller_Click" Style="{StaticResource QuietButton}" Padding="6,3" AutomationProperties.Name="减小字号"/>
+                        <TextBlock x:Name="SizeLabel" VerticalAlignment="Center" Margin="6,0"/>
+                        <Button Content="A+" Click="Larger_Click" Style="{StaticResource QuietButton}" Padding="6,3" AutomationProperties.Name="增大字号"/>
+                        <Slider x:Name="SizeSlider" Minimum="8" Maximum="96" Visibility="Collapsed" ValueChanged="Size_Changed"/>
+                    </StackPanel>
+                </DockPanel>
+                <DockPanel Margin="0,6,0,0">
+                    <TextBlock Text="背景不透明度" VerticalAlignment="Center" FontSize="11"/>
+                    <TextBlock x:Name="OpacityLabel" DockPanel.Dock="Right" Width="34" TextAlignment="Right" VerticalAlignment="Center" FontSize="11"/>
+                    <Slider x:Name="OpacitySlider" Minimum="0.1" Maximum="1" Margin="8,0" ValueChanged="Opacity_Changed" AutomationProperties.Name="备忘录背景不透明度"/>
+                </DockPanel>
+            </StackPanel>
             <TextBox x:Name="Body" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0" Background="Transparent"
                      VerticalScrollBarVisibility="Auto" TextChanged="Body_Changed"/>
         </DockPanel>
+        </Grid>
     </Border>
 </Window>

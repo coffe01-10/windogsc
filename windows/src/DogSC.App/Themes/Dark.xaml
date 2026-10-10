@@ -1,5 +1,14 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="SegmentWellBrush" Color="#202124"/>
+    <SolidColorBrush x:Key="SegmentSelectedBrush" Color="#303137"/>
+    <SolidColorBrush x:Key="ValueWellBrush" Color="#333538"/>
+    <SolidColorBrush x:Key="MotionTrackBrush" Color="#986A32"/>
+    <SolidColorBrush x:Key="BlurTrackBrush" Color="#876A54"/>
+    <SolidColorBrush x:Key="StickerTrackBrush" Color="#655C59"/>
+    <DrawingBrush x:Key="WorkspaceBrush" TileMode="Tile" Viewport="0,0,19,19" ViewportUnits="Absolute" Viewbox="0,0,22,22" ViewboxUnits="Absolute">
+        <DrawingBrush.Drawing><DrawingGroup><GeometryDrawing Brush="#0C0D0E" Geometry="M0,0 H22 V22 H0 Z"/><GeometryDrawing Brush="#28FFFFFF"><GeometryDrawing.Geometry><EllipseGeometry Center="12,12" RadiusX="0.675" RadiusY="0.675"/></GeometryDrawing.Geometry></GeometryDrawing></DrawingGroup></DrawingBrush.Drawing>
+    </DrawingBrush>
     <SolidColorBrush x:Key="BgBrush" Color="#0B0C0D"/>
     <SolidColorBrush x:Key="PanelBrush" Color="#121315"/>
     <SolidColorBrush x:Key="CardBrush" Color="#1C1D1F"/>

@@ -50,6 +50,8 @@ public sealed class ProjectDocument
 
     public double MicrophoneGain { get; set; } = 1;
     public double SystemGain { get; set; } = 1;
+    public bool MicrophoneEnabled { get; set; } = true;
+    public bool SystemEnabled { get; set; } = true;
 
     public MediaAsset? Asset(string id) => Assets.FirstOrDefault(asset => asset.Id == id);
 
@@ -91,6 +93,10 @@ public sealed class ClipSegment
     public double SourceStart { get; set; }
     public double SourceEnd { get; set; }
     public double Speed { get; set; } = 1;
+    public double? MicrophoneGain { get; set; }
+    public double? SystemGain { get; set; }
+    public bool? MicrophoneEnabled { get; set; }
+    public bool? SystemEnabled { get; set; }
 }
 
 public sealed class ZoomSpan
@@ -133,6 +139,7 @@ public sealed class CanvasSettings
     public double CenterY { get; set; } = 0.5;
     public double Scale { get; set; } = 1;
     public double Corner { get; set; } = 18;
+    public double ScreenBorderWidth { get; set; }
     public double Shadow { get; set; } = 28;
     /// <summary>俯仰角（度），画面绕水平轴倾斜，-40..40。</summary>
     public double TiltX { get; set; }
@@ -371,6 +378,7 @@ public static class ProjectFile
         project.Canvas.Scale = Math.Clamp(project.Canvas.Scale, 0.25, 2.5);
         project.Canvas.Padding = Math.Clamp(project.Canvas.Padding, 0, 240);
         project.Canvas.Corner = Math.Clamp(project.Canvas.Corner, 0, 240);
+        project.Canvas.ScreenBorderWidth = Math.Clamp(project.Canvas.ScreenBorderWidth, 0, 40);
         project.Canvas.Shadow = Math.Clamp(project.Canvas.Shadow, 0, 100);
         project.Canvas.CenterX = Math.Clamp(project.Canvas.CenterX, 0, 1);
         project.Canvas.CenterY = Math.Clamp(project.Canvas.CenterY, 0, 1);
@@ -447,6 +455,8 @@ public static class ProjectFile
         foreach (var clip in project.Clips)
         {
             clip.Speed = Math.Clamp(clip.Speed, 0.5, 100);
+            if (clip.MicrophoneGain is { } mic) clip.MicrophoneGain = Math.Clamp(mic, 0, ProjectDocument.MaxGain);
+            if (clip.SystemGain is { } system) clip.SystemGain = Math.Clamp(system, 0, ProjectDocument.MaxGain);
             if (clip.SourceEnd < clip.SourceStart)
             {
                 (clip.SourceStart, clip.SourceEnd) = (clip.SourceEnd, clip.SourceStart);

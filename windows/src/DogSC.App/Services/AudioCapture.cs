@@ -35,6 +35,7 @@ public sealed class WavRecorder : IDisposable
     WasapiCapture? _capture;
     WaveFileWriter? _writer;
     bool _open;
+    public bool Muted { get; set; }
 
     public void StartMicrophone(string? deviceId, string path) =>
         Start(false, deviceId, path);
@@ -57,6 +58,7 @@ public sealed class WavRecorder : IDisposable
             {
                 if (_open)
                 {
+                    if (Muted) Array.Clear(args.Buffer, 0, args.BytesRecorded);
                     _writer?.Write(args.Buffer, 0, args.BytesRecorded);
                 }
             }

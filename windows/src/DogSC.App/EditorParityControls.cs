@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using DogSC.Core;
 
 namespace DogSC;
@@ -12,11 +12,19 @@ public partial class EditorWindow
         _canvasRegions.Update(_player.Time, EditingRegions ? _selectedDecoration : null, drawing);
     }
     readonly HashSet<string> _expandedDetails = ["贴图、柔化与聚光"];
-    StackPanel Disclosure(string title)
+    StackPanel Disclosure(string title, Func<string>? summary = null)
     {
         var content = new StackPanel { Margin = new Thickness(0, 6, 0, 8) };
         var section = new Expander { Header = title, Content = content, IsExpanded = _expandedDetails.Contains(title),
             Margin = new Thickness(0, 10, 0, 4), Foreground = (Brush)FindResource("InkBrush") };
+        if (summary is not null)
+        {
+            var header = new StackPanel(); header.Children.Add(new TextBlock { Text = title });
+            var detail = new TextBlock { Text = summary(), FontSize = 11, Foreground = (Brush)FindResource("InkSecondaryBrush"), Margin = new Thickness(0, 3, 0, 0) };
+            header.Children.Add(detail); section.Header = header;
+            section.Expanded += (_, _) => detail.Text = summary(); section.Collapsed += (_, _) => detail.Text = summary();
+            content.AddHandler(System.Windows.Controls.Primitives.RangeBase.ValueChangedEvent, new RoutedPropertyChangedEventHandler<double>((_, _) => detail.Text = summary()));
+        }
         section.Expanded += (_, _) => _expandedDetails.Add(title);
         section.Collapsed += (_, _) => _expandedDetails.Remove(title);
         Inspector.Children.Add(section);
@@ -87,21 +95,11 @@ public partial class EditorWindow
         var row = new WrapPanel();
         Add("另存场景", () =>
         {
-            if (string.IsNullOrWhiteSpace(name.Text)) return;
-            var preset = ScenePresets.Capture(_project, _directory, name.Text);
-            items.Add(preset);
-            _selectedScenePreset = preset.Id;
-            SaveAndRefresh();
+            ShowSaveScene();
         });
         Add("更新", () =>
         {
-            if (list.SelectedItem is not ScenePreset old || string.IsNullOrWhiteSpace(name.Text)) return;
-            var preset = ScenePresets.Capture(_project, _directory, name.Text);
-            items[items.IndexOf(old)] = preset;
-            if (settings.DefaultScenePresetId == old.Id) settings.DefaultScenePresetId = preset.Id;
-            ScenePresets.RemoveImages(old);
-            _selectedScenePreset = preset.Id;
-            SaveAndRefresh();
+            if (list.SelectedItem is ScenePreset old) ShowSaveScene(old);
         });
         Add("应用", () =>
         {
@@ -127,7 +125,7 @@ public partial class EditorWindow
             SettingsStore.Save();
         };
         panel.Children.Add(useDefault);
-        panel.Children.Add(Caption("保存画布、装饰和摄像头外观，图片随预设保留。"));
+        panel.Children.Add(Caption("可选择保存画布、摄像头、开场、光标与背景。"));
         void SaveAndRefresh() { SettingsStore.Save(); RebuildInspector(); }
         void Add(string title, Action action)
         {
