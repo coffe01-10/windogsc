@@ -22,6 +22,11 @@ public sealed class PreviewPlayer : IDisposable
     bool _systemPending;
     MediaAsset? _activeAsset;
     double _cameraAdvance;
+    (string Id, string Video, string? Camera, string? Mic, string? System, double CamOffset, double MicOffset)[] _mediaState = [];
+    (string Id, double Time, double Offset)[] _syncState = [];
+    readonly CancellationTokenSource _proxyCancellation = new();
+    readonly HashSet<string> _proxyJobs = new(StringComparer.OrdinalIgnoreCase);
+    bool _disposed;
 
     public PreviewPlayer()
     {
@@ -38,6 +43,8 @@ public sealed class PreviewPlayer : IDisposable
 
     public VideoDrawing ScreenDrawing { get; }
     public VideoDrawing CameraDrawing { get; }
+    /// <summary>预览画质："low" 走四分之一分辨率代理文件（解码更省），"full" 播原素材。</summary>
+    public string Quality { get; set; } = "full";
     public bool IsPlaying { get; private set; }
     public double Time { get; private set; }
     public event Action? Changed;
@@ -59,7 +66,12 @@ public sealed class PreviewPlayer : IDisposable
     {
         var timeline = project.Clips.Select(clip =>
             (clip.Id, clip.AssetId, clip.SourceStart, clip.SourceEnd, clip.Speed)).ToArray();
-        var changed = !ReferenceEquals(_project, project) || !_timeline.SequenceEqual(timeline) || _cameraAdvance != project.Camera.TimingAdvance;
+        var media = project.Assets.Select(a => (a.Id, a.Video, a.Camera, a.Microphone, a.SystemAudio, a.CameraOffset, a.MicrophoneOffset)).ToArray();
+        var sync = project.Assets.SelectMany(a => a.CameraSyncAnchors.Select(s => (a.Id, s.SourceTime, s.Offset))).ToArray();
+        var changed = !ReferenceEquals(_project, project) || !_timeline.SequenceEqual(timeline) || _cameraAdvance != project.Camera.TimingAdvance
+            || !_mediaState.SequenceEqual(media) || !_syncState.SequenceEqual(sync);
+        _mediaState = media;
+        _syncState = sync;
         _cameraAdvance = project.Camera.TimingAdvance;
         _project = project;
         SetGains(project.MicrophoneGain, project.SystemGain);
@@ -129,6 +141,7 @@ public sealed class PreviewPlayer : IDisposable
         _microphone.SpeedRatio = speed;
         _system.SpeedRatio = speed;
         OpenAsset(hit.Value.Clip.Asset);
+        _camera.SpeedRatio = speed * SyncAnchorCurve.SourceRate(hit.Value.Clip.Asset.CameraSyncAnchors, hit.Value.SourceTime);
         if (play)
         {
             _screen.Play();
@@ -164,6 +177,8 @@ public sealed class PreviewPlayer : IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
+        _proxyCancellation.Cancel();
         _timer.Stop();
         _screen.Close();
         _camera.Close();
@@ -207,7 +222,8 @@ public sealed class PreviewPlayer : IDisposable
         {
             _microphone.Position = TimeSpan.FromSeconds(Math.Max(0, source + (_activeAsset?.MicrophoneOffset ?? 0)));
         }
-        var cameraSource = Math.Max(0, source + (_activeAsset?.CameraOffset ?? 0) + _cameraAdvance);
+        var cameraSource = CameraSource(source);
+        if (_activeAsset is not null) _camera.SpeedRatio = clip.Clip.Speed * SyncAnchorCurve.SourceRate(_activeAsset.CameraSyncAnchors, source);
         if (_camera.Source is not null && Math.Abs(_camera.Position.TotalSeconds - cameraSource) > 0.12)
             _camera.Position = TimeSpan.FromSeconds(cameraSource);
 
@@ -222,10 +238,10 @@ public sealed class PreviewPlayer : IDisposable
     void OpenAsset(MediaAsset asset)
     {
         _activeAsset = asset;
-        OpenMedia(_screen, ProjectFile.Media(_directory, asset.Video), ref _screenPending);
+        OpenMedia(_screen, PreviewVideo(ProjectFile.Media(_directory, asset.Video)), ref _screenPending);
         if (!string.IsNullOrWhiteSpace(asset.Camera))
         {
-            OpenMedia(_camera, ProjectFile.Media(_directory, asset.Camera), ref _cameraPending);
+            OpenMedia(_camera, PreviewVideo(ProjectFile.Media(_directory, asset.Camera)), ref _cameraPending);
         }
         else _camera.Close();
 
@@ -242,6 +258,75 @@ public sealed class PreviewPlayer : IDisposable
         }
 
         OpenMedia(player, ProjectFile.Media(_directory, relative), ref pending);
+    }
+
+    /// <summary>
+    /// 低画质档把屏幕/摄像头视频换成项目目录下 previews/ 里的四分之一分辨率代理，
+    /// 代理按源文件 mtime 复用；转码失败或无 ffmpeg 时回退原文件。与 Mac 的
+    /// 「清晰预览/完整分辨率」同语义：只影响预览解码，导出不走这里。
+    /// </summary>
+    string PreviewVideo(string path)
+    {
+        if (Quality != "low" || !File.Exists(path))
+        {
+            return path;
+        }
+
+        try
+        {
+            var proxyDirectory = Path.Combine(_directory, "previews");
+            var proxy = Path.Combine(proxyDirectory,
+                Path.GetFileNameWithoutExtension(path) + ".q.mp4");
+            var sourceStamp = File.GetLastWriteTimeUtc(path);
+            if (File.Exists(proxy) && new FileInfo(proxy).Length > 0
+                && File.GetLastWriteTimeUtc(proxy) >= sourceStamp)
+            {
+                return proxy;
+            }
+
+            var ffmpeg = FfmpegTools.LocateFfmpeg();
+            if (ffmpeg is null)
+            {
+                return path;
+            }
+
+            if (_proxyJobs.Add(path)) _ = PrepareProxyAsync(path, proxy, proxyDirectory);
+        }
+        catch (Exception ex) { AppPaths.Log("预览代理：" + ex.Message); }
+        return path;
+    }
+
+    async Task PrepareProxyAsync(string source, string proxy, string directory)
+    {
+        var temporary = proxy + ".tmp.mp4";
+        FfmpegProcess? process = null;
+        try
+        {
+            Directory.CreateDirectory(directory);
+            process = FfmpegProcess.Start(FfmpegTools.LocateFfmpeg()!, ["-y", "-i", source,
+                "-vf", "scale=max(2\\,trunc(iw/4)*2):max(2\\,trunc(ih/4)*2)",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-an",
+                "-movflags", "+faststart", temporary]);
+            if (await process.WaitAsync(_proxyCancellation.Token) != 0)
+                throw new InvalidOperationException(process.ErrorText());
+            _proxyCancellation.Token.ThrowIfCancellationRequested();
+            File.Move(temporary, proxy, overwrite: true);
+            // Keep playback uninterrupted; paused previews can switch immediately.
+            if (!_disposed && !IsPlaying) Seek(Time, play: false);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { AppPaths.Log("预览代理：" + ex.Message); }
+        finally
+        {
+            if (process is not null)
+            {
+                if (!process.HasExited) await process.StopAsync(graceful: false);
+                process.Dispose();
+            }
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch (IOException ex) { AppPaths.Log("预览代理清理：" + ex.Message); }
+            _proxyJobs.Remove(source);
+        }
     }
 
     void OpenMedia(MediaPlayer player, string path, ref bool pending)
@@ -300,10 +385,13 @@ public sealed class PreviewPlayer : IDisposable
 
     TimeSpan PendingPosition(MediaPlayer player)
     {
-        var offset = ReferenceEquals(player, _camera) ? (_activeAsset?.CameraOffset ?? 0) + _cameraAdvance
-            : ReferenceEquals(player, _microphone) ? _activeAsset?.MicrophoneOffset ?? 0 : 0;
+        if (ReferenceEquals(player, _camera)) return TimeSpan.FromSeconds(CameraSource(_pendingPosition.TotalSeconds));
+        var offset = ReferenceEquals(player, _microphone) ? _activeAsset?.MicrophoneOffset ?? 0 : 0;
         return TimeSpan.FromSeconds(Math.Max(0, _pendingPosition.TotalSeconds + offset));
     }
+
+    double CameraSource(double source) => Math.Max(0, source + (_activeAsset?.CameraOffset ?? 0)
+        + _cameraAdvance + (_activeAsset is null ? 0 : SyncAnchorCurve.Offset(_activeAsset.CameraSyncAnchors, source)));
 
     static void Nudge(MediaPlayer player)
     {

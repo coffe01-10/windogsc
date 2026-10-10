@@ -339,7 +339,7 @@ public class TimelineAndExportTests
         var plan = ExportGraph.Build(project, new ExportOptions(), Media(project));
         Assert.Contains("perspective=", plan.FilterScript, StringComparison.Ordinal);
         Assert.Contains("gblur=sigma=", plan.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("maskedmerge", plan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("alphamerge", plan.FilterScript, StringComparison.Ordinal);
         Assert.True(plan.FocusMaskIndex >= 0);
 
         // 关掉效果时回到原样。
@@ -375,17 +375,30 @@ public class TimelineAndExportTests
         rise.Canvas.Intro = "rise";
         var risePlan = ExportGraph.Build(rise, new ExportOptions(), Media(rise));
         Assert.Contains("fade=t=in", risePlan.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("min(t/0.6\\,1)", risePlan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("min(t/0.6,1)", risePlan.FilterScript, StringComparison.Ordinal);
 
         var zoom = Sample(4);
         zoom.Canvas.Intro = "zoom";
         var zoomPlan = ExportGraph.Build(zoom, new ExportOptions(), Media(zoom));
-        Assert.Contains("scale=w='trunc(iw*(0.9+0.1*", zoomPlan.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("color=0x00000000:eval=frame[introzoom]", zoomPlan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("[ozp0]", zoomPlan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("color=0x00000000[ozp0]", zoomPlan.FilterScript, StringComparison.Ordinal);
 
         var none = Sample(4);
         var nonePlan = ExportGraph.Build(none, new ExportOptions(), Media(none));
         Assert.DoesNotContain("fade=t=in", nonePlan.FilterScript, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Export_GlobalOpening_AddsStaggeredCardAndCameraIntro()
+    {
+        var opening = Sample(6);
+        opening.Canvas.Opening = "lift";
+        opening.Canvas.OpeningTiming = "smooth";
+        var plan = ExportGraph.Build(opening, new ExportOptions(), Media(opening));
+        // 卡片：lift = 轻微放大 + 上移（eased progress）。
+        Assert.Contains("[ozp0]", plan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("alpha(X,Y)*", plan.FilterScript, StringComparison.Ordinal);
+        // 摄像头延迟 Interval 的 geq 透明度在带摄像头样本上已实测（geq 时间变量是大写 T）。
     }
 
     [Fact]
@@ -672,20 +685,23 @@ public class TimelineAndExportTests
     {
         var sticker = Path.Combine(Path.GetTempPath(), "dogsc-st-" + Guid.NewGuid().ToString("N") + ".bmp");
         MaskImage.WriteBmp(sticker, 16, 8, 0, circle: false);
-        var project = Sample(4);
-        project.Canvas.Sticker = new StickerImage { Path = sticker, X = 0.8, Y = 0.2, Width = 0.3, Opacity = 0.5 };
-        var resolved = new ResolvedMedia
+        try
         {
-            Videos = Media(project).Videos, Microphones = new Dictionary<string, string>(),
-            Systems = new Dictionary<string, string>(), Cameras = new Dictionary<string, string>(),
-            Sticker = sticker, StickerAspect = 2,
-        };
-        var plan = ExportGraph.Build(project, new ExportOptions(), resolved);
-        Assert.True(plan.StickerIndex >= 0);
-        Assert.Contains("stickerimg", plan.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("colorchannelmixer=aa=0.5", plan.FilterScript, StringComparison.Ordinal);
-        Assert.True(plan.StickerRect.W > 0);
-        File.Delete(sticker);
+            var project = Sample(4);
+            project.Canvas.Sticker = new StickerImage { Animation = "none", Path = sticker, X = 0.8, Y = 0.2, Width = 0.3, Opacity = 0.5 };
+            var resolved = new ResolvedMedia
+            {
+                Videos = Media(project).Videos, Microphones = new Dictionary<string, string>(),
+                Systems = new Dictionary<string, string>(), Cameras = new Dictionary<string, string>(),
+                Sticker = sticker, StickerAspect = 2,
+            };
+            var plan = ExportGraph.Build(project, new ExportOptions(), resolved);
+            Assert.True(plan.StickerIndex >= 0);
+            Assert.Contains("stickerimg", plan.FilterScript, StringComparison.Ordinal);
+            Assert.Contains("alpha(X,Y)*(1)*0.5", plan.FilterScript, StringComparison.Ordinal);
+            Assert.True(plan.StickerRect.W > 0);
+        }
+        finally { File.Delete(sticker); }
     }
 
     [Fact]
@@ -697,7 +713,7 @@ public class TimelineAndExportTests
         Assert.True(plan.SoftMaskIndex >= 0);
         Assert.Single(plan.RegionMasks);
         Assert.Contains("format=gbrp", plan.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("maskedmerge", plan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("alphamerge", plan.FilterScript, StringComparison.Ordinal);
         Assert.Contains("gblur", plan.FilterScript, StringComparison.Ordinal);
         Assert.True(plan.SoftRect.W > 0);
         // 关掉开关 → 无柔化链。

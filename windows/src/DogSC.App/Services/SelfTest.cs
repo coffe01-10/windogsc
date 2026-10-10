@@ -146,6 +146,7 @@ public static class SelfTest
         Console.WriteLine("SELFTEST_OK timed-sticker/soft/fades/perspective/intro");
         Console.WriteLine("SELFTEST_OK color/projection-edges/cancel-keeps-existing");
         await CheckMultiOverlayAsync(ffmpeg, ffprobe, root);
+        await CheckFeatureBatchAsync(ffmpeg, ffprobe, root);
         await CheckZoomMotionAsync(ffmpeg, root);
         await CheckMacImportAsync(ffmpeg, ffprobe, root, source);
         var monitor = Native.Monitors().First();
@@ -297,6 +298,79 @@ public static class SelfTest
         if (await Pixel(.5, .5, .5, cameraOut, 0) < 220 || await Pixel(.5, .5, .5, cameraOut, 2) > 40)
             throw new InvalidOperationException("原比例摄像头构图位置没有反映到成片。");
         Console.WriteLine("SELFTEST_OK camera-aspect/content-zoom/visual-focus/mirrored-crop");
+    }
+
+    static async Task CheckFeatureBatchAsync(string ffmpeg, string ffprobe, string root)
+    {
+        var asset = new MediaAsset { Video = "media/white.mp4", Camera = "media/camera-bands.mp4", Duration = 2, Width = 640, Height = 360 };
+        var project = new ProjectDocument { Width = 640, Height = 360, FrameRate = 30,
+            Assets = [asset], Clips = [new() { AssetId = asset.Id, SourceEnd = 2 }],
+            Canvas = new() { Padding = 0, Corner = 0, Shadow = 0, Background = "#00FF00", Cursor = new() { Mode = "hidden" } },
+            Camera = new() { Shape = "square", CenterX = .8, CenterY = .8, Size = .3, Corner = 0, Entry = "none" } };
+        var exporter = new ExportService(ffmpeg);
+        async Task<byte[]> Render(string name)
+        {
+            var output = Path.Combine(root, name + ".mp4");
+            using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            await exporter.ExportAsync(project, root, new() { Fps = 30 }, output, cancel.Token);
+            var info = await FfmpegTools.Probe(ffprobe, output);
+            if (info is null || Math.Abs(info.Duration - 2) > .08)
+                throw new InvalidOperationException(name + " 导出时长异常：" + info?.Duration);
+            var raw = Path.Combine(root, name + ".bgra");
+            using var extract = FfmpegProcess.Start(ffmpeg, ["-y", "-ss", "1", "-i", output, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "bgra", raw]);
+            if (await extract.WaitAsync() != 0) throw new InvalidOperationException(extract.ErrorText());
+            var pixels = await File.ReadAllBytesAsync(raw);
+            File.Delete(raw);
+            return pixels;
+        }
+        static int Pixel(byte[] p, double x, double y, int channel) => p[((int)(y * 360) * 640 + (int)(x * 640)) * 4 + channel];
+        project.ScreenMotions = [new() { LinearBlur = true, Timing = new() { Duration = 1.6, LeadInDuration = .5, ReturnDuration = .4 },
+            Target = new() { Scale = .8, X = .45, RotationY = 8 } }];
+        await Render("screen-motion-duration");
+        project.ScreenMotions.Clear();
+        project.Canvas.Stickers = [new() { Path = "media/red.bmp", X = .5, Y = .5, Width = .3, Animation = "fade", ExitAnimation = "none",
+            EnterDuration = .1, ExitDuration = 0, BackdropBlur = 0, Timing = new() { Duration = 2, Transition = "none" } },
+            new() { Path = "media/blue.bmp", X = .5, Y = .5, Width = .2, Animation = "none", ExitAnimation = "none",
+                Opacity = .5, BackdropBlur = 0, Timing = new() { Duration = 2, Transition = "none" } }];
+        var layers = await Render("mixed-sticker-order-alpha");
+        if (Pixel(layers, .5, .5, 0) is not (>= 110 and <= 145) || Pixel(layers, .5, .5, 2) is not (>= 110 and <= 145))
+            throw new InvalidOperationException("静态/动画贴图顺序或半透明颜色错误。");
+        var treatment = project.Canvas.Stickers[0];
+        project.Canvas.Stickers.RemoveAt(1); treatment.X = treatment.Y = .15; treatment.Width = .1;
+        treatment.HidesScreen = true;
+        var hiddenScreen = await Render("screen-hidden-camera-kept");
+        if (Pixel(hiddenScreen, .5, .5, 1) < 230 || Pixel(hiddenScreen, .75, .8, 1) > 60 || Math.Max(Pixel(hiddenScreen, .75, .8, 0), Pixel(hiddenScreen, .75, .8, 2)) < 200)
+            throw new InvalidOperationException($"隐藏屏幕没有保留背景或摄像头：bgG={Pixel(hiddenScreen,.5,.5,1)} camBGR={Pixel(hiddenScreen,.75,.8,0)}/{Pixel(hiddenScreen,.75,.8,1)}/{Pixel(hiddenScreen,.75,.8,2)}");
+        treatment.HidesScreen = false; treatment.HidesCamera = true;
+        var hiddenCamera = await Render("camera-hidden-screen-kept");
+        if (Pixel(hiddenCamera, .8, .8, 0) < 230 || Pixel(hiddenCamera, .8, .8, 1) < 230 || Pixel(hiddenCamera, .8, .8, 2) < 230)
+            throw new InvalidOperationException("隐藏摄像头变成了黑块或遮住屏幕。");
+        treatment.HidesCamera = false; treatment.BackdropBlur = 18; treatment.BackdropBlurIncludesCamera = true;
+        // Multiple clips plus an interior anchor exercise every independently consumed matte.
+        project.Clips = [new() { AssetId = asset.Id, SourceEnd = 1 }, new() { AssetId = asset.Id, SourceStart = 1, SourceEnd = 2 }];
+        asset.CameraSyncAnchors = [new() { SourceTime = .5, Offset = .1 }];
+        await Render("multi-slice-camera-backdrop-blur");
+        project.CameraMotions = [new() { Timing = new() { Duration = 1.6, LeadInDuration = .5, ReturnDuration = .4 },
+            Target = new() { X = .7, Y = .7, Size = .4, Layout = "horizontal", Opacity = .7 } }];
+        await Render("camera-motion-duration");
+        project.Camera.Hidden = true;
+        project.CameraMotions[0].Target.Opacity = 1;
+        var hiddenBase = await Render("hidden-base-camera-motion");
+        if (Pixel(hiddenBase, .7, .7, 1) > 100)
+            throw new InvalidOperationException("隐藏基态下的摄像头运动无法显示目标。");
+        project.Camera.Hidden = false;
+        project.CameraMotions.Clear();
+        project.Canvas.Stickers.Clear();
+        project.Canvas.OpeningDuration = .6;
+        foreach (var style in new[] { "slide", "sideslide", "lift" })
+        {
+            project.Canvas.Opening = style;
+            var pixels = await Render("opening-" + style);
+            if (Pixel(pixels, .02, .5, 1) < 230 || Pixel(pixels, .02, .5, 2) < 230)
+                throw new InvalidOperationException("全局开场完成后未恢复屏幕边缘：" + style);
+        }
+        Console.WriteLine("SELFTEST_OK global-opening-slide/sideslide/lift/completed-frame");
+        Console.WriteLine("SELFTEST_OK screen-camera-motion-duration/mixed-sticker-order/straight-alpha/screen-camera-suppression/multi-slice-sync-blur");
     }
 
     static async Task CheckMacImportAsync(string ffmpeg, string ffprobe, string root, string source)

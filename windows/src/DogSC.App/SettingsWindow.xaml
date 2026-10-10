@@ -11,6 +11,11 @@
             <Button x:Name="Fps30" Content="30 FPS" Style="{StaticResource ChipButton}" Click="Fps30_Click"/>
             <Button x:Name="Fps60" Content="60 FPS" Style="{StaticResource ChipButton}" Click="Fps60_Click"/>
         </StackPanel>
+        <TextBlock Text="预览画质" Margin="0,18,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
+        <StackPanel Orientation="Horizontal">
+            <Button x:Name="QualityLow" Content="清晰预览（流畅）" Style="{StaticResource ChipButton}" Click="QualityLow_Click"/>
+            <Button x:Name="QualityFull" Content="完整分辨率" Style="{StaticResource ChipButton}" Click="QualityFull_Click"/>
+        </StackPanel>
         <TextBlock Text="ffmpeg" Margin="0,18,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
         <DockPanel>
             <Button DockPanel.Dock="Right" Content="浏览" Style="{StaticResource QuietButton}" Click="BrowseFfmpeg_Click"/>

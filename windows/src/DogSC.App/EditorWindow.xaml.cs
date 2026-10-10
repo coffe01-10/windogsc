@@ -7,7 +7,7 @@ namespace DogSC;
 
 public partial class EditorWindow : Window
 {
-    readonly PreviewPlayer _player = new();
+    readonly PreviewPlayer _player = new() { Quality = SettingsStore.Current.PreviewQuality };
     readonly Stack<string> _undo = new();
     readonly Stack<string> _redo = new();
     readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
@@ -26,7 +26,8 @@ public partial class EditorWindow : Window
     string? _selectedDecoration;
     readonly RegionPreview _sourceRegions = new();
     readonly RegionPreview _canvasRegions = new();
-    readonly Dictionary<string, Image> _stickerImages = [];
+    readonly Dictionary<string, Border> _stickerImages = [];
+    StickerMotion.Track? _stickerTrack;
     CursorTimeline? _cursorTimeline;
     (string Asset, int Height, double Rotation)? _cursorBitmapKey;
 
@@ -59,6 +60,8 @@ public partial class EditorWindow : Window
         Timeline.ClipSelected += (_, id) => { _cameraSelected = false; CancelOverlayGesture(); CancelRegionEditing(); _selectedClip = id; _selectedZoom = null; _selectedDecoration = null; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
         Timeline.ZoomSelected += (_, id) => { CancelOverlayGesture(); CancelRegionEditing(); _selectedZoom = id; _selectedClip = null; _selectedDecoration = null; _tool = "zoom"; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
         Timeline.DecorationSelected += (_, id) => SelectDecoration(id);
+        Timeline.ClipMenuAction += (_, e) => OnClipMenu(e.Id, e.Action);
+        Timeline.MarkerDeleteRequested += (_, marker) => { Push(); _project.Markers.Remove(marker); Commit(); };
         Timeline.TrimFinished += (_, trim) =>
         {
             Push();
@@ -82,10 +85,20 @@ public partial class EditorWindow : Window
         Timeline.DecorationFinished += (_, move) =>
         {
             var timing = DecorationTiming(move.ZoomId);
-            if (timing is null) return;
+            if (timing is not null)
+            {
+                Push();
+                timing.Start = move.Start;
+                timing.Duration = move.Duration;
+                Commit();
+                return;
+            }
+            // 屏幕 / 摄像头运动片段：轨道窗口含回落段，写回时减掉。
+            var motion = MotionTimingOf(move.ZoomId);
+            if (motion is null) return;
             Push();
-            timing.Start = move.Start;
-            timing.Duration = move.Duration;
+            motion.StartTime = Math.Max(0, move.Start);
+            motion.Duration = Math.Max(0.05, move.Duration - Math.Max(0, motion.ReturnDuration));
             Commit();
         };
         Timeline.ClipMoved += (_, move) =>
@@ -122,11 +135,14 @@ public partial class EditorWindow : Window
         _directory = directory;
         _project = ProjectFile.Load(directory);
         _cursorTimeline = new CursorTimeline(_project);
+        _stickerTrack = new StickerMotion.Track(_project.Canvas.Stickers);
         _selectedClip = _project.Clips.FirstOrDefault()?.Id;
         NameBox.Text = _project.Name;
         Title = "DogSC — " + _project.Name;
         UpdateThemeButton();
         FillAspects();
+        Timeline.TrackFlags = SettingsStore.Current.TimelineTracks;
+        foreach (ComboBoxItem item in PreviewQualityBox.Items) item.IsSelected = (item.Tag as string) == SettingsStore.Current.PreviewQuality;
         Timeline.Project = _project;
         _player.Open(_project, directory);
         _player.SetGains(_project.MicrophoneGain, _project.SystemGain);
@@ -272,6 +288,37 @@ public partial class EditorWindow : Window
         }
 
         Inspector.Children.Add(intros);
+
+        // Global Opening（Mac）：启用后替代上方「开场」，元素按间隔级联进场。
+        Inspector.Children.Add(Caption("全局开场（Global Opening）"));
+        var openStyles = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var (name, key) in new[] { ("关", "none"), ("滑动", "slide"), ("侧滑", "sideslide"), ("上浮", "lift") })
+        {
+            var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 0) };
+            chip.Background = (Brush)FindResource(_project.Canvas.Opening == key ? "AccentBrush" : "WellBrush");
+            chip.Foreground = _project.Canvas.Opening == key ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
+            chip.Click += (_, _) => { Push(); _project.Canvas.Opening = (string)chip.Tag; Commit(); };
+            openStyles.Children.Add(chip);
+        }
+        Inspector.Children.Add(openStyles);
+        var openTiming = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var (name, key) in new[] { ("平滑", "smooth"), ("干脆", "clear"), ("轻柔", "gentle") })
+        {
+            var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 4, 4, 0) };
+            chip.Background = (Brush)FindResource(_project.Canvas.OpeningTiming == key ? "AccentBrush" : "WellBrush");
+            chip.Foreground = _project.Canvas.OpeningTiming == key ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
+            chip.Click += (_, _) => { Push(); _project.Canvas.OpeningTiming = (string)chip.Tag; Commit(); };
+            openTiming.Children.Add(chip);
+        }
+        Inspector.Children.Add(openTiming);
+        Inspector.Children.Add(Caption("总时长 (s)"));
+        Inspector.Children.Add(Slider(0.5, 6, _project.Canvas.OpeningDuration, value => _project.Canvas.OpeningDuration = value));
+        Inspector.Children.Add(Caption("元素间隔 (s)"));
+        Inspector.Children.Add(Slider(0, 1, _project.Canvas.OpeningInterval, value => _project.Canvas.OpeningInterval = value));
+        var previewOpening = new Button { Content = "从头预览开场", Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 6, 0, 0) };
+        previewOpening.Click += (_, _) => _player.Seek(0, true);
+        Inspector.Children.Add(previewOpening);
+
         var cursor = _project.Canvas.Cursor;
         Inspector.Children.Add(Caption("光标样式"));
         Inspector.Children.Add(CursorChipRow(
@@ -422,6 +469,172 @@ public partial class EditorWindow : Window
         }
 
         Inspector.Children.Add(entries);
+        Inspector.Children.Add(DecorationButton("替换摄像头素材", SwapCamera));
+        Inspector.Children.Add(DecorationButton("导出源文件", ExportSources));
+        Inspector.Children.Add(CameraSyncPanel());
+    }
+
+    /// <summary>
+    /// Mac 摄像头同步面板：全片偏移（±10ms / ±1帧 / 归零）+
+    /// 分段同步点（播放头固定 / ±10ms 微调 / 删除，两点间线性重映射）。
+    /// </summary>
+    Panel CameraSyncPanel()
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+        var asset = _project.Clips.Select(item => item.AssetId).Distinct()
+            .Select(id => _project.Asset(id)).FirstOrDefault(item => item?.Camera is not null);
+        if (asset is null)
+        {
+            return panel;
+        }
+
+        var frameDuration = 1.0 / Math.Max(_project.FrameRate, 1);
+        var tolerance = Math.Max(frameDuration / 2, 0.020);
+        var sourceTime = CameraSyncSourceTime();
+
+        void SyncRow(string title, string subtitle, Action<double> nudge)
+        {
+            panel.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 2) });
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            foreach (var (name, delta) in new[] { ("画面延后 10ms", -0.010), ("画面提前 10ms", 0.010), ("画面延后 1 帧", -frameDuration), ("画面提前 1 帧", frameDuration) })
+            {
+                var d = delta;
+                var button = new Button { Content = name, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
+                button.Click += (_, _) => { Push(); nudge(d); Commit(); };
+                row.Children.Add(button);
+            }
+            panel.Children.Add(row);
+            if (subtitle.Length > 0)
+            {
+                panel.Children.Add(new TextBlock { Text = subtitle, FontSize = 11, Opacity = 0.6, TextWrapping = TextWrapping.Wrap });
+            }
+        }
+
+        SyncRow("全片偏移  " + Math.Round(asset.CameraOffset * 1000) + " ms",
+            "声音先出来、嘴后动：点「画面提前」。",
+            delta => asset.CameraOffset += delta);
+        if (Math.Abs(asset.CameraOffset) > 0.0005)
+        {
+            var reset = DecorationButton("偏移归零", () => { Push(); asset.CameraOffset = 0; Commit(); });
+            panel.Children.Add(reset);
+        }
+
+        var anchorIndex = sourceTime is null ? -1 : SyncAnchorCurve.IndexNear(asset.CameraSyncAnchors, sourceTime.Value, tolerance);
+        var atPlayhead = anchorIndex >= 0 ? asset.CameraSyncAnchors[anchorIndex].Offset : 0;
+        var total = asset.CameraOffset + (sourceTime is null ? 0 : SyncAnchorCurve.Offset(asset.CameraSyncAnchors, sourceTime.Value));
+        panel.Children.Add(new TextBlock
+        {
+            Text = "分段同步点  " + asset.CameraSyncAnchors.Count + " 个 · 当前 " + Math.Round(total * 1000) + " ms",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 10, 0, 2),
+        });
+        if (sourceTime is null)
+        {
+            panel.Children.Add(new TextBlock { Text = "当前播放头无法映射到源素材", FontSize = 11, Opacity = 0.6 });
+        }
+        else if (anchorIndex >= 0)
+        {
+            SyncRow("", "", delta => asset.CameraSyncAnchors[anchorIndex].Offset =
+                Math.Clamp(atPlayhead + delta, -10, 10));
+            panel.Children.Add(DecorationButton("删除播放头同步点", () =>
+            {
+                Push();
+                asset.CameraSyncAnchors.RemoveAt(anchorIndex);
+                Commit();
+            }));
+        }
+        else
+        {
+            panel.Children.Add(DecorationButton("在播放头固定同步点", () =>
+            {
+                Push();
+                asset.CameraSyncAnchors.Add(new SyncAnchor
+                {
+                    SourceTime = sourceTime.Value,
+                    Offset = SyncAnchorCurve.Offset(asset.CameraSyncAnchors, sourceTime.Value),
+                });
+                Commit();
+            }));
+        }
+        panel.Children.Add(new TextBlock { Text = "先在错位前固定当前，再到错位后调整；两点之间自动平滑重映射。", FontSize = 11, Opacity = 0.6, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
+        return panel;
+    }
+
+    /// <summary>播放头输出时间 → 主素材源时间（片段内线性映射，对齐 Mac sourceTime(atOutputTime)）。</summary>
+    double? CameraSyncSourceTime()
+    {
+        var t = _player.Time;
+        foreach (var clip in TimelineMath.Place(_project))
+        {
+            if (t >= clip.Start && t < clip.Start + clip.Duration)
+            {
+                return clip.Clip.SourceStart + (t - clip.Start) * clip.Clip.Speed;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Mac「导出源文件」：原始屏幕/摄像头/麦克风素材原样拷到 <项目名>-源文件/。</summary>
+    void ExportSources()
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "选择源文件导出文件夹",
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var folder = SourceExport.Export(_project, _directory, dialog.FolderName);
+            TimeLabel.Text = "已导出源文件：" + folder;
+            System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + folder + "\"");
+        }
+        catch (Exception ex)
+        {
+            TimeLabel.Text = "导出源文件失败：" + ex.Message;
+        }
+    }
+
+    /// <summary>Mac「替换摄像头」：换一个摄像头源文件，保留片段、效果与偏移。</summary>
+    void SwapCamera()
+    {
+        var assetIds = _project.Clips.Select(item => item.AssetId).Distinct().ToArray();
+        if (assetIds.Length == 0)
+        {
+            return;
+        }
+
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "视频|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v|全部|*.*",
+            Title = "替换摄像头素材",
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var file = Path.Combine(_directory, "media", "camera-" + Guid.NewGuid().ToString("N") + Path.GetExtension(dialog.FileName));
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.Copy(dialog.FileName, file, overwrite: true);
+            Push();
+            var relative = "media/" + Path.GetFileName(file);
+            foreach (var assetId in assetIds)
+            {
+                MediaSwap.Replace(_project, assetId, MediaSwap.Track.Camera, relative);
+            }
+            Commit();
+        }
+        catch (Exception ex)
+        {
+            TimeLabel.Text = "替换失败：" + ex.Message;
+        }
     }
 
     /// <summary>选图后拷进项目 media/decor/ 并写入相对路径，保证项目可搬移。</summary>
@@ -732,6 +945,7 @@ public partial class EditorWindow : Window
 
         var frame = CanvasLayout.Place(outputWidth, outputHeight, _project.Width, _project.Height, _project.Canvas);
         var frameScale = viewWidth / outputWidth;
+        _pvFrame = frame; _pvFrameScale = frameScale; _pvOutW = outputWidth; _pvOutH = outputHeight;
         var frameWidth = Math.Max(2, frame.Width * frameScale);
         var frameHeight = Math.Max(2, frame.Height * frameScale);
         Canvas.SetLeft(FrameHost, frame.X * frameScale);
@@ -756,7 +970,7 @@ public partial class EditorWindow : Window
         ShadowRect.RadiusY = radius;
         Canvas.SetLeft(ShadowRect, frame.X * frameScale + frame.ShadowOffset * frameScale * 0.35);
         Canvas.SetTop(ShadowRect, frame.Y * frameScale + frame.ShadowOffset * frameScale);
-        ShadowRect.Opacity = frame.ShadowAlpha;
+        ShadowRect.Opacity = _shadowLayerOpacity = frame.ShadowAlpha;
         if (ShadowRect.Effect is BlurEffect blur)
         {
             blur.Radius = Math.Max(0, frame.ShadowBlur * frameScale);
@@ -817,15 +1031,30 @@ public partial class EditorWindow : Window
         CursorLayer.RenderTransform = SourceEffects.RenderTransform;
         CursorLayer.RenderTransformOrigin = SourceEffects.RenderTransformOrigin;
 
-        // 开场动画：fade=淡入，rise=淡入+上移，zoom=淡入+轻微放大。
-        var intro = EditingRegions ? 1 : CanvasLayout.IntroProgress(_project.Canvas, _player.Time);
-        FrameHost.Opacity = intro;
+        // 开场动画：fade=淡入，rise=淡入+上移，zoom=淡入+轻微放大；
+        // Global Opening 启用时取而代之（slide/sideslide/lift + 缓动进度）。
+        var openingActive = _project.Canvas.Opening is "slide" or "sideslide" or "lift";
+        var intro = EditingRegions ? 1 : openingActive
+            ? CanvasLayout.OpeningProgress(_project.Canvas, _player.Time, 0)
+            : CanvasLayout.IntroProgress(_project.Canvas, _player.Time);
+        FrameHost.Opacity = _screenLayerOpacity = intro;
         FrameHost.RenderTransform = Transform.Identity;
-        if (_project.Canvas.Intro == "rise" && intro < 1)
+        if (openingActive && intro < 1)
+        {
+            var og = new TransformGroup();
+            if (_project.Canvas.Opening is "slide" or "lift")
+                og.Children.Add(new TranslateTransform(0, (1 - intro) * FrameHost.Height * (_project.Canvas.Opening == "lift" ? 0.04 : 0.08)));
+            else
+                og.Children.Add(new TranslateTransform((1 - intro) * FrameHost.Width * 0.08, 0));
+            if (_project.Canvas.Opening == "lift")
+                og.Children.Add(new ScaleTransform(0.94 + 0.06 * intro, 0.94 + 0.06 * intro, FrameHost.Width / 2, FrameHost.Height / 2));
+            FrameHost.RenderTransform = og;
+        }
+        else if (!openingActive && _project.Canvas.Intro == "rise" && intro < 1)
         {
             FrameHost.RenderTransform = new TranslateTransform(0, (1 - intro) * FrameHost.Height * 0.08);
         }
-        else if (_project.Canvas.Intro == "zoom" && intro < 1)
+        else if (!openingActive && _project.Canvas.Intro == "zoom" && intro < 1)
         {
             var zoomIn = 0.9 + 0.1 * intro;
             FrameHost.RenderTransform = new ScaleTransform(zoomIn, zoomIn,
@@ -834,6 +1063,8 @@ public partial class EditorWindow : Window
 
         // 摄像头进出动画：fade=淡入淡出，rise=淡入+底部滑入（对齐导出端 0.5s 窗口近似）。
         UpdateCameraEntry();
+        ApplyMotionVisual();
+        _cameraLayerOpacity = CameraBubble.Visibility == Visibility.Visible ? CameraBubble.Opacity : 0;
 
         UpdateCursorLayer();
         UpdateDecorationTiming();
@@ -843,10 +1074,77 @@ public partial class EditorWindow : Window
         UpdateOverlayEditor();
     }
 
+    double _screenLayerOpacity = 1, _cameraLayerOpacity = 1, _shadowLayerOpacity;
+    FramePlacement _pvFrame;
+    double _pvFrameScale;
+    int _pvOutW, _pvOutH;
+
+    /// <summary>屏幕/摄像头运动轨道的每帧预览采样（在 ApplyZoomVisual 每帧调用）。</summary>
+    void ApplyMotionVisual()
+    {
+        if (_pvFrameScale <= 0)
+        {
+            return;
+        }
+        // 屏幕侧近似：真透视不可画，用 anchor 缩放+rotZ+位移+rotX/Y 压扁的仿射近似，
+        // 复合在 ApplyZoomVisual 刚写好的 intro 变换之上。
+        if (_project.ScreenMotions.Count > 0)
+        {
+            var viewport = new ScreenAnchorViewport(_pvOutW, _pvOutH, _pvFrame.Width, _pvFrame.Height);
+            var track = new ScreenMotionTrack(_project.ScreenMotions);
+            var s = track.SampleLayout(_player.Time, null, viewport);
+            var mo = s.ManualOffset ?? new CompositionPoint(0, 0);
+            var moBase = track.SampleLayout(-1, null, viewport).ManualOffset ?? new CompositionPoint(0, 0);
+            var anchorX = (_pvFrame.X + s.ProjectionAnchor.X * _pvFrame.Width) * _pvFrameScale;
+            var anchorY = (_pvFrame.Y + s.ProjectionAnchor.Y * _pvFrame.Height) * _pvFrameScale;
+            var sx = Math.Max(0.05, s.State.Scale) * Math.Cos(s.State.RotationY * Math.PI / 180);
+            var sy = Math.Max(0.05, s.State.Scale) * Math.Cos(s.State.RotationX * Math.PI / 180);
+            var m = new Matrix();
+            m.Translate(-anchorX, -anchorY);
+            m.Scale(sx, sy);
+            m.Rotate(s.State.RotationZ);
+            m.Translate(anchorX, anchorY);
+            m.Translate((mo.X - moBase.X) * _pvFrameScale, (mo.Y - moBase.Y) * _pvFrameScale);
+            m *= FrameHost.RenderTransform?.Value ?? Matrix.Identity;
+            var transform = new MatrixTransform(m);
+            FrameHost.RenderTransform = transform;
+            ShadowRect.RenderTransform = transform;
+        }
+        else
+        {
+            ShadowRect.RenderTransform = Transform.Identity;
+        }
+
+        if (_project.CameraMotions.Count > 0 && _project.HasCamera)
+        {
+            var camBase = new CameraMotionState
+            {
+                Layout = _project.Camera.Shape is "circle" or "horizontal" or "vertical" or "original" ? _project.Camera.Shape : "square",
+                X = _project.Camera.CenterX, Y = _project.Camera.CenterY,
+                Size = _project.Camera.Size, Roundness = _project.Camera.Corner * 2,
+                Opacity = _project.Camera.Hidden ? 0 : 1,
+            };
+            var sample = new CameraMotionTrack(_project.CameraMotions).Sample(
+                _player.Time, camBase, _cameraMaskAspect ?? CameraSourceAspect, (double)_pvOutW / _pvOutH);
+            var rect = MotionExport.CameraPixels(sample, _pvOutW, _pvOutH);
+            CameraBubble.Visibility = Visibility.Visible;
+            CameraBubble.Width = Math.Max(2, rect.W * _pvFrameScale);
+            CameraBubble.Height = Math.Max(2, rect.H * _pvFrameScale);
+            Canvas.SetLeft(CameraBubble, rect.X * _pvFrameScale);
+            Canvas.SetTop(CameraBubble, rect.Y * _pvFrameScale);
+            var side = Math.Min(CameraBubble.Width, CameraBubble.Height);
+            CameraBubble.RadiusX = CameraBubble.RadiusY = side * Math.Clamp(sample.CornerFraction, 0, 0.5);
+            // Hidden 基准时 UpdateCameraEntry 会提前返回（气泡 Collapsed），此时取 1 为底。
+            var entryOpacity = CameraBubble.Opacity;
+            CameraBubble.Opacity = entryOpacity * Math.Clamp(sample.Opacity, 0, 1);
+            UpdateCameraContent();
+        }
+    }
+
     /// <summary>画中画进出场预览：按播放头相对片段首尾的进度做透明度/位移。</summary>
     void UpdateCameraEntry()
     {
-        if (!_project.HasCamera || CameraBubble.Visibility != Visibility.Visible)
+        if (!_project.HasCamera || (CameraBubble.Visibility != Visibility.Visible && _project.CameraMotions.Count == 0))
         {
             return;
         }
@@ -873,6 +1171,22 @@ public partial class EditorWindow : Window
             }
         }
 
+        // Global Opening：摄像头是元素 1，延迟 Interval 进场（透明×进度+方向位移）。
+        if (_project.Canvas.Opening is "slide" or "sideslide" or "lift")
+        {
+            var camp = CanvasLayout.OpeningProgress(_project.Canvas, _player.Time, 1);
+            opacity *= camp;
+            if (camp < 1)
+            {
+                rise += _project.Canvas.Opening == "sideslide" ? 0 : (1 - camp) * CameraBubble.Height * 0.4;
+                if (_project.Canvas.Opening == "sideslide")
+                {
+                    CameraBubble.RenderTransform = new TranslateTransform((1 - camp) * CameraBubble.Width * 0.4, 0);
+                    CameraBubble.Opacity = opacity;
+                    return;
+                }
+            }
+        }
         CameraBubble.Opacity = opacity;
         CameraBubble.RenderTransform = rise > 0.5 ? new TranslateTransform(0, rise) : Transform.Identity;
     }
@@ -931,6 +1245,25 @@ public partial class EditorWindow : Window
     /// <summary>贴图预览：按归一化矩形摆一张图。</summary>
     void UpdateSticker(double viewWidth, double viewHeight, int outputWidth, int outputHeight)
     {
+        _stickerTrack ??= new StickerMotion.Track(_project.Canvas.Stickers);
+        var viewScale = viewWidth / outputWidth;
+        var (samples, backdrop) = _stickerTrack.SampleAt(_player.Time);
+        var byId = samples.ToDictionary(s => s.Clip.Id);
+        // 背景通道：压屏幕/虚化屏幕作用于画面矩形，压/虚化摄像头作用于气泡。
+        FrameRect.Opacity = 1;
+        FrameRect.Effect = null;
+        FrameHost.Opacity = _screenLayerOpacity * (1 - backdrop.ScreenSuppression);
+        ShadowRect.Opacity = _shadowLayerOpacity * (1 - backdrop.ScreenSuppression);
+        var motionBlur = _project.ScreenMotions.Any(c => c.LinearBlur
+            && _player.Time >= c.Timing.StartTime && _player.Time < c.Timing.EffectEndTime) ? 7 : 0;
+        var screenBlur = Math.Sqrt(backdrop.ScreenBlur * backdrop.ScreenBlur + motionBlur * motionBlur);
+        FrameHost.Effect = screenBlur > 0.01
+            ? new BlurEffect { Radius = screenBlur * viewScale }
+            : null;
+        CameraBubble.Opacity = _cameraLayerOpacity * (1 - backdrop.CameraSuppression);
+        CameraBubble.Effect = backdrop.CameraBlur > 0.01
+            ? new BlurEffect { Radius = backdrop.CameraBlur * viewScale }
+            : null;
         foreach (var id in _stickerImages.Keys.Where(id => !_project.Canvas.Stickers.Any(x => x.Id == id)).ToArray())
         {
             StickerLayers.Children.Remove(_stickerImages[id]);
@@ -938,15 +1271,16 @@ public partial class EditorWindow : Window
         }
         foreach (var sticker in _project.Canvas.Stickers)
         {
-            if (!_stickerImages.TryGetValue(sticker.Id, out var image))
+            if (!_stickerImages.TryGetValue(sticker.Id, out var holder))
             {
-                image = new Image();
-                _stickerImages[sticker.Id] = image;
-                StickerLayers.Children.Add(image);
+                holder = new Border { Child = new Image { Stretch = Stretch.Fill } };
+                _stickerImages[sticker.Id] = holder;
+                StickerLayers.Children.Add(holder);
             }
-            Panel.SetZIndex(image, _project.Canvas.Stickers.IndexOf(sticker));
+            var image = (Image)holder.Child;
+            Panel.SetZIndex(holder, _project.Canvas.Stickers.IndexOf(sticker));
             var path = DecorationPath(sticker.Path);
-            image.Visibility = path is null ? Visibility.Collapsed : Visibility.Visible;
+            holder.Visibility = path is null ? Visibility.Collapsed : Visibility.Visible;
             if (path is null) continue;
             if (!Equals(image.Tag, path))
             {
@@ -956,12 +1290,44 @@ public partial class EditorWindow : Window
             }
             var aspect = image.Source is BitmapSource bmp ? bmp.PixelWidth / (double)bmp.PixelHeight : 1;
             var box = CanvasLayout.Sticker(outputWidth, outputHeight, sticker, aspect);
-            var scale = viewWidth / outputWidth;
-            image.Width = CanvasLayout.Even((int)Math.Round(box.Width)) * scale;
-            image.Height = CanvasLayout.Even((int)Math.Round(box.Height)) * scale;
-            image.RenderTransformOrigin = new Point(.5, .5); image.RenderTransform = new RotateTransform(sticker.Rotation);
-            Canvas.SetLeft(image, box.X * scale - image.Width / 2);
-            Canvas.SetTop(image, box.Y * scale - image.Height / 2);
+            holder.Width = CanvasLayout.Even((int)Math.Round(box.Width)) * viewScale;
+            holder.Height = CanvasLayout.Even((int)Math.Round(box.Height)) * viewScale;
+            // Mac 外观参数：圆角 / 描边 / 投影（像素值跟随画布缩放）。
+            holder.CornerRadius = new CornerRadius(Math.Max(0, sticker.CornerRadius) * viewScale);
+            var inset = Math.Max(0, sticker.BorderWidth) * viewScale;
+            image.Clip = new RectangleGeometry(new Rect(0, 0, Math.Max(0, holder.Width - 2 * inset), Math.Max(0, holder.Height - 2 * inset)),
+                Math.Max(0, sticker.CornerRadius) * viewScale, Math.Max(0, sticker.CornerRadius) * viewScale);
+            holder.BorderThickness = new Thickness(Math.Max(0, sticker.BorderWidth) * viewScale);
+            if (sticker.BorderWidth > 0)
+            {
+                var bc = (Color)ColorConverter.ConvertFromString(
+                    string.IsNullOrWhiteSpace(sticker.BorderColor) ? "#FFFFFF" : sticker.BorderColor);
+                holder.BorderBrush = new SolidColorBrush(bc);
+            }
+            else holder.BorderBrush = null;
+            holder.Effect = sticker.ShadowOpacity > 0.001 ? new DropShadowEffect
+            {
+                Opacity = sticker.ShadowOpacity,
+                BlurRadius = Math.Max(0, sticker.ShadowRadius) * viewScale,
+                Direction = Math.Atan2(sticker.ShadowOffsetY, sticker.ShadowOffsetX) * 180 / Math.PI,
+                ShadowDepth = Math.Sqrt(sticker.ShadowOffsetX * sticker.ShadowOffsetX
+                    + sticker.ShadowOffsetY * sticker.ShadowOffsetY) * viewScale,
+                Color = Colors.Black,
+            } : null;
+            // 运动采样：透明度 + 缩放 + 归一化位移（转到画布像素）。
+            var sample = byId.GetValueOrDefault(sticker.Id);
+            holder.Opacity = sticker.Opacity * sample.Visibility;
+            var (scale, offsetX, offsetY) = StickerMotion.Transform(
+                sample.Preset, sample.Progress, sticker.X, sticker.Y, sticker.Width);
+            var motion = new TransformGroup();
+            motion.Children.Add(new ScaleTransform(scale, scale));
+            motion.Children.Add(new RotateTransform(sticker.Rotation));
+            motion.Children.Add(new TranslateTransform(offsetX * outputWidth * viewScale,
+                offsetY * outputHeight * viewScale));
+            holder.RenderTransformOrigin = new Point(.5, .5);
+            holder.RenderTransform = motion;
+            Canvas.SetLeft(holder, box.X * viewScale - holder.Width / 2);
+            Canvas.SetTop(holder, box.Y * viewScale - holder.Height / 2);
         }
     }
 
@@ -1031,6 +1397,7 @@ public partial class EditorWindow : Window
         SpeedBox.IsEnabled = clip is not null;
         var label = (clip?.Speed ?? 1).ToString("0.##", CultureInfo.InvariantCulture) + "×";
         SpeedBox.SelectedItem = label;
+        RestoreButton.IsEnabled = RestorableGapForSelection();
         _lock = false;
         UndoButton.IsEnabled = _undo.Count > 0;
         RedoButton.IsEnabled = _redo.Count > 0;
@@ -1040,6 +1407,7 @@ public partial class EditorWindow : Window
     {
         ProjectFile.Normalize(_project);
         _cursorTimeline = new CursorTimeline(_project);
+        _stickerTrack = new StickerMotion.Track(_project.Canvas.Stickers);
         _pendingSave = true;
         _saveTimer.Stop();
         _saveTimer.Start();
@@ -1086,7 +1454,7 @@ public partial class EditorWindow : Window
         var previousRegions = _project.Canvas.SoftRegions.Select(r => r.Id).Concat(_project.Canvas.Stickers.Select(r => r.Id)).ToHashSet();
         _project = JsonSerializer.Deserialize<ProjectDocument>(json, ProjectSchema.Json) ?? _project;
         ProjectFile.Normalize(_project);
-        _selectedDecoration = DecorationTiming(_selectedDecoration ?? "") is not null ? _selectedDecoration : null;
+        _selectedDecoration = DecorationTiming(_selectedDecoration ?? "") is not null || MotionTimingOf(_selectedDecoration ?? "") is not null ? _selectedDecoration : null;
         _selectedDecoration ??= _project.Canvas.SoftRegions.Select(r => r.Id).Concat(_project.Canvas.Stickers.Select(r => r.Id)).LastOrDefault(id => !previousRegions.Contains(id));
         _selectedZoom = _project.Zooms.FirstOrDefault(item => item.Id == _selectedZoom)?.Id;
         _selectedClip = _selectedDecoration is null && _selectedZoom is null
@@ -1190,6 +1558,60 @@ public partial class EditorWindow : Window
         _selectedZoom = null;
         _selectedClip = _project.Clips.FirstOrDefault()?.Id;
         Commit();
+    }
+
+    void Restore_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedClip is null)
+        {
+            return;
+        }
+
+        var index = _project.Clips.FindIndex(item => item.Id == _selectedClip);
+        if (index < 0)
+        {
+            return;
+        }
+
+        var clips = _project.Clips;
+        var clip = clips[index];
+        var sourceDuration = _project.Asset(clip.AssetId)?.Duration ?? 0;
+        Push();
+        // 优先还原选中片段后面的缺口，其次前面，再片头 / 片尾。
+        var restored =
+            (index + 1 < clips.Count && GapRestore.RestoreGap(_project, clip.Id, clips[index + 1].Id))
+            || (index > 0 && GapRestore.RestoreGap(_project, clips[index - 1].Id, clip.Id))
+            || (index == 0 && GapRestore.RestoreLeading(_project))
+            || (index == clips.Count - 1 && GapRestore.RestoreTrailing(_project, sourceDuration));
+        if (!restored)
+        {
+            _undo.Pop();
+            return;
+        }
+
+        Commit();
+    }
+
+    bool RestorableGapForSelection()
+    {
+        if (_selectedClip is null)
+        {
+            return false;
+        }
+
+        var index = _project.Clips.FindIndex(item => item.Id == _selectedClip);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        var clips = _project.Clips;
+        var clip = clips[index];
+        var sourceDuration = _project.Asset(clip.AssetId)?.Duration ?? 0;
+        return (index + 1 < clips.Count && GapRestore.RestorableGap(_project, clip.Id) > 0)
+            || (index > 0 && GapRestore.RestorableGap(_project, clips[index - 1].Id) > 0)
+            || (index == 0 && clip.SourceStart > 0)
+            || (index == clips.Count - 1 && sourceDuration - clip.SourceEnd > 0);
     }
 
     void Marker_Click(object sender, RoutedEventArgs e)
@@ -1319,6 +1741,94 @@ public partial class EditorWindow : Window
         {
             Timeline.Zoom = e.NewValue;
         }
+    }
+
+    /// <summary>轨道显示位集（对齐 Mac）：1=缩放 2=屏幕运动 4=摄像头运动 8=叠加。只收起行，不停用效果。</summary>
+    int TrackFlags => Timeline?.TrackFlags ?? SettingsStore.Current.TimelineTracks;
+
+    void ApplyTrackFlags(int flags)
+    {
+        if (Timeline is not null)
+        {
+            Timeline.TrackFlags = flags;
+            Timeline.InvalidateVisual();
+        }
+        SettingsStore.Current.TimelineTracks = flags;
+        SettingsStore.Save();
+    }
+
+    void TrackMenu_Click(object sender, RoutedEventArgs e)
+    {
+        TrackMenuButton.ContextMenu.IsOpen = true;
+    }
+
+    void TrackMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        var flags = TrackFlags;
+        TrackZoomItem.IsChecked = (flags & 1) != 0;
+        TrackScreenMotionItem.IsChecked = (flags & 2) != 0;
+        TrackCameraMotionItem.IsChecked = (flags & 4) != 0;
+        TrackOverlayItem.IsChecked = (flags & 8) != 0;
+        TrackZoomItem.Header = $"缩放 ({_project.Zooms.Count})";
+        TrackScreenMotionItem.Header = $"屏幕运动 ({_project.ScreenMotions.Count})";
+        TrackCameraMotionItem.Header = $"摄像头运动 ({_project.CameraMotions.Count})";
+        TrackOverlayItem.Header = $"叠加 ({_project.Canvas.Stickers.Count + _project.Canvas.SoftRegions.Count(x => x.Enabled)})";
+    }
+
+    void TrackItem_Click(object sender, RoutedEventArgs e)
+    {
+        var bit = ReferenceEquals(sender, TrackZoomItem) ? 1
+            : ReferenceEquals(sender, TrackScreenMotionItem) ? 2
+            : ReferenceEquals(sender, TrackCameraMotionItem) ? 4 : 8;
+        var flags = TrackFlags;
+        ApplyTrackFlags((flags & bit) != 0 ? flags & ~bit : flags | bit);
+    }
+
+    void SnapToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (Timeline is not null) Timeline.SnapEnabled = SnapToggle.IsChecked == true;
+    }
+
+    void PreviewQuality_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (PreviewQualityBox.SelectedItem is not ComboBoxItem item) return;
+        var quality = item.Tag as string ?? "full";
+        if (SettingsStore.Current.PreviewQuality == quality) return;
+        SettingsStore.Current.PreviewQuality = quality;
+        SettingsStore.Save();
+        _player.Quality = quality;
+        _player.Seek(_player.Time, _player.IsPlaying);
+    }
+
+    /// <summary>片段右键菜单：切分 / 速度 / 波纹删除 / 删除（对齐 Mac 时间线菜单）。</summary>
+    void OnClipMenu(string clipId, string action)
+    {
+        var clip = _project.Clips.FirstOrDefault(item => item.Id == clipId);
+        if (clip is null) return;
+        var placed = TimelineMath.Place(_project).FirstOrDefault(item => item.Clip.Id == clipId);
+        if (placed is null) return;
+        var time = _player.Time;
+        if (action.StartsWith("speed:") && double.TryParse(action[6..], CultureInfo.InvariantCulture, out var speed))
+        {
+            Push();
+            if (TimelineEdits.TrySetSpeed(_project, clipId, speed)) Commit();
+            else _undo.Pop();
+            return;
+        }
+        if (action is "split" or "ripple-before" or "ripple-after"
+            && (time <= placed.Start || time >= placed.End)) return;
+        Push();
+        var sourceTime = clip.SourceStart + (time - placed.Start) * clip.Speed;
+        var changed = action switch
+        {
+            "split" => TimelineEdits.TrySplit(_project, time),
+            "ripple-before" => TimelineEdits.TryTrim(_project, clipId, sourceTime, clip.SourceEnd),
+            "ripple-after" => TimelineEdits.TryTrim(_project, clipId, clip.SourceStart, sourceTime),
+            "delete" => TimelineEdits.TryDeleteClip(_project, clipId),
+            _ => false,
+        };
+        if (changed) Commit();
+        else _undo.Pop();
     }
 
     void Preview_SizeChanged(object sender, SizeChangedEventArgs e) => LayoutPreview();

@@ -482,6 +482,7 @@ public static class TimelineEdits
         }
 
         EffectTiming.Edit(project, spans => TimelineMath.RemoveRange(spans, placed.Start, placed.End));
+        MotionTimingEdits.RemoveRange(project, placed.Start, placed.End);
 
         TimelineMath.RemoveRange(project.Zooms, placed.Start, placed.End);
         project.Clips.RemoveAll(item => item.Id == clipId);
@@ -509,11 +510,13 @@ public static class TimelineEdits
         if (head > 0.0001)
         {
             EffectTiming.Edit(project, spans => TimelineMath.RemoveRange(spans, slot.Start, slot.Start + head / clip.Speed));
+            MotionTimingEdits.RemoveRange(project, slot.Start, slot.Start + head / clip.Speed);
             TimelineMath.RemoveRange(project.Zooms, slot.Start, slot.Start + head / clip.Speed);
         }
         else if (head < -0.0001)
         {
             EffectTiming.Edit(project, spans => TimelineMath.InsertGap(spans, slot.Start, -head / clip.Speed));
+            MotionTimingEdits.InsertGap(project, slot.Start, -head / clip.Speed);
             TimelineMath.InsertGap(project.Zooms, slot.Start, -head / clip.Speed);
         }
 
@@ -524,11 +527,13 @@ public static class TimelineEdits
         {
             var removed = tail / clip.Speed;
             EffectTiming.Edit(project, spans => TimelineMath.RemoveRange(spans, refreshed.End - removed, refreshed.End));
+            MotionTimingEdits.RemoveRange(project, refreshed.End - removed, refreshed.End);
             TimelineMath.RemoveRange(project.Zooms, refreshed.End - removed, refreshed.End);
         }
         else if (tail < -0.0001)
         {
             EffectTiming.Edit(project, spans => TimelineMath.InsertGap(spans, refreshed.End, -tail / clip.Speed));
+            MotionTimingEdits.InsertGap(project, refreshed.End, -tail / clip.Speed);
             TimelineMath.InsertGap(project.Zooms, refreshed.End, -tail / clip.Speed);
         }
 
@@ -554,6 +559,7 @@ public static class TimelineEdits
         var oldDuration = slot.Duration;
         var newDuration = (clip.SourceEnd - clip.SourceStart) / speed;
         EffectTiming.Edit(project, spans => TimelineMath.Retime(spans, slot.Start, oldDuration, newDuration));
+        MotionTimingEdits.Retime(project, slot.Start, oldDuration, newDuration);
         TimelineMath.Retime(project.Zooms, slot.Start, oldDuration, newDuration);
         clip.Speed = speed;
         return true;

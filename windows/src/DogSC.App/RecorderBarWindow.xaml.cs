@@ -83,6 +83,7 @@ public partial class RecorderBarWindow : Window
         PaintToggles();
         _timer.Tick += (_, _) => PaintElapsedTime();
         Loaded += async (_, _) => await LoadDevicesAsync();
+        Loaded += async (_, _) => await RecoverPartialAsync();
         MouseLeftButtonDown += DragBar;
         SizeChanged += (_, _) => PositionBar();
         Loaded += (_, _) =>
@@ -809,6 +810,30 @@ public partial class RecorderBarWindow : Window
         MicButton.ToolTip = SettingsStore.Current.RecordMicrophone ? "麦克风已开启，点击关闭" : "麦克风已关闭，点击选择并开启";
         CameraButton.ToolTip = SettingsStore.Current.RecordCamera ? "摄像头画中画已开启，点击关闭" : "摄像头画中画已关闭，点击选择并开启";
         AudioButton.ToolTip = SettingsStore.Current.RecordSystemAudio ? "系统声音已开启，点击关闭" : "系统声音已关闭，点击选择并开启";
+    }
+
+    /// <summary>Mac 录制恢复：启动时扫描项目目录，给只有 media/ 的半成品目录重建 project.json。</summary>
+    async Task RecoverPartialAsync()
+    {
+        try
+        {
+            var ffprobe = FfmpegTools.LocateFfprobe(FfmpegTools.LocateFfmpeg());
+            if (ffprobe is null)
+            {
+                return;
+            }
+
+            var count = await ProjectFactory.RecoverPartialAsync(ffprobe);
+            if (count > 0)
+            {
+                ShowError("已恢复 " + count + " 个中断的录制，可在最近项目里打开。");
+
+            }
+        }
+        catch (Exception ex)
+        {
+            AppPaths.Log("录制恢复扫描失败：" + ex.Message);
+        }
     }
 
     void ShowError(string message)

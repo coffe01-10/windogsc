@@ -111,6 +111,7 @@
                     <StackPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Content="分割" ToolTip="在播放头分割（S）" Style="{StaticResource QuietButton}" Click="Split_Click"/>
                         <Button Content="删除" ToolTip="删除所选片段（Delete）" Style="{StaticResource QuietButton}" Click="Delete_Click"/>
+                        <Button x:Name="RestoreButton" Content="还原" ToolTip="还原所选片段附近被剪掉的源素材" Style="{StaticResource QuietButton}" Click="Restore_Click"/>
                         <Button Content="标记" ToolTip="在播放头添加标记（M）" Style="{StaticResource QuietButton}" Click="Marker_Click"/>
                         <ComboBox x:Name="SpeedBox" Width="88" Margin="8,0,0,0" VerticalAlignment="Center" SelectionChanged="Speed_Changed"/>
                         <Rectangle Width="1" Height="20" Fill="{DynamicResource LineBrush}" Margin="8,0" VerticalAlignment="Center"/>
@@ -125,8 +126,24 @@
                         <TextBlock x:Name="TimeLabel" VerticalAlignment="Center" Margin="8,0,0,0" MaxWidth="650" TextTrimming="CharacterEllipsis" FontFamily="{DynamicResource FontMedium}"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <CheckBox x:Name="SnapToggle" Content="吸附" IsChecked="True" VerticalAlignment="Center" Margin="0,0,10,0" Checked="SnapToggle_Changed" Unchecked="SnapToggle_Changed" ToolTip="拖动时按刻度与片段边缘吸附"/>
+                        <ComboBox x:Name="PreviewQualityBox" Width="86" VerticalAlignment="Center" Margin="0,0,10,0" SelectionChanged="PreviewQuality_Changed" ToolTip="预览画质">
+                            <ComboBoxItem Content="清晰预览" Tag="low"/>
+                            <ComboBoxItem Content="完整分辨率" Tag="full"/>
+                        </ComboBox>
                         <TextBlock Text="时间线" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}" Margin="0,0,8,0"/>
                         <Slider x:Name="TimelineZoom" Width="110" Minimum="1" Maximum="6" Value="1" ValueChanged="TimelineZoom_Changed"/>
+                        <Button x:Name="TrackMenuButton" Content="轨道" Margin="8,0,0,0" VerticalAlignment="Center" Click="TrackMenu_Click">
+                            <Button.ContextMenu>
+                                <ContextMenu x:Name="TrackMenu" Opened="TrackMenu_Opened">
+                                    <MenuItem x:Name="TrackZoomItem" Header="缩放" IsCheckable="True" Click="TrackItem_Click"/>
+                                    <MenuItem x:Name="TrackScreenMotionItem" Header="屏幕运动" IsCheckable="True" Click="TrackItem_Click"/>
+                                    <MenuItem x:Name="TrackCameraMotionItem" Header="摄像头运动" IsCheckable="True" Click="TrackItem_Click"/>
+                                    <Separator/>
+                                    <MenuItem x:Name="TrackOverlayItem" Header="叠加（贴图/柔化）" IsCheckable="True" Click="TrackItem_Click"/>
+                                </ContextMenu>
+                            </Button.ContextMenu>
+                        </Button>
                     </StackPanel>
                 </Grid>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><local:TimelineControl x:Name="Timeline" Grid.Row="1"/></ScrollViewer>

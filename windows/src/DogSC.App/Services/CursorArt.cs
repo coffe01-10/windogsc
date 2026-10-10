@@ -87,7 +87,14 @@ public static class CursorArt
         }
         // Windows 标准光标（手势/十字/I 型/禁止/移动）用系统贴图，得到原生清晰度。
         var cursor = SystemCursorHandle(assetId);
-        if (cursor != IntPtr.Zero) return RenderSystemCursor(cursor, h);
+        if (cursor != IntPtr.Zero)
+        {
+            var native = RenderSystemCursor(cursor, h);
+            if (native is not null && native.Bgra.Where((_, i) => i % 4 == 3).Any(a => a > 0)) return native;
+            // A shared system cursor can be replaced by a blank bitmap (for
+            // example while another app hides it). Keep the selected style visible.
+            if (assetId == "system.pointing-hand") return RenderPointingHand(h);
+        }
         return RenderArrow(h);
     }
 
@@ -181,6 +188,11 @@ public static class CursorArt
         };
         return RenderPolygon(design, referenceHeight, 1.1, 5.0, 2.0);
     }
+
+    static CursorSprite RenderPointingHand(int referenceHeight) => RenderPolygon(
+        [ [(8, 22), (7, 18), (3, 12), (3.5, 10.5), (5, 10.8), (8, 14),
+           (8, 3), (9, 2), (10, 3), (10, 10), (12, 9), (14, 10),
+           (16, 10), (18, 12), (18, 18), (16, 22)] ], referenceHeight, 1.1, 9, 2);
 
     /// <summary>触控点：灰色半透明圆 + 白描边 + 轻微投影（Mac touchDot 规格）。</summary>
     static CursorSprite RenderTouchDot(int referenceHeight)

@@ -36,6 +36,10 @@ public sealed class ProjectDocument
     public List<ClipSegment> Clips { get; set; } = [];
     public List<ZoomSpan> Zooms { get; set; } = [];
     public List<SourceMarker> Markers { get; set; } = [];
+    /// <summary>屏幕空间运动片段（Mac screenMotionClips）。</summary>
+    public List<ScreenMotionClip> ScreenMotions { get; set; } = [];
+    /// <summary>摄像头运动片段（Mac cameraMotionClips）。</summary>
+    public List<CameraMotionClip> CameraMotions { get; set; } = [];
     public CanvasSettings Canvas { get; set; } = new();
     public CameraBubble Camera { get; set; } = new();
     public string ExportResolution { get; set; } = "source";
@@ -60,6 +64,8 @@ public sealed class MediaAsset
     public string? SystemAudio { get; set; }
     public string? Camera { get; set; }
     public double CameraOffset { get; set; }
+    /// <summary>摄像头分段同步点（Mac camera.syncAnchors）：按源时间的分段线性额外偏移。</summary>
+    public List<SyncAnchor> CameraSyncAnchors { get; set; } = [];
     public double MicrophoneOffset { get; set; }
     public double Duration { get; set; }
     public int Width { get; set; }
@@ -136,12 +142,34 @@ public sealed class CanvasSettings
     public double FocusBlur { get; set; }
     /// <summary>开场动画预设：none / fade / rise / zoom。</summary>
     public string Intro { get; set; } = "none";
+    /// <summary>Mac Global Opening：none/slide/sideslide/lift；启用后替代 Intro，按元素间隔级联进场。</summary>
+    public string Opening { get; set; } = "none";
+    /// <summary>开场节奏：smooth/clear/gentle（缓动曲线）。</summary>
+    public string OpeningTiming { get; set; } = "smooth";
+    /// <summary>开场总时长（秒，Mac 默认 2.2）。</summary>
+    public double OpeningDuration { get; set; } = 2.2;
+    /// <summary>元素进场间隔（秒，Mac 默认 0.16）。</summary>
+    public double OpeningInterval { get; set; } = 0.16;
     /// <summary>光标呈现设置（录制不录光标，编辑期按轨迹重绘）。</summary>
     public CursorFx Cursor { get; set; } = new();
     /// <summary>壁纸图片：项目相对路径（media/ 下）或绝对路径；空 = 纯色背景。</summary>
     public string? Wallpaper { get; set; }
     /// <summary>壁纸模糊强度 0..1（垫在画面下做氛围虚化）。</summary>
     public double WallpaperBlur { get; set; } = 0.35;
+    /// <summary>程序生成背景密度（pattern/dynamicFlow），对齐 Mac patternScale 0.4..6。</summary>
+    public double PatternScale { get; set; } = 1;
+    /// <summary>程序生成背景强度，对齐 Mac patternOpacity 0..1。</summary>
+    public double PatternOpacity { get; set; } = 1;
+    /// <summary>屏幕外框：none / windowLight / windowDark / browserLight / browserDark / phone / tablet（及 Mac 原名 devicePhone* / deviceTablet*）。</summary>
+    public string ScreenFrame { get; set; } = "none";
+    /// <summary>外框整体缩放 0.6..1.6。</summary>
+    public double ScreenFrameScale { get; set; } = 1;
+    /// <summary>外框顶栏缩放 0.65..1.6。</summary>
+    public double ScreenFrameToolbarScale { get; set; } = 1;
+    /// <summary>窗口标题文字。</summary>
+    public string ScreenFrameTitle { get; set; } = "";
+    /// <summary>浏览器地址栏文字。</summary>
+    public string ScreenFrameAddress { get; set; } = "";
     public List<StickerImage> Stickers { get; set; } = [];
     public List<SoftRegion> SoftRegions { get; set; } = [];
 
@@ -178,6 +206,28 @@ public sealed class StickerImage
     /// <summary>整体不透明度 0..1。</summary>
     public double Opacity { get; set; } = 1;
     public double Rotation { get; set; }
+
+    // —— Mac StickerClip 外观与动画（字段名和默认值对齐）——
+    public double CornerRadius { get; set; } = 18;
+    public double BorderWidth { get; set; }
+    public string BorderColor { get; set; } = "#FFFFFF";
+    public double ShadowOpacity { get; set; } = .28;
+    public double ShadowRadius { get; set; } = 24;
+    public double ShadowOffsetX { get; set; }
+    public double ShadowOffsetY { get; set; } = 10;
+    /// <summary>none/fade/pop/slideLeft/Right/Up/Down/TopLeft/TopRight/BottomLeft/BottomRight。</summary>
+    public string Animation { get; set; } = "pop";
+    /// <summary>smooth/swift/gentle。</summary>
+    public string AnimationCurve { get; set; } = "swift";
+    /// <summary>null/"" 跟随 Animation 的互补方向。</summary>
+    public string? ExitAnimation { get; set; }
+    public double EnterDuration { get; set; } = .7;
+    public double ExitDuration { get; set; } = .22;
+    /// <summary>贴纸背后的屏幕虚化强度（对齐 Mac 的 1080 短边基准）。</summary>
+    public double BackdropBlur { get; set; } = 20;
+    public bool BackdropBlurIncludesCamera { get; set; }
+    public bool HidesScreen { get; set; }
+    public bool HidesCamera { get; set; }
 }
 
 /// <summary>局部柔化：矩形区域按强度混入高斯模糊。</summary>
@@ -326,6 +376,10 @@ public static class ProjectFile
         project.Canvas.TiltY = Math.Clamp(project.Canvas.TiltY, -40, 40);
         project.Canvas.FocusBlur = Math.Clamp(project.Canvas.FocusBlur, 0, 1);
         project.Canvas.Intro = project.Canvas.Intro is "fade" or "rise" or "zoom" ? project.Canvas.Intro : "none";
+        project.Canvas.Opening = project.Canvas.Opening is "slide" or "sideslide" or "lift" ? project.Canvas.Opening : "none";
+        project.Canvas.OpeningTiming = project.Canvas.OpeningTiming is "clear" or "gentle" ? project.Canvas.OpeningTiming : "smooth";
+        project.Canvas.OpeningDuration = Math.Clamp(project.Canvas.OpeningDuration, 0.2, 10);
+        project.Canvas.OpeningInterval = Math.Clamp(project.Canvas.OpeningInterval, 0, 2);
         project.Canvas.Cursor ??= new CursorFx();
         project.Canvas.Cursor.Mode = project.Canvas.Cursor.Mode is "pointer" or "dot" or "hidden" ? project.Canvas.Cursor.Mode : "pointer";
         if (project.Canvas.Cursor.Asset is { Length: 0 }) project.Canvas.Cursor.Asset = null;
@@ -414,6 +468,45 @@ public static class ProjectFile
             zoom.CurveY1 = Math.Clamp(zoom.CurveY1, -2, 2);
             zoom.CurveY2 = Math.Clamp(zoom.CurveY2, -2, 2);
         }
+        project.ScreenMotions ??= [];
+        project.CameraMotions ??= [];
+        foreach (var clip in project.ScreenMotions)
+        {
+            clip.Timing ??= new();
+            NormalizeTiming(clip.Timing);
+            clip.Target ??= new();
+            clip.Target.Scale = Math.Clamp(clip.Target.Scale, 0.2, 4);
+            clip.Target.X = Math.Clamp(clip.Target.X, 0, 1);
+            clip.Target.Y = Math.Clamp(clip.Target.Y, 0, 1);
+            clip.Target.RotationX = Math.Clamp(clip.Target.RotationX, -89, 89);
+            clip.Target.RotationY = Math.Clamp(clip.Target.RotationY, -89, 89);
+            clip.Target.RotationZ = Math.Clamp(clip.Target.RotationZ, -180, 180);
+            clip.Target.Perspective = Math.Clamp(clip.Target.Perspective, 0, 1);
+        }
+        foreach (var clip in project.CameraMotions)
+        {
+            clip.Timing ??= new();
+            NormalizeTiming(clip.Timing);
+            clip.Target ??= new();
+            clip.Target.Layout = clip.Target.Layout is "square" or "horizontal" or "vertical"
+                or "original" or "circle" or "fullscreen" ? clip.Target.Layout : "square";
+            clip.Target.X = Math.Clamp(clip.Target.X, 0, 1);
+            clip.Target.Y = Math.Clamp(clip.Target.Y, 0, 1);
+            clip.Target.Size = Math.Clamp(clip.Target.Size, 0.08, 1);
+            clip.Target.Roundness = Math.Clamp(clip.Target.Roundness, 0, 1);
+            clip.Target.Opacity = Math.Clamp(clip.Target.Opacity, 0, 1);
+        }
+    }
+
+    private static void NormalizeTiming(TransitionTiming timing)
+    {
+        timing.Duration = Math.Max(0, timing.Duration);
+        timing.LeadInDuration = Math.Clamp(timing.LeadInDuration, 0, timing.Duration);
+        timing.ReturnDuration = Math.Clamp(timing.ReturnDuration, 0, 5);
+        timing.LeadInProgressOffset = Math.Clamp(timing.LeadInProgressOffset, 0, 1);
+        timing.ReturnProgressOffset = Math.Clamp(timing.ReturnProgressOffset, 0, 1);
+        timing.Easing = timing.Easing is "linear" or "quadratic" or "cubic" or "quintic"
+            or "spring" or "custom" ? timing.Easing : "cubic";
     }
 
     public static string NormalizeColor(string? value)

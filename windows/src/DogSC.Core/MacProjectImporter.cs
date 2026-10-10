@@ -79,6 +79,19 @@ public static class MacProjectImporter
         asset.Camera = cameraPath;
         asset.Microphone = micPath;
         asset.CameraOffset = media is { } cm && Obj(cm, "camera") is { } cr ? Num(cr, "sourceStartTime") - Num(cr, "startOffset") : 0;
+        // 摄像头分段同步点：media.camera.syncAnchors[{sourceTime, offset}]。
+        if (media is { } cmr && Obj(cmr, "camera") is { } cobj && Arr(cobj, "syncAnchors") is { } anchors)
+        {
+            foreach (var anchor in anchors.EnumerateArray())
+            {
+                asset.CameraSyncAnchors.Add(new SyncAnchor
+                {
+                    Id = Text(anchor, "id") ?? Guid.NewGuid().ToString("N"),
+                    SourceTime = Num(anchor, "sourceTime"),
+                    Offset = Num(anchor, "offset"),
+                });
+            }
+        }
         asset.MicrophoneOffset = media is { } mm && Obj(mm, "microphone") is { } mr ? Num(mr, "sourceStartTime") - Num(mr, "startOffset") : 0;
         asset.Duration = sourceDuration > 0 ? sourceDuration : 1;
         project.Assets = [asset];
@@ -97,6 +110,7 @@ public static class MacProjectImporter
             MapCamera(root, project, r.DroppedFields);
             MapAudio(root, project);
             MapZooms(timeline, project);
+            MapMotionClips(timeline, project);
             MapOverlays(timeline, project, r.MediaReferences, r.DroppedFields);
             MapCursor(root, project, r.DroppedFields);
             CollectUnmappedEffects(root, r.DroppedFields);
@@ -179,10 +193,10 @@ public static class MacProjectImporter
 
         project.Canvas.Corner = Num(c, "cornerRadius", 24);
         project.Canvas.Shadow = Num(c, "shadowStrength", 0.28) * 100;
-        // 背景：pattern/dynamicFlow/视频都映不动，只有纯色近似与图片可取。
+        // 背景：图片和视频走壁纸通道；pattern/dynamicFlow 透传给程序生成背景管线。
         var bg = Obj(c, "backgroundSource");
         var kind = bg is null ? null : Text(bg.Value, "kind");
-        if (kind is "projectImage" or "systemImage")
+        if (kind is "projectImage" or "systemImage" or "projectVideo" or "systemVideo")
         {
             var rel = Text(bg!.Value, "relativePath") ?? Text(bg.Value, "absolutePath");
             if (rel is not null)
@@ -190,15 +204,41 @@ public static class MacProjectImporter
                 project.Canvas.Wallpaper = rel;
             }
         }
+        else if (kind is "pattern" or "dynamicFlow")
+        {
+            var preset = Text(bg!.Value, kind == "pattern" ? "patternPreset" : "dynamicFlowPreset");
+            var id = preset is null ? null : PatternPresetId(preset, kind == "pattern");
+            if (id is not null)
+            {
+                project.Canvas.Wallpaper = (kind == "pattern" ? "pattern:" : "flow:") + id;
+            }
+            else if (preset is not null)
+            {
+                dropped.Add("canvas.backgroundSource." + (kind == "pattern" ? "patternPreset" : "dynamicFlowPreset") + "=" + preset);
+            }
+        }
         else if (kind is not null)
         {
-            dropped.Add("canvas.backgroundSource.kind=" + kind + "（Windows 只支持纯色或图片壁纸）");
+            dropped.Add("canvas.backgroundSource.kind=" + kind + "（Windows 只支持纯色 / 图片 / 视频 / 程序生成壁纸）");
         }
 
+        // Mac 顶层的 patternScale/patternOpacity 与程序生成背景配套。
+        project.Canvas.PatternScale = Num(c, "patternScale", 1);
+        project.Canvas.PatternOpacity = Num(c, "patternOpacity", 1);
+
+        // 屏幕外框：风格名直接透传（ChromeGeometry 识别 Mac 原名），标题 / 地址 / 缩放同取。
+        if (Text(c, "screenFrame") is { } frame)
+        {
+            project.Canvas.ScreenFrame = frame;
+        }
+        project.Canvas.ScreenFrameScale = Num(c, "screenFrameScale", 1);
+        project.Canvas.ScreenFrameToolbarScale = Num(c, "screenFrameToolbarScale", 1);
+        project.Canvas.ScreenFrameTitle = Text(c, "screenFrameTitle") ?? "";
+        project.Canvas.ScreenFrameAddress = Text(c, "screenFrameBrowserAddress") ?? "";
+
         // Windows 无对应概念的字段。
-        foreach (var key in new[] { "borderWidth", "borderHex", "screenFrame", "screenFrameScale",
-                     "screenFrameToolbarScale", "screenFrameTitle", "screenFrameBrowserAddress",
-                     "patternScale", "patternOpacity", "backgroundBlur", "insetOpacity" })
+        foreach (var key in new[] { "borderWidth", "borderHex",
+                     "backgroundBlur", "insetOpacity" })
         {
             if (c.TryGetProperty(key, out _))
             {
@@ -305,6 +345,93 @@ public static class MacProjectImporter
         }
     }
 
+    static TransitionTiming MapTiming(JsonElement clip)
+    {
+        var t = Obj(clip, "timing");
+        if (t is null) return new TransitionTiming();
+        var v = t.Value;
+        var easing = Text(v, "easing") switch
+        {
+            "线性" or "linear" => "linear",
+            "二次方缓动" or "quadratic" => "quadratic",
+            "三次方缓动" or "cubic" => "cubic",
+            "五次平滑" or "quintic" => "quintic",
+            "弹簧" or "spring" => "spring",
+            "自定义曲线" or "custom" => "custom",
+            _ => "quintic",
+        };
+        double[]? custom = null;
+        static double NumOf(JsonElement e) =>
+            e.ValueKind == JsonValueKind.Number && e.TryGetDouble(out var n) ? n : 0;
+        if (Obj(v, "customCurve") is { } curve && Arr(curve, "points") is { } pts)
+            custom = pts.EnumerateArray().Select(NumOf).Take(4).ToArray();
+        else if (Arr(v, "customCurve") is { } flat)
+            custom = flat.EnumerateArray().Select(NumOf).Take(4).ToArray();
+        return new TransitionTiming
+        {
+            StartTime = Num(v, "startTime"),
+            Duration = Num(v, "duration", .7),
+            LeadInDuration = Num(v, "leadInDuration"),
+            LeadInProgressOffset = Num(v, "leadInProgressOffset"),
+            Easing = easing,
+            CustomCurve = custom is { Length: 4 } ? custom : null,
+            ReturnDuration = Num(v, "returnDuration"),
+            ReturnProgressOffset = Num(v, "returnProgressOffset"),
+            PreferredLeadInDuration = v.TryGetProperty("preferredLeadInDuration", out var pl) && pl.ValueKind == JsonValueKind.Number ? pl.GetDouble() : null,
+            PreferredReturnDuration = v.TryGetProperty("preferredReturnDuration", out var pr) && pr.ValueKind == JsonValueKind.Number ? pr.GetDouble() : null,
+        };
+    }
+
+    /// <summary>屏幕/摄像头独立运动轨道：timeline.screenMotionClips / cameraMotionClips。</summary>
+    static void MapMotionClips(JsonElement? timeline, ProjectDocument project)
+    {
+        if (timeline is not { } track) return;
+        if (Arr(track, "screenMotionClips") is { } screens)
+            foreach (var clip in screens.EnumerateArray())
+            {
+                var target = Obj(clip, "target");
+                var pos = target is { } t2 ? Obj(t2, "position") : null;
+                project.ScreenMotions.Add(new ScreenMotionClip
+                {
+                    Id = Text(clip, "id") ?? Guid.NewGuid().ToString("N"),
+                    Timing = MapTiming(clip),
+                    Target = new ScreenMotionState
+                    {
+                        X = pos is { } px ? Num(px, "x", .5) : .5,
+                        Y = pos is { } py ? Num(py, "y", .5) : .5,
+                        Scale = target is { } ts ? Num(ts, "scale", 1) : 1,
+                        RotationX = target is { } tx ? Num(tx, "rotationX") : 0,
+                        RotationY = target is { } ty ? Num(ty, "rotationY") : 0,
+                        RotationZ = target is { } tz ? Num(tz, "rotationZ") : 0,
+                        Perspective = target is { } tp ? Num(tp, "perspective", .65) : .65,
+                    },
+                });
+            }
+        if (Arr(track, "cameraMotionClips") is { } cameras)
+            foreach (var clip in cameras.EnumerateArray())
+            {
+                var target = Obj(clip, "target");
+                var pos = target is { } t2 ? Obj(t2, "position") : null;
+                var layout = target is { } lt && Obj(lt, "layout") is { } lo
+                    ? (Text(lo, "kind") == "fullscreen" ? "fullscreen" : Text(lo, "shape") ?? "square")
+                    : "square";
+                project.CameraMotions.Add(new CameraMotionClip
+                {
+                    Id = Text(clip, "id") ?? Guid.NewGuid().ToString("N"),
+                    Timing = MapTiming(clip),
+                    Target = new CameraMotionState
+                    {
+                        Layout = layout,
+                        X = pos is { } px ? Num(px, "x", .86) : .86,
+                        Y = pos is { } py ? Num(py, "y", .82) : .82,
+                        Size = target is { } ts ? Num(ts, "size", .35) : .35,
+                        Roundness = target is { } tr ? Num(tr, "roundness", .5) : .5,
+                        Opacity = target is { } to ? Num(to, "opacity", 1) : 1,
+                    },
+                });
+            }
+    }
+
     static void MapCursor(JsonElement root, ProjectDocument project, List<string> dropped)
     {
         var cursor = Obj(root, "cursorStyle");
@@ -393,17 +520,20 @@ public static class MacProjectImporter
                     Id = Text(clip, "id") ?? Guid.NewGuid().ToString("N"), Path = path, Name = Path.GetFileName(path), Timing = Timing(clip, false),
                     X = position is { } x ? Num(x, "x", .5) : .5, Y = position is { } y ? Num(y, "y", .5) : .5,
                     Width = Num(clip, "width", .38), Opacity = Num(clip, "opacity", 1), Rotation = Num(clip, "rotationDegrees"),
+                    CornerRadius = Num(clip, "cornerRadius", 18), BorderWidth = Num(clip, "borderWidth"),
+                    BorderColor = Text(clip, "borderColor") ?? "#FFFFFF",
+                    ShadowOpacity = Num(clip, "shadowOpacity", .28), ShadowRadius = Num(clip, "shadowRadius", 24),
+                    ShadowOffsetX = Num(clip, "shadowOffsetX"), ShadowOffsetY = Num(clip, "shadowOffsetY", 10),
+                    Animation = Text(clip, "animation") ?? "pop",
+                    AnimationCurve = Text(clip, "animationCurve") ?? "swift",
+                    ExitAnimation = Text(clip, "exitAnimation"),
+                    EnterDuration = Num(clip, "enterDuration", .7), ExitDuration = Num(clip, "exitDuration", .22),
+                    BackdropBlur = Num(clip, "backdropBlur", 20),
+                    BackdropBlurIncludesCamera = clip.TryGetProperty("backdropBlurIncludesCamera", out var bic) && bic.ValueKind == JsonValueKind.True,
+                    HidesScreen = clip.TryGetProperty("hidesScreen", out var hs) && hs.ValueKind == JsonValueKind.True,
+                    HidesCamera = clip.TryGetProperty("hidesCamera", out var hc) && hc.ValueKind == JsonValueKind.True,
                 });
                 references.Add(path);
-                var unsupported = new List<string>();
-                if (Num(clip, "cornerRadius") > 0 || Num(clip, "borderWidth") > 0 || Num(clip, "shadowOpacity") > 0) unsupported.Add("圆角、边框或阴影");
-                if (Num(clip, "backdropBlur") > 0) unsupported.Add("背景虚化");
-                if (clip.TryGetProperty("hidesScreen", out var hideScreen) && hideScreen.ValueKind == JsonValueKind.True
-                    || clip.TryGetProperty("hidesCamera", out var hideCamera) && hideCamera.ValueKind == JsonValueKind.True) unsupported.Add("隐藏画面/摄像头");
-                if (Text(clip, "animation") is { } animation && animation is not "none" and not "fade"
-                    || Text(clip, "exitAnimation") is { } exit && exit is not "none" and not "fade") unsupported.Add("位移/弹出动画（改为平滑淡入淡出）");
-                if (Text(clip, "animation") == "fade" && Text(clip, "animationCurve") != "linear") unsupported.Add("动画曲线（采用 Windows 平滑过渡）");
-                if (unsupported.Count > 0) dropped.Add("贴图 " + Path.GetFileName(path) + "：" + string.Join("、", unsupported));
             }
     }
 
@@ -416,10 +546,7 @@ public static class MacProjectImporter
                 dropped.Add(key);
             }
         }
-        if (Obj(root, "timeline") is { } timeline)
-            foreach (var key in new[] { "screenMotionClips", "cameraMotionClips" })
-                if (timeline.TryGetProperty(key, out var clips) && clips.ValueKind == JsonValueKind.Array && clips.GetArrayLength() > 0)
-                    dropped.Add("timeline." + key);
+
     }
 
     public static List<CursorPoint> ImportPointerEvents(IEnumerable<string> lines, double advance)
@@ -443,6 +570,20 @@ public static class MacProjectImporter
         if (points.Count == 0 && seed is not null) points.Add(new CursorPoint { X = seed.X, Y = seed.Y });
         return points.OrderBy(point => point.Time).ToList();
     }
+
+    /// <summary>Mac 持久化的预设 rawValue 是中文名；映射回枚举 case id 供 PatternLibrary 使用。</summary>
+    static string? PatternPresetId(string rawValue, bool pattern) => (pattern, rawValue) switch
+    {
+        (true, "黑曜石网格") => "obsidianGrid",
+        (true, "工程白网格") => "engineeringWhiteGrid",
+        (true, "暗夜星阵") => "midnightDots",
+        (true, "建筑极简点") => "architecturalDots",
+        (true, "立体等角网") => "isometricMesh",
+        (false, "赛博微流网格") or (false, "旋转十字星阵") => "cyberDriftGrid",
+        (false, "星辉漫步点阵") => "starfieldDots",
+        (false, "极光流体星云") => "auroraFluid",
+        _ => null,
+    };
 
     static JsonElement? Obj(JsonElement e, params string[] path)
     {
