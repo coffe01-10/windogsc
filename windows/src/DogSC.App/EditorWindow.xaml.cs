@@ -434,6 +434,108 @@ public partial class EditorWindow : Window
         Inspector.Children.Add(entries);
         Inspector.Children.Add(DecorationButton("替换摄像头素材", SwapCamera));
         Inspector.Children.Add(DecorationButton("导出源文件", ExportSources));
+        Inspector.Children.Add(CameraSyncPanel());
+    }
+
+    /// <summary>
+    /// Mac 摄像头同步面板：全片偏移（±10ms / ±1帧 / 归零）+
+    /// 分段同步点（播放头固定 / ±10ms 微调 / 删除，两点间线性重映射）。
+    /// </summary>
+    Panel CameraSyncPanel()
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+        var asset = _project.Clips.Select(item => item.AssetId).Distinct()
+            .Select(id => _project.Asset(id)).FirstOrDefault(item => item?.Camera is not null);
+        if (asset is null)
+        {
+            return panel;
+        }
+
+        var frameDuration = 1.0 / Math.Max(_project.FrameRate, 1);
+        var tolerance = Math.Max(frameDuration / 2, 0.020);
+        var sourceTime = CameraSyncSourceTime();
+
+        void SyncRow(string title, string subtitle, Action<double> nudge)
+        {
+            panel.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 2) });
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            foreach (var (name, delta) in new[] { ("画面延后 10ms", -0.010), ("画面提前 10ms", 0.010), ("画面延后 1 帧", -frameDuration), ("画面提前 1 帧", frameDuration) })
+            {
+                var d = delta;
+                var button = new Button { Content = name, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
+                button.Click += (_, _) => { Push(); nudge(d); Commit(); };
+                row.Children.Add(button);
+            }
+            panel.Children.Add(row);
+            if (subtitle.Length > 0)
+            {
+                panel.Children.Add(new TextBlock { Text = subtitle, FontSize = 11, Opacity = 0.6, TextWrapping = TextWrapping.Wrap });
+            }
+        }
+
+        SyncRow("全片偏移  " + Math.Round(asset.CameraOffset * 1000) + " ms",
+            "声音先出来、嘴后动：点「画面提前」。",
+            delta => asset.CameraOffset = Math.Max(0, asset.CameraOffset + delta));
+        if (Math.Abs(asset.CameraOffset) > 0.0005)
+        {
+            var reset = DecorationButton("偏移归零", () => { Push(); asset.CameraOffset = Math.Max(0, asset.MicrophoneOffset); Commit(); });
+            panel.Children.Add(reset);
+        }
+
+        var anchorIndex = sourceTime is null ? -1 : SyncAnchorCurve.IndexNear(asset.CameraSyncAnchors, sourceTime.Value, tolerance);
+        var atPlayhead = anchorIndex >= 0 ? asset.CameraSyncAnchors[anchorIndex].Offset : 0;
+        var total = asset.CameraOffset + (sourceTime is null ? 0 : SyncAnchorCurve.Offset(asset.CameraSyncAnchors, sourceTime.Value));
+        panel.Children.Add(new TextBlock
+        {
+            Text = "分段同步点  " + asset.CameraSyncAnchors.Count + " 个 · 当前 " + Math.Round(total * 1000) + " ms",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 10, 0, 2),
+        });
+        if (sourceTime is null)
+        {
+            panel.Children.Add(new TextBlock { Text = "当前播放头无法映射到源素材", FontSize = 11, Opacity = 0.6 });
+        }
+        else if (anchorIndex >= 0)
+        {
+            SyncRow("", "", delta => asset.CameraSyncAnchors[anchorIndex].Offset =
+                Math.Clamp(atPlayhead + delta, -10, 10));
+            panel.Children.Add(DecorationButton("删除播放头同步点", () =>
+            {
+                Push();
+                asset.CameraSyncAnchors.RemoveAt(anchorIndex);
+                Commit();
+            }));
+        }
+        else
+        {
+            panel.Children.Add(DecorationButton("在播放头固定同步点", () =>
+            {
+                Push();
+                asset.CameraSyncAnchors.Add(new SyncAnchor
+                {
+                    SourceTime = sourceTime.Value,
+                    Offset = SyncAnchorCurve.Offset(asset.CameraSyncAnchors, sourceTime.Value),
+                });
+                Commit();
+            }));
+        }
+        panel.Children.Add(new TextBlock { Text = "先在错位前固定当前，再到错位后调整；两点之间自动平滑重映射。", FontSize = 11, Opacity = 0.6, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
+        return panel;
+    }
+
+    /// <summary>播放头输出时间 → 主素材源时间（片段内线性映射，对齐 Mac sourceTime(atOutputTime)）。</summary>
+    double? CameraSyncSourceTime()
+    {
+        var t = _player.Time;
+        foreach (var clip in TimelineMath.Place(_project))
+        {
+            if (t >= clip.Start && t < clip.Start + clip.Duration)
+            {
+                return clip.Clip.SourceStart + (t - clip.Start) * clip.Clip.Speed;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Mac「导出源文件」：原始屏幕/摄像头/麦克风素材原样拷到 <项目名>-源文件/。</summary>

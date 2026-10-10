@@ -79,6 +79,19 @@ public static class MacProjectImporter
         asset.Camera = cameraPath;
         asset.Microphone = micPath;
         asset.CameraOffset = media is { } cm && Obj(cm, "camera") is { } cr ? Num(cr, "sourceStartTime") - Num(cr, "startOffset") : 0;
+        // 摄像头分段同步点：media.camera.syncAnchors[{sourceTime, offset}]。
+        if (media is { } cmr && Obj(cmr, "camera") is { } cobj && Arr(cobj, "syncAnchors") is { } anchors)
+        {
+            foreach (var anchor in anchors.EnumerateArray())
+            {
+                asset.CameraSyncAnchors.Add(new SyncAnchor
+                {
+                    Id = Text(anchor, "id") ?? Guid.NewGuid().ToString("N"),
+                    SourceTime = Num(anchor, "sourceTime"),
+                    Offset = Num(anchor, "offset"),
+                });
+            }
+        }
         asset.MicrophoneOffset = media is { } mm && Obj(mm, "microphone") is { } mr ? Num(mr, "sourceStartTime") - Num(mr, "startOffset") : 0;
         asset.Duration = sourceDuration > 0 ? sourceDuration : 1;
         project.Assets = [asset];

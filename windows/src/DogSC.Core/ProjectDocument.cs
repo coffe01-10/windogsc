@@ -64,6 +64,8 @@ public sealed class MediaAsset
     public string? SystemAudio { get; set; }
     public string? Camera { get; set; }
     public double CameraOffset { get; set; }
+    /// <summary>摄像头分段同步点（Mac camera.syncAnchors）：按源时间的分段线性额外偏移。</summary>
+    public List<SyncAnchor> CameraSyncAnchors { get; set; } = [];
     public double MicrophoneOffset { get; set; }
     public double Duration { get; set; }
     public int Width { get; set; }

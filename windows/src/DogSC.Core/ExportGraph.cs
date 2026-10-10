@@ -958,13 +958,18 @@ public static class ExportGraph
     private static string CameraChain(Piece slice, int width, int height, int fps, CameraBubble camera)
     {
         var chain = new StringBuilder();
-        var offset = slice.CameraOffset + camera.TimingAdvance;
-        var start = Math.Max(0, slice.SourceStart + offset);
-        var end = Math.Max(0, slice.SourceEnd + offset);
-        var delay = Math.Max(0, -slice.SourceStart - offset) / slice.Speed;
+        // 分段同步点把源窗口两端各自偏移，校正窗口映射回原输出时长
+        // （等价 Mac sourceTimeScale = correctedDuration/duration）。
+        var startOffset = slice.CameraStartOffset + camera.TimingAdvance;
+        var endOffset = slice.CameraEndOffset + camera.TimingAdvance;
+        var start = Math.Max(0, slice.SourceStart + startOffset);
+        var end = Math.Max(0, slice.SourceEnd + endOffset);
+        var sourceSpan = Math.Max(slice.SourceEnd - slice.SourceStart, 0.000001);
+        var rate = slice.Speed * Math.Max(end - start, 0.000001) / sourceSpan;
+        var delay = Math.Max(0, -slice.SourceStart - startOffset) / rate;
         chain.Append("trim=start=").Append(F(start))
             .Append(":end=").Append(F(end))
-            .Append(",setpts=(PTS-STARTPTS)/").Append(F(slice.Speed))
+            .Append(",setpts=(PTS-STARTPTS)/").Append(F(rate))
             .Append(",scale=").Append(CanvasLayout.Even((int)Math.Ceiling(width * camera.ContentScale))).Append(':').Append(CanvasLayout.Even((int)Math.Ceiling(height * camera.ContentScale)))
             .Append(":force_original_aspect_ratio=increase,crop=")
             .Append(width).Append(':').Append(height)
@@ -1009,8 +1014,11 @@ public static class ExportGraph
             media.Microphones.TryGetValue(clip.Asset.Id, out var microphone);
             media.Systems.TryGetValue(clip.Asset.Id, out var system);
             media.Cameras.TryGetValue(clip.Asset.Id, out var camera);
+            var anchors = clip.Asset.CameraSyncAnchors;
+            var camStartOffset = clip.Asset.CameraOffset + SyncAnchorCurve.Offset(anchors, clip.Clip.SourceStart);
+            var camEndOffset = clip.Asset.CameraOffset + SyncAnchorCurve.Offset(anchors, clip.Clip.SourceEnd);
             slices.Add(new Piece(video, microphone, system, camera, clip.Clip.SourceStart, clip.Clip.SourceEnd,
-                clip.Clip.Speed, clip.Start, clip.Duration, clip.Asset.CameraOffset, clip.Asset.MicrophoneOffset));
+                clip.Clip.Speed, clip.Start, clip.Duration, camStartOffset, camEndOffset, clip.Asset.MicrophoneOffset));
         }
 
         if (slices.Count == 0)
@@ -1037,6 +1045,7 @@ public static class ExportGraph
         double Speed,
         double TimelineStart,
         double TimelineDuration,
-        double CameraOffset,
+        double CameraStartOffset,
+        double CameraEndOffset,
         double MicrophoneOffset);
 }
