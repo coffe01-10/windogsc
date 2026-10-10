@@ -67,12 +67,15 @@ public class PatternLibraryTests
         project.Canvas.PatternOpacity = 0.7;
         var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "pat" + System.Guid.NewGuid().ToString("N"));
         System.IO.Directory.CreateDirectory(dir);
-        var path = System.IO.Path.Combine(dir, "project.json");
-        ProjectFile.Save(path, project);
-        var loaded = ProjectFile.Load(path);
-        Assert.Equal("pattern:midnightDots", loaded.Canvas.Wallpaper);
-        Assert.Equal(2.0, loaded.Canvas.PatternScale);
-        Assert.Equal(0.7, loaded.Canvas.PatternOpacity);
+        try
+        {
+            ProjectFile.Save(dir, project);
+            var loaded = ProjectFile.Load(dir);
+            Assert.Equal("pattern:midnightDots", loaded.Canvas.Wallpaper);
+            Assert.Equal(2.0, loaded.Canvas.PatternScale);
+            Assert.Equal(0.7, loaded.Canvas.PatternOpacity);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
     }
 
     [Fact]

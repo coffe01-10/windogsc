@@ -126,15 +126,7 @@ public static class GapRestore
             }
         }
 
-        foreach (var motion in project.ScreenMotions)
-        {
-            ShiftTransition(motion.Timing, insertionTime, duration);
-        }
-
-        foreach (var motion in project.CameraMotions)
-        {
-            ShiftTransition(motion.Timing, insertionTime, duration);
-        }
+        MotionTimingEdits.InsertGap(project, insertionTime, duration);
 
         foreach (var sticker in project.Canvas.Stickers)
         {
@@ -152,18 +144,6 @@ public static class GapRestore
             }
         }
         // SourceMarker 与 Cursor 采样记的是源素材时间，不随时间轴移位。
-    }
-
-    private static void ShiftTransition(TransitionTiming timing, double insertionTime, double duration)
-    {
-        if (timing.StartTime >= insertionTime - Eps)
-        {
-            timing.StartTime += duration;
-        }
-        else if (timing.EndTime > insertionTime + Eps)
-        {
-            timing.Duration += duration;
-        }
     }
 
     private static void ShiftWindow(EffectWindow window, double insertionTime, double duration)

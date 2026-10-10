@@ -55,12 +55,15 @@ public class CameraSyncTests
     [Fact]
     public void Export_AnchorOffsetsShiftCameraTrimWindowAndRate()
     {
-        // 锚点让末端正偏移 0.4s → 校正窗口 0..4.4 → trim end=4.4、setpts 除数 1.1（源走更快）。
+        // 内部锚点必须拆段；前半段补偿偏移，后半段保持。
         var anchored = Plan(withAnchor: true);
         var plain = Plan(withAnchor: false);
         Assert.Contains("trim=start=0:end=4", plain.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("trim=start=0:end=4.4", anchored.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("(PTS-STARTPTS)/1.1", anchored.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("trim=start=0:end=2.4", anchored.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("trim=start=2.4:end=4.4", anchored.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("(PTS-STARTPTS)/1.2", anchored.FilterScript, StringComparison.Ordinal);
+        Assert.Equal(1.2, SyncAnchorCurve.SourceRate([new() { SourceTime = 2, Offset = .4 }], 1), 6);
+        Assert.Equal(1, SyncAnchorCurve.SourceRate([new() { SourceTime = 2, Offset = .4 }], 3), 6);
     }
 
     private static ExportPlan Plan(bool withAnchor)

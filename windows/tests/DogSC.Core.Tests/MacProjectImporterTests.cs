@@ -5,6 +5,21 @@ namespace DogSC.Core.Tests;
 
 public class MacProjectImporterTests
 {
+    [Theory]
+    [InlineData("二次方缓动", "quadratic")]
+    [InlineData("三次方缓动", "cubic")]
+    [InlineData("五次平滑", "smooth")]
+    [InlineData("自定义曲线", "custom")]
+    [InlineData("弹簧", "spring")]
+    public void ImportUsesActualMacSerializedEnumNames(string macEasing, string expected)
+    {
+        var json = Sample.Replace("\"easing\": \"cubic\"", "\"easing\": \"" + macEasing + "\"")
+            .Replace("\"size\": 2", "\"size\": 2, \"motionSmoothing\": \"快速\"");
+        var imported = MacProjectImporter.Import(json).Project;
+        Assert.Equal(expected, imported.Zooms[0].Easing);
+        Assert.Equal("rapid", imported.Canvas.Cursor.Motion);
+    }
+
     const string Sample = """
         {
           "version": 27,

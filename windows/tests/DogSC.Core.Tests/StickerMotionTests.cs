@@ -112,20 +112,24 @@ public class StickerMotionTests
         s.HidesScreen = true;
         var stickerPath = Path.Combine(Path.GetTempPath(), "dogsc-stk-" + Guid.NewGuid().ToString("N") + ".bmp");
         MaskImage.WriteBmp(stickerPath, 16, 8, 0, circle: false);
-        s.Path = stickerPath;
-        project.Canvas.Stickers.Add(s);
-        var media = new ResolvedMedia
+        try
         {
-            Videos = new Dictionary<string, string> { [asset.Id] = "v.mp4" },
-            Microphones = new Dictionary<string, string>(),
-            Systems = new Dictionary<string, string>(),
-            Cameras = new Dictionary<string, string>(),
-            Stickers = new Dictionary<string, ResolvedSticker> { [s.Id] = new(stickerPath, 1) },
-        };
-        var plan = ExportGraph.Build(project, new ExportOptions(), media);
-        // 压制改烘进动画 overlay 帧；无虚化/无摄像头时不需要蒙版流。
-        Assert.True(plan.StickerAnimIndex >= 0);
-        Assert.Equal(-1, plan.StickerMatteIndex);
-        Assert.Contains("overlay=0:0:format=auto", plan.FilterScript);
+            s.Path = stickerPath;
+            project.Canvas.Stickers.Add(s);
+            var media = new ResolvedMedia
+            {
+                Videos = new Dictionary<string, string> { [asset.Id] = "v.mp4" },
+                Microphones = new Dictionary<string, string>(),
+                Systems = new Dictionary<string, string>(),
+                Cameras = new Dictionary<string, string>(),
+                Stickers = new Dictionary<string, ResolvedSticker> { [s.Id] = new(stickerPath, 1) },
+            };
+            var plan = ExportGraph.Build(project, new ExportOptions(), media);
+            // 背景压制在摄像头合成前完成，不让动画贴图盖掉摄像头。
+            Assert.True(plan.StickerAnimIndex >= 0);
+            Assert.True(plan.StickerMatteIndex >= 0);
+            Assert.Contains("overlay=0:0:format=auto", plan.FilterScript);
+        }
+        finally { File.Delete(stickerPath); }
     }
 }

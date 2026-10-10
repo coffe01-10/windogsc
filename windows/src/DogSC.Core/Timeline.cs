@@ -349,6 +349,7 @@ public static class TimelineEdits
         FocusY = source.FocusY,
         Origin = source.Origin, Easing = source.Easing, EnterDuration = source.EnterDuration, ExitDuration = source.ExitDuration,
         SpringMass = source.SpringMass, SpringStiffness = source.SpringStiffness, SpringDamping = source.SpringDamping,
+        CurveX1 = source.CurveX1, CurveY1 = source.CurveY1, CurveX2 = source.CurveX2, CurveY2 = source.CurveY2,
     };
 
     /// <summary>完整复制缩放段；只吸附同轨边缘，不覆盖已有段或截短副本。</summary>
@@ -395,6 +396,8 @@ public static class TimelineEdits
         target.EnterDuration = source.EnterDuration;
         target.ExitDuration = source.ExitDuration;
         target.SpringMass = source.SpringMass; target.SpringStiffness = source.SpringStiffness; target.SpringDamping = source.SpringDamping;
+        target.CurveX1 = source.CurveX1; target.CurveY1 = source.CurveY1;
+        target.CurveX2 = source.CurveX2; target.CurveY2 = source.CurveY2;
         return true;
     }
 
@@ -479,6 +482,7 @@ public static class TimelineEdits
         }
 
         EffectTiming.Edit(project, spans => TimelineMath.RemoveRange(spans, placed.Start, placed.End));
+        MotionTimingEdits.RemoveRange(project, placed.Start, placed.End);
 
         TimelineMath.RemoveRange(project.Zooms, placed.Start, placed.End);
         project.Clips.RemoveAll(item => item.Id == clipId);
@@ -506,11 +510,13 @@ public static class TimelineEdits
         if (head > 0.0001)
         {
             EffectTiming.Edit(project, spans => TimelineMath.RemoveRange(spans, slot.Start, slot.Start + head / clip.Speed));
+            MotionTimingEdits.RemoveRange(project, slot.Start, slot.Start + head / clip.Speed);
             TimelineMath.RemoveRange(project.Zooms, slot.Start, slot.Start + head / clip.Speed);
         }
         else if (head < -0.0001)
         {
             EffectTiming.Edit(project, spans => TimelineMath.InsertGap(spans, slot.Start, -head / clip.Speed));
+            MotionTimingEdits.InsertGap(project, slot.Start, -head / clip.Speed);
             TimelineMath.InsertGap(project.Zooms, slot.Start, -head / clip.Speed);
         }
 
@@ -521,11 +527,13 @@ public static class TimelineEdits
         {
             var removed = tail / clip.Speed;
             EffectTiming.Edit(project, spans => TimelineMath.RemoveRange(spans, refreshed.End - removed, refreshed.End));
+            MotionTimingEdits.RemoveRange(project, refreshed.End - removed, refreshed.End);
             TimelineMath.RemoveRange(project.Zooms, refreshed.End - removed, refreshed.End);
         }
         else if (tail < -0.0001)
         {
             EffectTiming.Edit(project, spans => TimelineMath.InsertGap(spans, refreshed.End, -tail / clip.Speed));
+            MotionTimingEdits.InsertGap(project, refreshed.End, -tail / clip.Speed);
             TimelineMath.InsertGap(project.Zooms, refreshed.End, -tail / clip.Speed);
         }
 
@@ -551,6 +559,7 @@ public static class TimelineEdits
         var oldDuration = slot.Duration;
         var newDuration = (clip.SourceEnd - clip.SourceStart) / speed;
         EffectTiming.Edit(project, spans => TimelineMath.Retime(spans, slot.Start, oldDuration, newDuration));
+        MotionTimingEdits.Retime(project, slot.Start, oldDuration, newDuration);
         TimelineMath.Retime(project.Zooms, slot.Start, oldDuration, newDuration);
         clip.Speed = speed;
         return true;

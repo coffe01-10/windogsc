@@ -10,19 +10,25 @@ static class CursorExport
     {
         if (plan.CursorIndex < 0) return;
         var fx = project.Canvas.Cursor;
+        var clickStyle = CursorCatalog.ResolveClick(fx);
         var maximumZoom = project.Zooms.Select(z => z.Scale).DefaultIfEmpty(1).Max();
-        var cursorSize = CanvasLayout.Even((int)Math.Ceiling(18 * fx.Size * maximumZoom + 2));
-        var dot = fx.Mode == "dot";
-        var cursorHeight = dot ? cursorSize : cursorSize * 3 / 2;
+        // Mac 规格：基准高度 = 短边 ×44/1080 ×Size（再乘缩放峰值，保证放大时清晰）。
+        var source = CanvasLayout.Crop(project.Width, project.Height, project.Canvas.Crop);
+        var shortEdge = Math.Min(source.Width, source.Height);
+        var refHeight = Math.Max(8, 44 * fx.Size * maximumZoom * shortEdge / 1080);
+        var cursorSize = CanvasLayout.Even((int)Math.Ceiling(refHeight * 1.9 + 8));
         var cursorPath = Path.Combine(directory, "cursor.mov");
-        using var cursor = Sprite(cursorPath, cursorSize, cursorHeight);
+        using var cursor = Sprite(cursorPath, cursorSize, cursorSize);
         plan.Inputs[plan.CursorIndex] = cursorPath;
 
-        var ringSize = CanvasLayout.Even((int)Math.Ceiling(44 * fx.ClickScale * maximumZoom + 4));
+        var clickH = refHeight * 1.45 * fx.ClickScale;
+        var ringSize = plan.RippleIndex < 0 ? 0
+            : CanvasLayout.Even((int)Math.Ceiling(CursorCatalog.ClickFootprint(clickStyle, clickH) + 8));
         var ringPath = Path.Combine(directory, "ripple.mov");
         using var ring = plan.RippleIndex < 0 ? null : Sprite(ringPath, ringSize, ringSize);
         var timeline = new CursorTimeline(project);
-        var source = CanvasLayout.Crop(project.Width, project.Height, project.Canvas.Crop);
+        var color = CursorCatalog.ParseColor(fx.ClickColor);
+        var spriteCache = new Dictionary<(string Asset, int Height, int HalfDegrees), CursorSprite>();
         await using var commands = new StreamWriter(Path.Combine(directory, "cursor.commands"), false, new UTF8Encoding(false));
         try
         {
@@ -35,24 +41,43 @@ static class CursorExport
                 var pointer = sample.Pointer is { } point ? timeline.InFrame(point, time) : ((double X, double Y)?)null;
                 var click = sample.Click is { } location ? timeline.InFrame(location, time) : ((double X, double Y)?)null;
                 var stamp = F(Math.Max(0, time - 0.000001));
-                var px = pointer is { } p ? F(p.X * source.Width - (dot ? cursorSize / 2d : 0)) : "-10000";
-                var py = pointer is { } q ? F(q.Y * source.Height - (dot ? cursorSize / 2d : 0)) : "-10000";
+                var h = Math.Max(8, (int)Math.Round(44 * fx.Size * zoom * shortEdge / 1080));
+                CursorSprite? sprite = null;
+                if (pointer is not null && sample.Asset is { } assetId)
+                {
+                    var baseSprite = CursorArt.Render(assetId, h) ?? CursorArt.Render("system.arrow", h);
+                    if (baseSprite is not null)
+                    {
+                        var rotKey = (int)Math.Round(sample.Rotation * 180 / Math.PI * 2);
+                        var cacheKey = (assetId, h, rotKey);
+                        if (!spriteCache.TryGetValue(cacheKey, out sprite))
+                        {
+                            sprite = CursorArt.Rotate(baseSprite, rotKey * Math.PI / 360);
+                            spriteCache[cacheKey] = sprite;
+                        }
+                    }
+                }
+                var px = pointer is { } p ? F(p.X * source.Width - cursorSize / 2d) : "-10000";
+                var py = pointer is { } q ? F(q.Y * source.Height - cursorSize / 2d) : "-10000";
                 await commands.WriteLineAsync($"{stamp} [enter] overlay@pointer x {px}, [enter] overlay@pointer y {py};");
-                var size = Math.Max(8, (int)Math.Round(18 * fx.Size * zoom));
-                var height = dot ? size : size * 3 / 2;
-                var pixels = MaskImage.CreateCursor(size, dot);
-                var canvas = new byte[cursorSize * cursorHeight * 4];
-                var left = dot ? (cursorSize - size) / 2 : 0;
-                var top = dot ? (cursorHeight - height) / 2 : 0;
-                for (var row = 0; row < height; row++)
-                    Buffer.BlockCopy(pixels, row * size * 4, canvas, ((row + top) * cursorSize + left) * 4, size * 4);
+                var canvas = new byte[cursorSize * cursorSize * 4];
+                if (sprite is not null)
+                {
+                    var left = (int)Math.Round(cursorSize / 2d - sprite.HotspotX);
+                    var top = (int)Math.Round(cursorSize / 2d - sprite.HotspotY);
+                    Blit(canvas, cursorSize, cursorSize, sprite, left, top);
+                }
                 await cursor.WriteInputAsync(canvas, cancellation);
                 if (ring is not null)
                 {
                     var rx = click is { } r ? F(r.X * source.Width - ringSize / 2d) : "-10000";
                     var ry = click is { } s ? F(s.Y * source.Height - ringSize / 2d) : "-10000";
                     await commands.WriteLineAsync($"{stamp} [enter] overlay@ripple x {rx}, [enter] overlay@ripple y {ry};");
-                    await ring.WriteInputAsync(MaskImage.CreateClickFrame(ringSize, sample.Click is null ? null : sample.Progress, fx, zoom), cancellation);
+                    var framePixels = click is null || sample.Progress >= 1
+                        ? new byte[ringSize * ringSize * 4]
+                        : CursorCatalog.RenderClick(ringSize, sample.ClickStyle, sample.Progress, color,
+                            fx.ClickOpacity, h * 1.45 * fx.ClickScale);
+                    await ring.WriteInputAsync(framePixels, cancellation);
                 }
             }
             cursor.CompleteInput();
@@ -76,6 +101,30 @@ static class CursorExport
         FfmpegProcess Sprite(string path, int width, int height) => FfmpegProcess.Start(ffmpeg, [
             "-y", "-f", "rawvideo", "-pixel_format", "bgra", "-video_size", width + "x" + height,
             "-framerate", plan.Fps.ToString(), "-i", "pipe:0", "-c:v", "qtrle", "-pix_fmt", "argb", path]);
+
+        static void Blit(byte[] dst, int dw, int dh, CursorSprite sprite, int left, int top)
+        {
+            for (var y = 0; y < sprite.Height; y++)
+            {
+                var dy = top + y;
+                if (dy < 0 || dy >= dh) continue;
+                for (var x = 0; x < sprite.Width; x++)
+                {
+                    var dx = left + x;
+                    if (dx < 0 || dx >= dw) continue;
+                    var si = (y * sprite.Width + x) * 4;
+                    var di = (dy * dw + dx) * 4;
+                    var a = sprite.Bgra[si + 3] / 255d;
+                    if (a <= 0) continue;
+                    var dstA = dst[di + 3] / 255d;
+                    var blend = a + dstA * (1 - a);
+                    if (blend <= 0) continue;
+                    for (var ch = 0; ch < 3; ch++)
+                        dst[di + ch] = (byte)Math.Round((sprite.Bgra[si + ch] * a + dst[di + ch] * dstA * (1 - a)) / blend);
+                    dst[di + 3] = (byte)Math.Round(blend * 255);
+                }
+            }
+        }
     }
 
     static string F(double value) => value.ToString("0.######", CultureInfo.InvariantCulture);

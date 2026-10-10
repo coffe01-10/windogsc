@@ -19,6 +19,37 @@ public sealed class SyncAnchor
 /// </summary>
 public static class SyncAnchorCurve
 {
+    // A sync adjustment cannot play source media backwards. Use the same
+    // positive mapping for preview and export, including imported anchors.
+    static SyncAnchor[] EffectivePoints(IReadOnlyList<SyncAnchor> anchors)
+    {
+        var points = anchors.OrderBy(a => a.SourceTime).GroupBy(a => a.SourceTime)
+            .Select(g => new SyncAnchor { SourceTime = g.Key, Offset = g.Last().Offset }).ToArray();
+        double beforeTime = 0, beforeOffset = 0;
+        foreach (var point in points)
+        {
+            if (point.SourceTime > beforeTime)
+                point.Offset = Math.Max(point.Offset, beforeOffset - .99 * (point.SourceTime - beforeTime));
+            beforeTime = point.SourceTime;
+            beforeOffset = point.Offset;
+        }
+        return points;
+    }
+
+    public static double SourceRate(IReadOnlyList<SyncAnchor> anchors, double sourceTime)
+    {
+        var points = EffectivePoints(anchors);
+        double beforeTime = 0, beforeOffset = 0;
+        foreach (var point in points)
+        {
+            if (point.SourceTime > sourceTime)
+                return 1 + (point.Offset - beforeOffset) / (point.SourceTime - beforeTime);
+            beforeTime = point.SourceTime;
+            beforeOffset = point.Offset;
+        }
+        return 1;
+    }
+
     public static double Offset(IReadOnlyList<SyncAnchor> anchors, double sourceTime)
     {
         if (anchors.Count == 0 || !double.IsFinite(sourceTime))
@@ -27,7 +58,7 @@ public static class SyncAnchorCurve
         }
 
         var t = Math.Max(sourceTime, 0);
-        var sorted = anchors.OrderBy(anchor => anchor.SourceTime).ToList();
+        var sorted = EffectivePoints(anchors);
         var first = sorted[0];
 
         // 首锚前：从隐含原点 (0,0) 线性爬到第一锚。
@@ -43,7 +74,7 @@ public static class SyncAnchorCurve
 
         // 二分找右端点。
         var lower = 1;
-        var upper = sorted.Count;
+        var upper = sorted.Length;
         while (lower < upper)
         {
             var middle = lower + (upper - lower) / 2;
@@ -56,7 +87,7 @@ public static class SyncAnchorCurve
                 upper = middle;
             }
         }
-        if (lower >= sorted.Count)
+        if (lower >= sorted.Length)
         {
             return sorted[^1].Offset;
         }

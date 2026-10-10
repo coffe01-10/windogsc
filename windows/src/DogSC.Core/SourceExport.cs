@@ -1,9 +1,7 @@
-using System.Text;
-
 namespace DogSC.Core;
 
 /// <summary>
-/// Mac「导出源文件」：把项目的原始屏幕 / 摄像头 / 麦克风素材
+/// Mac「导出源文件」：把项目的原始屏幕 / 摄像头 / 麦克风 / 系统声音素材
 /// 原样拷到 <项目名>-源文件/ 下（不做任何剪辑 / 转码），供外部工具加工。
 /// Mac 只处理单条录屏会话；windogsc 支持多素材，第二个起文件名加序号。
 /// </summary>
@@ -31,6 +29,7 @@ public static class SourceExport
                 Copy(asset.Video, "屏幕" + suffix);
                 Copy(asset.Camera, "摄像头" + suffix);
                 Copy(asset.Microphone, "麦克风" + suffix);
+                Copy(asset.SystemAudio, "系统声音" + suffix);
             }
 
             if (copied.Count == 0)
@@ -82,13 +81,7 @@ public static class SourceExport
 
     private static string Sanitize(string name)
     {
-        var builder = new StringBuilder(name.Length);
-        foreach (var ch in name)
-        {
-            builder.Append(ch is '/' or '\\' or ':' ? '-' : ch);
-        }
-
-        var result = builder.ToString().Trim();
-        return result.Length == 0 ? "未命名录制" : result;
+        foreach (var character in Path.GetInvalidFileNameChars()) name = name.Replace(character, '-');
+        return ProjectFile.SanitizeName(name);
     }
 }

@@ -325,14 +325,15 @@ public partial class EditorWindow
         var duration = TimelineMath.Duration(_project);
         section.Children.Add(Caption("时间"));
         Control("起点", 0, Math.Max(0.1, duration - .05), timing.StartTime, x => timing.StartTime = x);
-        Control("保持时长", .05, Math.Max(.5, duration), timing.Duration, x => timing.Duration = x);
-        Control("进入时长", 0, 2, timing.LeadInDuration, x => timing.LeadInDuration = x);
-        Control("回落时长", 0, 2, timing.ReturnDuration, x => timing.ReturnDuration = x);
+        Control("片段时长（含进入）", .05, Math.Max(.5, duration), timing.Duration, x => timing.Duration = x);
+        Control("进入时长", 0, 2, timing.LeadInDuration, x => { timing.LeadInDuration = x; timing.PreferredLeadInDuration = null; });
+        Control("回落时长", 0, 2, timing.ReturnDuration, x => { timing.ReturnDuration = x; timing.PreferredReturnDuration = null; });
 
         var easings = new WrapPanel();
         foreach (var (name, key) in new[] { ("线性", "linear"), ("二次", "quadratic"), ("三次", "cubic"), ("五次", "quintic"), ("弹簧", "spring") })
         {
             var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
+            chip.Background = (Brush)FindResource(timing.Easing == key ? "AccentBrush" : "WellBrush");
             chip.Foreground = (Brush)FindResource(timing.Easing == key ? "OnAccentBrush" : "InkBrush");
             chip.Click += (_, _) => { Push(); timing.Easing = key; Commit(); };
             easings.Children.Add(chip);
@@ -357,6 +358,7 @@ public partial class EditorWindow
             foreach (var (name, key) in new[] { ("方形", "square"), ("圆形", "circle"), ("横向", "horizontal"), ("竖向", "vertical"), ("原比例", "original"), ("全屏", "fullscreen") })
             {
                 var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
+                chip.Background = (Brush)FindResource(camera!.Target.Layout == key ? "AccentBrush" : "WellBrush");
                 chip.Foreground = (Brush)FindResource(camera!.Target.Layout == key ? "OnAccentBrush" : "InkBrush");
                 chip.Click += (_, _) => { Push(); camera.Target.Layout = key; Commit(); };
                 layouts.Children.Add(chip);

@@ -672,20 +672,23 @@ public class TimelineAndExportTests
     {
         var sticker = Path.Combine(Path.GetTempPath(), "dogsc-st-" + Guid.NewGuid().ToString("N") + ".bmp");
         MaskImage.WriteBmp(sticker, 16, 8, 0, circle: false);
-        var project = Sample(4);
-        project.Canvas.Sticker = new StickerImage { Path = sticker, X = 0.8, Y = 0.2, Width = 0.3, Opacity = 0.5 };
-        var resolved = new ResolvedMedia
+        try
         {
-            Videos = Media(project).Videos, Microphones = new Dictionary<string, string>(),
-            Systems = new Dictionary<string, string>(), Cameras = new Dictionary<string, string>(),
-            Sticker = sticker, StickerAspect = 2,
-        };
-        var plan = ExportGraph.Build(project, new ExportOptions(), resolved);
-        Assert.True(plan.StickerIndex >= 0);
-        Assert.Contains("stickerimg", plan.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("alpha(X,Y)*(1)*0.5", plan.FilterScript, StringComparison.Ordinal);
-        Assert.True(plan.StickerRect.W > 0);
-        File.Delete(sticker);
+            var project = Sample(4);
+            project.Canvas.Sticker = new StickerImage { Animation = "none", Path = sticker, X = 0.8, Y = 0.2, Width = 0.3, Opacity = 0.5 };
+            var resolved = new ResolvedMedia
+            {
+                Videos = Media(project).Videos, Microphones = new Dictionary<string, string>(),
+                Systems = new Dictionary<string, string>(), Cameras = new Dictionary<string, string>(),
+                Sticker = sticker, StickerAspect = 2,
+            };
+            var plan = ExportGraph.Build(project, new ExportOptions(), resolved);
+            Assert.True(plan.StickerIndex >= 0);
+            Assert.Contains("stickerimg", plan.FilterScript, StringComparison.Ordinal);
+            Assert.Contains("alpha(X,Y)*(1)*0.5", plan.FilterScript, StringComparison.Ordinal);
+            Assert.True(plan.StickerRect.W > 0);
+        }
+        finally { File.Delete(sticker); }
     }
 
     [Fact]
