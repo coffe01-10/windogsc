@@ -81,7 +81,7 @@
                 </Grid>
             </Grid>
             <GridSplitter Grid.Column="2" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="{DynamicResource LineBrush}" ToolTip="拖动调整属性面板宽度" AutomationProperties.Name="属性面板宽度"/>
-            <Border Grid.Column="3" Margin="8,12,16,12" Background="{DynamicResource CardBrush}" CornerRadius="16" Padding="16">
+            <Border Grid.Column="3" Margin="8,12,16,12" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="16" Padding="16">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel x:Name="Inspector"/>
                 </ScrollViewer>
@@ -127,7 +127,7 @@
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <CheckBox x:Name="SnapToggle" Content="吸附" IsChecked="True" VerticalAlignment="Center" Margin="0,0,10,0" Checked="SnapToggle_Changed" Unchecked="SnapToggle_Changed" ToolTip="拖动时按刻度与片段边缘吸附"/>
-                        <ComboBox x:Name="PreviewQualityBox" Width="86" VerticalAlignment="Center" Margin="0,0,10,0" SelectionChanged="PreviewQuality_Changed" ToolTip="预览画质">
+                        <ComboBox x:Name="PreviewQualityBox" Width="114" VerticalAlignment="Center" Margin="0,0,10,0" SelectionChanged="PreviewQuality_Changed" ToolTip="预览画质">
                             <ComboBoxItem Content="清晰预览" Tag="low"/>
                             <ComboBoxItem Content="完整分辨率" Tag="full"/>
                         </ComboBox>

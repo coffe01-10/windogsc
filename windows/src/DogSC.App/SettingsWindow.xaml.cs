@@ -13,8 +13,9 @@ public partial class SettingsWindow : Window
 
     void Chip(Button b, bool on)
     {
-        b.Background = on ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("WellBrush");
-        b.Foreground = on ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
+        b.SetResourceReference(BackgroundProperty, on ? "SelectionBrush" : "ControlBrush");
+        b.SetResourceReference(ForegroundProperty, "InkBrush");
+        b.SetResourceReference(BorderBrushProperty, on ? "InkSecondaryBrush" : "ControlBorderBrush");
     }
 
     void Paint()

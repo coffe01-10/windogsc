@@ -5,9 +5,6 @@
         Background="{DynamicResource BgBrush}" ResizeMode="NoResize"
         FontFamily="{DynamicResource FontRegular}">
     <Window.Resources>
-        <Style TargetType="CheckBox">
-            <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
-        </Style>
         <Style TargetType="TabItem">
             <Setter Property="Foreground" Value="{DynamicResource InkSecondaryBrush}"/>
             <Setter Property="Background" Value="Transparent"/>
@@ -27,8 +24,8 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
-                                <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+                                <Setter Property="Background" Value="{DynamicResource SelectionBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter Property="Opacity" Value="0.8"/>

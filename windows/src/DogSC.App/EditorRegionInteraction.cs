@@ -108,18 +108,18 @@ public partial class EditorWindow
 
     void PaintRegionEditor(DrawingContext dc)
     {
-        var accent = new SolidColorBrush(Color.FromRgb(52, 113, 246));
+        var accent = (Brush)FindResource("SelectionOutlineBrush");
         foreach (var r in _project.Canvas.SoftRegions.Where(r => r.Id == _selectedDecoration
             || EffectTiming.OpacityAt(r.Timing, _player.Time) > 0).Concat(_regionDraft is null ? [] : new[] { _regionDraft }))
         {
             var selected = (_regionDrawingStyle is null && r.Id == _selectedDecoration) || r == _regionDraft;
             if (r.CoordinateSpace == "source") dc.PushClip(RegionVisibleFrame());
-            var border = new Pen(selected ? accent : Brushes.White, selected ? 2 : 1) { DashStyle = selected ? DashStyles.Solid : DashStyles.Dash };
-            dc.DrawGeometry(null, new Pen(Brushes.Black, selected ? 4 : 3), Polygon(RegionCorners(r)));
+            var border = new Pen(selected ? accent : Brushes.White, selected ? 1.25 : 1) { DashStyle = selected ? DashStyles.Solid : DashStyles.Dash };
+            dc.DrawGeometry(null, new Pen(new SolidColorBrush(Color.FromArgb(100, 255, 255, 255)), selected ? 3.25 : 3), Polygon(RegionCorners(r)));
             dc.DrawGeometry(null, border, Polygon(RegionCorners(r)));
             if (r.CoordinateSpace == "source") dc.Pop();
             if (selected)
-                foreach (var (p, _) in RegionHandles(r)) dc.DrawRoundedRectangle(Brushes.White, new Pen(accent, 1.5), new(p.X - 4, p.Y - 4, 8, 8), 2, 2);
+                foreach (var (p, _) in RegionHandles(r)) dc.DrawRoundedRectangle(Brushes.White, new Pen(accent, 1), new(p.X - 3.5, p.Y - 3.5, 7, 7), 2, 2);
         }
         if (_regionDrawingStyle is not null)
         {

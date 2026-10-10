@@ -246,8 +246,9 @@ public partial class EditorWindow : Window
         foreach (var button in AspectRow.Children.OfType<Button>())
         {
             var selected = (string)button.Tag == _project.Canvas.Aspect;
-            button.Background = (Brush)FindResource(selected ? "AccentBrush" : "WellBrush");
-            button.Foreground = (Brush)FindResource(selected ? "OnAccentBrush" : "InkBrush");
+            button.SetResourceReference(BackgroundProperty, selected ? "SelectionBrush" : "ControlBrush");
+            button.SetResourceReference(ForegroundProperty, "InkBrush");
+            button.SetResourceReference(BorderBrushProperty, selected ? "InkSecondaryBrush" : "ControlBorderBrush");
         }
 
         PaintTools();
@@ -258,8 +259,8 @@ public partial class EditorWindow : Window
         foreach (var button in new[] { ToolLayout, ToolZoom, ToolEffects, ToolAudio })
         {
             var selected = (string)button.Tag == _tool;
-            button.Background = (Brush)FindResource(selected ? "AccentBrush" : "WellBrush");
-            button.Foreground = (Brush)FindResource(selected ? "OnAccentBrush" : "InkBrush");
+            button.SetResourceReference(BackgroundProperty, selected ? "RailSelectionBrush" : "CardBrush");
+            button.SetResourceReference(ForegroundProperty, selected ? "RailSelectionInkBrush" : "InkSecondaryBrush");
         }
     }
 
@@ -419,6 +420,7 @@ public partial class EditorWindow : Window
         {
             Content = "静止不动时隐藏光标",
             IsChecked = cursor.IdleHide,
+            Style = (Style)FindResource("SwitchCheckBox"),
             Foreground = (Brush)FindResource("InkBrush"),
             Margin = new Thickness(0, 6, 0, 0),
         };
@@ -920,9 +922,10 @@ public partial class EditorWindow : Window
                 Tag = id,
                 Style = (Style)FindResource("ChipButton"),
                 Margin = new Thickness(0, 0, 4, 4),
-                Background = (Brush)FindResource(id == selected ? "AccentBrush" : "WellBrush"),
-                Foreground = (Brush)FindResource(id == selected ? "OnAccentBrush" : "InkBrush"),
             };
+            chip.SetResourceReference(BackgroundProperty, id == selected ? "SelectionBrush" : "ControlBrush");
+            chip.SetResourceReference(ForegroundProperty, "InkBrush");
+            chip.SetResourceReference(BorderBrushProperty, id == selected ? "InkSecondaryBrush" : "ControlBorderBrush");
             chip.Click += (_, _) =>
             {
                 Push();

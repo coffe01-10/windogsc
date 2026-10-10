@@ -225,7 +225,7 @@ public partial class EditorWindow
 
     void AddToggle(Panel panel, string title, bool value, Action<bool> set)
     {
-        var box = new CheckBox { Content = title, IsChecked = value, Margin = new Thickness(0, 4, 0, 4) };
+        var box = new CheckBox { Content = title, IsChecked = value, Style = (Style)FindResource("SwitchCheckBox"), Margin = new Thickness(0, 4, 0, 4) };
         box.Click += (_, _) => { Push(); set(box.IsChecked == true); Commit(rebuild: false); };
         panel.Children.Add(box);
     }

@@ -154,19 +154,14 @@ public partial class ExportWindow : Window
 
     void Paint()
     {
-        VideoChoice.Background = _audioOnly ? (Brush)FindResource("WellBrush") : (Brush)FindResource("AccentBrush");
-        VideoChoice.Foreground = _audioOnly ? (Brush)FindResource("InkBrush") : (Brush)FindResource("OnAccentBrush");
-        AudioChoice.Background = _audioOnly ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("WellBrush");
-        AudioChoice.Foreground = _audioOnly ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
-        Fps30.Background = _fps == 30 ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("WellBrush");
-        Fps30.Foreground = _fps == 30 ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
-        Fps60.Background = _fps == 60 ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("WellBrush");
-        Fps60.Foreground = _fps == 60 ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
+        PaintChoice(VideoChoice, !_audioOnly);
+        PaintChoice(AudioChoice, _audioOnly);
+        PaintChoice(Fps30, _fps == 30);
+        PaintChoice(Fps60, _fps == 60);
         foreach (var child in ResolutionRow.Children.OfType<Button>())
         {
             var selected = (string)child.Tag == _resolution;
-            child.Background = selected ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("WellBrush");
-            child.Foreground = selected ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
+            PaintChoice(child, selected);
         }
 
         var (width, height) = CanvasLayout.OutputSize(_project.Width, _project.Height, _project.Canvas.Aspect, _audioOnly ? "source" : _resolution);
@@ -178,5 +173,12 @@ public partial class ExportWindow : Window
             : "MP4 · " + width + " × " + height + " · " + _fps + " fps · " + duration.ToString("0.00") + " 秒";
         ExportButton.Content = _audioOnly ? "开始导出音频" : "开始导出视频";
         FolderButton.Content = SettingsStore.Current.ExportDirectory;
+    }
+
+    void PaintChoice(Button button, bool selected)
+    {
+        button.SetResourceReference(BackgroundProperty, selected ? "SelectionBrush" : "ControlBrush");
+        button.SetResourceReference(ForegroundProperty, "InkBrush");
+        button.SetResourceReference(BorderBrushProperty, selected ? "InkSecondaryBrush" : "ControlBorderBrush");
     }
 }

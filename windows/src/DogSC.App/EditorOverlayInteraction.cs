@@ -108,16 +108,16 @@ public partial class EditorWindow
     void PaintOverlayEditor(DrawingContext dc)
     {
         if (SelectedOverlay is not { } id || !VisibleOverlays().Contains(id)) return;
-        var accent = new SolidColorBrush(Color.FromRgb(52, 113, 246));
+        var accent = (Brush)FindResource("SelectionOutlineBrush");
         var box = OverlayBounds(id);
         var corners = new[] { OverlayPoint(box, 0, 0), OverlayPoint(box, 1, 0), OverlayPoint(box, 1, 1), OverlayPoint(box, 0, 1) };
-        dc.DrawGeometry(null, new Pen(Brushes.Black, 4), Polygon(corners));
-        dc.DrawGeometry(null, new Pen(accent, 2), Polygon(corners));
+        dc.DrawGeometry(null, new Pen(new SolidColorBrush(Color.FromArgb(100, 255, 255, 255)), 3.25), Polygon(corners));
+        dc.DrawGeometry(null, new Pen(accent, 1.25), Polygon(corners));
         foreach (var h in OverlayHandles(id))
         {
             if (h.Handle == 4)
-            { dc.DrawLine(new Pen(accent, 1.5), OverlayPoint(box, .5, 0), h.Point); dc.DrawEllipse(Brushes.White, new Pen(accent, 1.5), h.Point, 5, 5); }
-            else dc.DrawRoundedRectangle(Brushes.White, new Pen(accent, 1.5), new(h.Point.X - 4, h.Point.Y - 4, 8, 8), 2, 2);
+            { dc.DrawLine(new Pen(accent, 1), OverlayPoint(box, .5, 0), h.Point); dc.DrawEllipse(Brushes.White, new Pen(accent, 1), h.Point, 4, 4); }
+            else dc.DrawRoundedRectangle(Brushes.White, new Pen(accent, 1), new(h.Point.X - 3.5, h.Point.Y - 3.5, 7, 7), 2, 2);
         }
         var snap = new Pen(accent, 1) { DashStyle = DashStyles.Dash };
         if (_snapX is { } x) dc.DrawLine(snap, new(x, 0), new(x, OverlayEditor.Height));

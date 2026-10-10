@@ -209,7 +209,7 @@ public partial class EditorWindow
             DetailControl("背景虚化", 0, 60, sticker.BackdropBlur, x => sticker.BackdropBlur = x);
             void Toggle(string title, bool value, Action<bool> assign)
             {
-                var box = new CheckBox { Content = title, IsChecked = value, Margin = new Thickness(0, 6, 0, 2) };
+                var box = new CheckBox { Content = title, IsChecked = value, Style = (Style)FindResource("SwitchCheckBox"), Margin = new Thickness(0, 6, 0, 2) };
                 box.Click += (_, _) => { Push(); assign(box.IsChecked == true); Commit(); };
                 body.Children.Add(box);
             }
@@ -228,7 +228,7 @@ public partial class EditorWindow
                 x => { if (soft.Style == "spotlight") soft.Dimming = x; else soft.Strength = x; });
             BuildRegionNumbers(section, soft);
             var details = Disclosure("区域外观与坐标");
-            var enabled = new CheckBox { Content = "启用效果", IsChecked = soft.Enabled, Margin = new Thickness(0, 6, 0, 2) };
+            var enabled = new CheckBox { Content = "启用效果", IsChecked = soft.Enabled, Style = (Style)FindResource("SwitchCheckBox"), Margin = new Thickness(0, 6, 0, 2) };
             enabled.Click += (_, _) => { Push(); soft.Enabled = enabled.IsChecked == true; Commit(); };
             details.Children.Add(enabled);
             var source = new CheckBox { Content = "跟随原画面缩放与透视", IsChecked = soft.CoordinateSpace == "source", Margin = new Thickness(0, 6, 0, 2) };

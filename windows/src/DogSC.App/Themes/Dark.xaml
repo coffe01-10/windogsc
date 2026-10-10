@@ -13,5 +13,15 @@
     <SolidColorBrush x:Key="SuccessBrush" Color="#5ECC91"/>
     <SolidColorBrush x:Key="ZoomBrush" Color="#6E5A3C"/>
     <SolidColorBrush x:Key="ZoomInkBrush" Color="#F3E6D0"/>
+    <SolidColorBrush x:Key="ControlBrush" Color="#242629"/>
+    <SolidColorBrush x:Key="ControlBorderBrush" Color="#30FFFFFF"/>
+    <SolidColorBrush x:Key="HoverBrush" Color="#14FFFFFF"/>
+    <SolidColorBrush x:Key="SelectionBrush" Color="#393C3E"/>
+    <SolidColorBrush x:Key="RailSelectionBrush" Color="#243D30"/>
+    <SolidColorBrush x:Key="RailSelectionInkBrush" Color="#D1EBDC"/>
+    <SolidColorBrush x:Key="FocusBrush" Color="#90ADC9BA"/>
+    <SolidColorBrush x:Key="SliderFillBrush" Color="#9C9F9D"/>
+    <SolidColorBrush x:Key="ThumbBrush" Color="#F4F4F4"/>
+    <SolidColorBrush x:Key="SelectionOutlineBrush" Color="#F4F4F4"/>
     <Color x:Key="StageColor">#17181A</Color>
 </ResourceDictionary>
