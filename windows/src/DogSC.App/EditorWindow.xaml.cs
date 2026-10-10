@@ -28,12 +28,17 @@ public partial class EditorWindow : Window
     readonly RegionPreview _canvasRegions = new();
     readonly Dictionary<string, Border> _stickerImages = [];
     StickerMotion.Track? _stickerTrack;
+    ScreenMotionTrack? _screenMotionTrack;
+    CameraMotionTrack? _cameraMotionTrack;
     CursorTimeline? _cursorTimeline;
-    (string Asset, int Height, double Rotation)? _cursorBitmapKey;
+    (string Asset, int Height)? _cursorBitmapKey;
+    readonly RotateTransform _cursorRotation = new();
+    readonly ScaleTransform _zoomTransform = new();
 
     public EditorWindow()
     {
         InitializeComponent();
+        CursorBitmap.RenderTransform = _cursorRotation;
         InitializeRegionEditor();
         InitializeOverlayEditor();
         _saveTimer.Tick += (_, _) => FlushPendingSave();
@@ -48,9 +53,11 @@ public partial class EditorWindow : Window
                 Dispatcher.BeginInvoke(() => Keyboard.Focus(TourNext), DispatcherPriority.ContextIdle);
         };
         Closing += (_, _) => { CancelOverlayGesture(); CancelRegionEditing(); FlushPendingSave(); };
-        SetToolContent(ToolLayout, IconKind.Layout, "画面");
-        SetToolContent(ToolZoom, IconKind.Zoom, "缩放");
-        SetToolContent(ToolEffects, IconKind.Region, "效果");
+        SetToolContent(ToolLayout, IconKind.CanvasPicture, "画面");
+        SetToolContent(ToolZoom, IconKind.MotionViewfinder, "运镜");
+        SetToolContent(ToolOpening, IconKind.OpeningStack, "开场");
+        SetToolContent(ToolCursor, IconKind.CursorMotion, "光标");
+        SetToolContent(ToolCamera, IconKind.Camera, "摄像头");
         SetToolContent(ToolAudio, IconKind.Speaker, "声音");
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/AppIconMaster.png"));
         FrameRect.Fill = new DrawingBrush { Drawing = _player.ScreenDrawing, Stretch = Stretch.Fill };
@@ -64,7 +71,8 @@ public partial class EditorWindow : Window
         _player.MediaGeometryChanged += () => Dispatcher.Invoke(() => { _cameraMaskAspect ??= CameraSourceAspect; LayoutPreview(); });
         _player.Changed += () => Dispatcher.Invoke(SyncPlayback);
         _player.Failed += message => Dispatcher.Invoke(() => TimeLabel.Text = "预览失败：" + message);
-        Timeline.SeekRequested += (_, time) => _player.Seek(time, _player.IsPlaying);
+        Timeline.SeekRequested += (_, time) => _player.Scrub(time);
+        Timeline.SeekFinished += (_, _) => _player.FlushScrub();
         Timeline.InteractionStarted += (_, _) => { if (_player.IsPlaying) _player.Pause(); };
         Timeline.ClipSelected += (_, id) => { _cameraSelected = false; CancelOverlayGesture(); CancelRegionEditing(); _selectedClip = id; _selectedZoom = null; _selectedDecoration = null; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
         Timeline.ZoomSelected += (_, id) => { CancelOverlayGesture(); CancelRegionEditing(); _selectedZoom = id; _selectedClip = null; _selectedDecoration = null; _tool = "zoom"; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
@@ -122,7 +130,7 @@ public partial class EditorWindow : Window
                 _undo.Pop();
             }
         };
-        Closed += (_, _) => { _saveTimer.Stop(); _player.Dispose(); };
+        Closed += (_, _) => { _saveTimer.Stop(); _cursorPreviewTimer?.Stop(); _backgroundVideo.Close(); _player.Dispose(); };
     }
 
     public static void Open(string directory)
@@ -204,8 +212,12 @@ public partial class EditorWindow : Window
     {
         _directory = directory;
         _project = ProjectFile.Load(directory);
+        _backgroundTab = _project.Canvas.Wallpaper?.StartsWith("pattern:") == true ? "grid"
+            : _project.Canvas.Wallpaper?.StartsWith("flow:") == true ? "motion" : "wallpaper";
         _cursorTimeline = new CursorTimeline(_project);
         _stickerTrack = new StickerMotion.Track(_project.Canvas.Stickers);
+        _screenMotionTrack = new ScreenMotionTrack(_project.ScreenMotions);
+        _cameraMotionTrack = new CameraMotionTrack(_project.CameraMotions);
         _selectedClip = _project.Clips.FirstOrDefault()?.Id;
         NameBox.Text = _project.Name;
         Title = "DogSC — " + _project.Name;
@@ -223,58 +235,58 @@ public partial class EditorWindow : Window
         _ = LoadWaveformsAsync();
     }
 
-    void FillAspects()
-    {
-        AspectRow.Children.Clear();
-        foreach (var aspect in new[] { ("适应", "source"), ("16:9", "16:9"), ("4:3", "4:3"), ("1:1", "1:1"), ("9:16", "9:16"), ("3:4", "3:4"), ("2.39:1", "2.39:1"), ("1:2.39", "1:2.39") })
-        {
-            var button = new Button { Content = aspect.Item1, Tag = aspect.Item2, Style = (Style)FindResource("ChipButton") };
-            button.Click += (_, _) =>
-            {
-                Push();
-                _project.Canvas.Aspect = (string)button.Tag;
-                Commit();
-            };
-            AspectRow.Children.Add(button);
-        }
-
-        PaintAspects();
-    }
+    void FillAspects() => BuildMonitorToolbar();
 
     void PaintAspects()
     {
-        foreach (var button in AspectRow.Children.OfType<Button>())
-        {
-            var selected = (string)button.Tag == _project.Canvas.Aspect;
-            ControlAppearance.SelectChip(button, selected);
-        }
+        if (AspectRow.Children.OfType<ComboBox>().FirstOrDefault() is { } ratio)
+            ratio.SelectedItem = ratio.Items.Cast<ComboBoxItem>().FirstOrDefault(i => Equals(i.Tag, _project.Canvas.Aspect));
 
         PaintTools();
     }
 
     void PaintTools()
     {
-        foreach (var button in new[] { ToolLayout, ToolZoom, ToolEffects, ToolAudio })
+        ToolCamera.IsEnabled = _project.HasCamera;
+        ToolCursor.IsEnabled = _project.Assets.Any(a => a.Cursor.Count > 0);
+        ToolAudio.IsEnabled = _project.Assets.Any(a => !string.IsNullOrWhiteSpace(a.Microphone) || !string.IsNullOrWhiteSpace(a.SystemAudio));
+        ToolCamera.ToolTip = ToolCamera.IsEnabled ? "摄像头" : "当前项目没有摄像头素材";
+        ToolCursor.ToolTip = ToolCursor.IsEnabled ? "光标" : "当前项目没有记录鼠标事件";
+        ToolAudio.ToolTip = ToolAudio.IsEnabled ? "声音" : "当前项目没有系统声音或麦克风素材";
+        var selectedTool = _cameraSelected || _project.CameraMotions.Any(c => c.Id == _selectedDecoration)
+            ? "camera" : _tool == "effects" ? "layout" : _tool;
+        foreach (var button in new[] { ToolLayout, ToolOpening, ToolZoom, ToolCursor, ToolCamera, ToolAudio })
         {
-            var selected = (string)button.Tag == _tool;
-            button.SetResourceReference(BackgroundProperty, selected ? "RailSelectionBrush" : "CardBrush");
+            var selected = (string)button.Tag == selectedTool;
+            if (selected) button.SetResourceReference(BackgroundProperty, "RailSelectionBrush");
+            else button.Background = Brushes.Transparent;
             button.SetResourceReference(ForegroundProperty, selected ? "RailSelectionInkBrush" : "InkSecondaryBrush");
         }
     }
 
     void SetToolContent(Button button, IconKind kind, string label)
     {
-        var content = new Grid();
-        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(24) });
-        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
-        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(18) });
-        content.Children.Add(new Icon { Kind = kind, Width = 22, Height = 22, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-        var text = new TextBlock { Text = label, FontSize = 12, LineHeight = 18, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        Grid.SetRow(text, 2);
+        var content = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        content.Children.Add(new Icon { Kind = kind, Width = 19, Height = 19, HorizontalAlignment = HorizontalAlignment.Center });
+        var text = new TextBlock { Text = label, FontSize = 12, Margin = new Thickness(0, 4, 0, 0), HorizontalAlignment = HorizontalAlignment.Center };
         text.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding(nameof(Button.Foreground)) { Source = button });
         content.Children.Add(text);
         button.Content = content;
         System.Windows.Automation.AutomationProperties.SetName(button, label);
+    }
+
+    void ToolRail_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var compact = e.NewSize.Height < 377;
+        var buttons = new[] { ToolLayout, ToolOpening, ToolZoom, ToolCursor, ToolCamera, ToolAudio };
+        for (var i = 0; i < buttons.Length; i++)
+        {
+            var button = buttons[i]; button.Height = compact ? 38 : 52;
+            button.Margin = new Thickness(0, 0, 0, i == buttons.Length - 1 ? 0 : compact ? 2 : 5);
+            if (button.Content is not StackPanel content) continue;
+            if (content.Children[0] is Icon icon) icon.Width = icon.Height = compact ? 17 : 19;
+            if (content.Children[1] is TextBlock text) { text.FontSize = compact ? 11 : 12; text.Margin = new Thickness(0, compact ? 2 : 4, 0, 0); }
+        }
     }
 
     void UpdateThemeButton()
@@ -286,16 +298,29 @@ public partial class EditorWindow : Window
 
     void RebuildInspector()
     {
+        _regionToolbarId = null;
+        _cursorPreviewTimer?.Stop();
+        _cursorPreviewTimer = null;
         Inspector.Children.Clear();
         PaintTools();
         if (_tool == "zoom")
         {
-            BuildZoomInspector();
+            var screen = _project.ScreenMotions.FirstOrDefault(c => c.Id == _selectedDecoration);
+            var camera = _project.CameraMotions.FirstOrDefault(c => c.Id == _selectedDecoration);
+            if (screen is not null || camera is not null)
+            {
+                InspectorHeader(camera is null ? "运镜" : "摄像头", "所选片段");
+                BuildMotionInspector(Inspector, screen, camera);
+            }
+            else BuildZoomInspector();
         }
         else if (_tool == "effects")
         {
             BuildDecorations();
         }
+        else if (_tool == "opening") BuildOpeningInspector();
+        else if (_tool == "cursor") BuildCursorInspector();
+        else if (_tool == "camera") BuildCameraInspector();
         else if (_tool == "audio")
         {
             BuildAudioInspector();
@@ -306,188 +331,12 @@ public partial class EditorWindow : Window
         }
     }
 
-    void BuildLayoutInspector()
-    {
-        if (_cameraSelected)
-        {
-            Inspector.Children.Add(DecorationButton("返回画面设置", () => { _cameraSelected = false; RebuildInspector(); ApplyZoomVisual(); }));
-            BuildCameraInspector(); return;
-        }
-        Inspector.Children.Add(Heading("画面"));
-        var presets = new StackPanel { Orientation = Orientation.Horizontal };
-        AddPreset(presets, "干净", 0, 0, 0, "#F7F4EE");
-        AddPreset(presets, "留白", 80, 16, 24, "#E7E2D8");
-        AddPreset(presets, "圆角", 64, 42, 30, "#F3F1EC");
-        AddPreset(presets, "深底", 72, 20, 0, "#1E1F22");
-        Inspector.Children.Add(presets);
-        BuildScenePresets();
-        BuildCropControls();
-        Inspector.Children.Add(Caption("边距"));
-        Inspector.Children.Add(Slider(0, 180, _project.Canvas.Padding, value => _project.Canvas.Padding = value));
-        Inspector.Children.Add(Caption("素材缩放"));
-        Inspector.Children.Add(Slider(0.6, 1.8, _project.Canvas.Scale, value => _project.Canvas.Scale = value));
-        Inspector.Children.Add(Caption("圆角"));
-        Inspector.Children.Add(Slider(0, 90, _project.Canvas.Corner, value => _project.Canvas.Corner = value));
-        Inspector.Children.Add(Caption("阴影"));
-        Inspector.Children.Add(Slider(0, 100, _project.Canvas.Shadow, value => _project.Canvas.Shadow = value));
-        Inspector.Children.Add(Caption("倾斜（左右）"));
-        Inspector.Children.Add(Slider(-40, 40, _project.Canvas.TiltY, value => _project.Canvas.TiltY = value));
-        Inspector.Children.Add(Caption("倾斜（上下）"));
-        Inspector.Children.Add(Slider(-40, 40, _project.Canvas.TiltX, value => _project.Canvas.TiltX = value));
-        Inspector.Children.Add(Caption("边缘虚化"));
-        Inspector.Children.Add(Slider(0, 1, _project.Canvas.FocusBlur, value => _project.Canvas.FocusBlur = value));
-        Inspector.Children.Add(Caption("开场"));
-        var intros = new StackPanel { Orientation = Orientation.Horizontal };
-        foreach (var (name, key) in new[] { ("无", "none"), ("淡入", "fade"), ("上移", "rise"), ("放大", "zoom") })
-        {
-            var chip = new Button
-            {
-                Content = name,
-                Tag = key,
-                Style = (Style)FindResource("ChipButton"),
-                Margin = new Thickness(0, 0, 4, 0),
-            };
-            ControlAppearance.SelectChip(chip, _project.Canvas.Intro == key);
-            chip.Click += (_, _) =>
-            {
-                Push();
-                _project.Canvas.Intro = (string)chip.Tag;
-                Commit();
-            };
-            intros.Children.Add(chip);
-        }
-
-        Inspector.Children.Add(intros);
-
-        // Global Opening（Mac）：启用后替代上方「开场」，元素按间隔级联进场。
-        Inspector.Children.Add(Caption("全局开场（Global Opening）"));
-        var openStyles = new StackPanel { Orientation = Orientation.Horizontal };
-        foreach (var (name, key) in new[] { ("关", "none"), ("滑动", "slide"), ("侧滑", "sideslide"), ("上浮", "lift") })
-        {
-            var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 0) };
-            ControlAppearance.SelectChip(chip, _project.Canvas.Opening == key);
-            chip.Click += (_, _) => { Push(); _project.Canvas.Opening = (string)chip.Tag; Commit(); };
-            openStyles.Children.Add(chip);
-        }
-        Inspector.Children.Add(openStyles);
-        var openTiming = new StackPanel { Orientation = Orientation.Horizontal };
-        foreach (var (name, key) in new[] { ("平滑", "smooth"), ("干脆", "clear"), ("轻柔", "gentle") })
-        {
-            var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 4, 4, 0) };
-            ControlAppearance.SelectChip(chip, _project.Canvas.OpeningTiming == key);
-            chip.Click += (_, _) => { Push(); _project.Canvas.OpeningTiming = (string)chip.Tag; Commit(); };
-            openTiming.Children.Add(chip);
-        }
-        Inspector.Children.Add(openTiming);
-        Inspector.Children.Add(Caption("总时长 (s)"));
-        Inspector.Children.Add(Slider(0.5, 6, _project.Canvas.OpeningDuration, value => _project.Canvas.OpeningDuration = value));
-        Inspector.Children.Add(Caption("元素间隔 (s)"));
-        Inspector.Children.Add(Slider(0, 1, _project.Canvas.OpeningInterval, value => _project.Canvas.OpeningInterval = value));
-        var previewOpening = new Button { Content = "从头预览开场", Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 6, 0, 0) };
-        previewOpening.Click += (_, _) => _player.Seek(0, true);
-        Inspector.Children.Add(previewOpening);
-
-        var cursor = _project.Canvas.Cursor;
-        Inspector.Children.Add(Caption("光标样式"));
-        Inspector.Children.Add(CursorChipRow(
-            CursorCatalog.Assets.Select(a => (a.Name, a.Id)),
-            CursorCatalog.ResolveAsset(cursor),
-            id =>
-            {
-                cursor.Asset = id;
-                cursor.Mode = id switch { "system.touch-dot" => "dot", "system.hidden" => "hidden", _ => "pointer" };
-            }));
-        Inspector.Children.Add(Caption("运动平滑"));
-        Inspector.Children.Add(CursorChipRow(
-            CursorCatalog.Motions.Select(m => (m.Name, m.Id)),
-            cursor.Motion,
-            id => cursor.Motion = id));
-        Inspector.Children.Add(Caption("运动倾斜强度"));
-        Inspector.Children.Add(Slider(0, 4, cursor.MotionTilt, value => cursor.MotionTilt = value));
-        Inspector.Children.Add(Caption("点击效果"));
-        Inspector.Children.Add(CursorChipRow(
-            CursorCatalog.ClickStyles.Select(s => (s.Name, s.Id)),
-            CursorCatalog.ResolveClick(cursor),
-            id =>
-            {
-                cursor.ClickStyle = id;
-                cursor.ClickRipple = id != "none";
-            }));
-        var idle = new CheckBox
-        {
-            Content = "静止不动时隐藏光标",
-            IsChecked = cursor.IdleHide,
-            Style = (Style)FindResource("SwitchCheckBox"),
-            Foreground = (Brush)FindResource("InkBrush"),
-            Margin = new Thickness(0, 6, 0, 0),
-        };
-        idle.Click += (_, _) =>
-        {
-            Push();
-            cursor.IdleHide = idle.IsChecked == true;
-            Commit();
-        };
-        Inspector.Children.Add(idle);
-        BuildCursorDetails();
-        Inspector.Children.Add(Caption("位置"));
-        Inspector.Children.Add(PositionPad());
-        Inspector.Children.Add(Caption("背景"));
-        var colors = new WrapPanel();
-        foreach (var color in new[] { "#F3F1EC", "#E7E2D8", "#F7F7F5", "#D9E4DD", "#1E1F22", "#2C3A4A" })
-        {
-            var swatch = new Button
-            {
-                Width = 28,
-                Height = 28,
-                Margin = new Thickness(0, 0, 8, 8),
-                Background = Brush(color),
-                Padding = new Thickness(0),
-                ToolTip = color,
-                Tag = color,
-            };
-            var selected = string.Equals(_project.Canvas.Background, color, StringComparison.OrdinalIgnoreCase);
-            swatch.BorderThickness = new Thickness(selected ? 2 : 1);
-            swatch.SetResourceReference(Control.BorderBrushProperty, selected ? "InkBrush" : "ControlBorderBrush");
-            swatch.Click += (_, _) =>
-            {
-                Push();
-                _project.Canvas.Background = (string)swatch.Tag;
-                Commit();
-            };
-            colors.Children.Add(swatch);
-        }
-
-        Inspector.Children.Add(colors);
-
-        // —— 画面装饰：壁纸 / 贴图 / 局部柔化 ——
-        Inspector.Children.Add(Heading("装饰"));
-
-        Inspector.Children.Add(Caption("壁纸图片"));
-        var wallRow = new StackPanel { Orientation = Orientation.Horizontal };
-        var wallPick = new Button { Content = string.IsNullOrWhiteSpace(_project.Canvas.Wallpaper) ? "选图…" : "换图…", Style = (Style)FindResource("QuietButton"), Margin = new Thickness(0, 0, 6, 0) };
-        wallPick.Click += (_, _) => PickDecoration(path => _project.Canvas.Wallpaper = path);
-        wallRow.Children.Add(wallPick);
-        if (_project.Canvas.Wallpaper is not null)
-        {
-            var clear = new Button { Content = "清除", Style = (Style)FindResource("QuietButton") };
-            clear.Click += (_, _) => { Push(); _project.Canvas.Wallpaper = null; Commit(); };
-            wallRow.Children.Add(clear);
-            Inspector.Children.Add(wallRow);
-            Inspector.Children.Add(Caption("壁纸模糊"));
-            Inspector.Children.Add(Slider(0, 1, _project.Canvas.WallpaperBlur, value => _project.Canvas.WallpaperBlur = value));
-        }
-        else
-        {
-            Inspector.Children.Add(wallRow);
-        }
-
-
-        if (_project.HasCamera) BuildCameraInspector();
-    }
+    void BuildLayoutInspector() => BuildCanvasInspector();
 
     void BuildCameraInspector()
     {
-        Inspector.Children.Add(Heading("画中画"));
+        InspectorHeader("摄像头", "整个项目");
+        if (!_project.HasCamera) { Inspector.Children.Add(Caption("此项目没有摄像头素材。")); return; }
         BuildCameraDetails();
         BuildCameraContentControls();
         Inspector.Children.Add(Caption("形状"));
@@ -756,7 +605,7 @@ public partial class EditorWindow : Window
     void BuildZoomInspector()
     {
         _zoomFocusSliders = null;
-        Inspector.Children.Add(Heading("缩放"));
+        InspectorHeader("运镜", "缩放片段");
         var auto = new Button { Content = "按点击自动运镜", Style = (Style)FindResource("QuietButton"), HorizontalAlignment = HorizontalAlignment.Left };
         auto.Click += (_, _) =>
         {
@@ -795,20 +644,7 @@ public partial class EditorWindow : Window
             return;
         }
 
-        Inspector.Children.Add(Caption(zoom.Origin == "automatic" ? "自动跟随：附近点击保持构图，跨区域点击平滑移动。改焦点会转为手动镜头。" : "手动镜头：相邻缩放直接衔接，空白处恢复全景。"));
-        Inspector.Children.Add(Caption("倍数"));
-        Inspector.Children.Add(Slider(1, 3, zoom.Scale, value => zoom.Scale = value));
-        var target = zoom.Origin == "automatic" ? _cursorTimeline!.Motion.TargetAt(zoom, _player.Time)
-            : new ZoomPose(zoom.Scale, zoom.FocusX, zoom.FocusY);
-        var focusX = Slider(0, 1, target.X, value => { MakeZoomManual(zoom); zoom.FocusX = value; }, refresh: true);
-        var focusY = Slider(0, 1, target.Y, value => { MakeZoomManual(zoom); zoom.FocusY = value; }, refresh: true);
-        _zoomFocusSliders = (focusX, focusY);
-        Inspector.Children.Add(Caption("焦点 X"));
-        Inspector.Children.Add(focusX);
-        Inspector.Children.Add(Caption("焦点 Y"));
-        Inspector.Children.Add(focusY);
-        Inspector.Children.Add(MotionSlider("进入时长", 0, 5, zoom.EnterDuration ?? .4, value => zoom.EnterDuration = value, " 秒"));
-        Inspector.Children.Add(MotionSlider("退出时长", 0, 5, zoom.ExitDuration ?? .4, value => zoom.ExitDuration = value, " 秒"));
+        BuildZoomTargetControls(zoom);
         Inspector.Children.Add(Caption("片段不足以容纳两段过渡时，按比例缩短；相邻镜头直接衔接。"));
         var curves = new WrapPanel();
         foreach (var (label, curve) in new[] { ("弹簧", "spring"), ("平滑", "smooth"), ("线性", "linear"),
@@ -1016,6 +852,7 @@ public partial class EditorWindow : Window
         StageRect.Height = viewHeight;
         StageRect.Fill = Brush(_project.Canvas.Background);
         UpdateWallpaper(viewWidth, viewHeight);
+        UpdateProceduralBackground(viewWidth, viewHeight);
         UpdateSticker(viewWidth, viewHeight, outputWidth, outputHeight);
 
         var frame = CanvasLayout.Place(outputWidth, outputHeight, _project.Width, _project.Height, _project.Canvas);
@@ -1075,6 +912,7 @@ public partial class EditorWindow : Window
             frameWidth, frameHeight, _project.Width, _project.Height, crop);
         _canvasRegions.Rebuild(CanvasEffects, SceneCanvas, _project.Canvas.SoftRegions.Where(x => x.Enabled && x.CoordinateSpace == "canvas"),
             viewWidth, viewHeight, outputWidth, outputHeight, new(), _project.Canvas.FocusBlur);
+        UpdateFrameChrome();
         ApplyZoomVisual();
     }
 
@@ -1101,15 +939,15 @@ public partial class EditorWindow : Window
         }
         SourceEffects.RenderTransformOrigin = new Point(fx, fy);
 
-        SourceEffects.RenderTransform = scale > 1.001 ? new ScaleTransform(scale, scale) : Transform.Identity;
-        UpdatePerspective();
+        _zoomTransform.ScaleX = _zoomTransform.ScaleY = scale;
+        SourceEffects.RenderTransform = scale > 1.001 ? _zoomTransform : Transform.Identity;
         CursorLayer.RenderTransform = SourceEffects.RenderTransform;
         CursorLayer.RenderTransformOrigin = SourceEffects.RenderTransformOrigin;
 
         // 开场动画：fade=淡入，rise=淡入+上移，zoom=淡入+轻微放大；
         // Global Opening 启用时取而代之（slide/sideslide/lift + 缓动进度）。
         var openingActive = _project.Canvas.Opening is "slide" or "sideslide" or "lift";
-        var intro = EditingRegions ? 1 : openingActive
+        var intro = EditingRegions || OpeningMotion.IsNative(_project.Canvas) ? 1 : openingActive
             ? CanvasLayout.OpeningProgress(_project.Canvas, _player.Time, 0)
             : CanvasLayout.IntroProgress(_project.Canvas, _player.Time);
         FrameHost.Opacity = _screenLayerOpacity = intro;
@@ -1139,14 +977,19 @@ public partial class EditorWindow : Window
         // 摄像头进出动画：fade=淡入淡出，rise=淡入+底部滑入（对齐导出端 0.5s 窗口近似）。
         UpdateCameraEntry();
         ApplyMotionVisual();
+        ApplyOpeningVisual();
         _cameraLayerOpacity = CameraBubble.Visibility == Visibility.Visible ? CameraBubble.Opacity : 0;
 
         UpdateCursorLayer();
+        UpdateProceduralMotion();
+        UpdateBackgroundVideo();
+        UpdateStickerAnimation();
         UpdateDecorationTiming();
         RegionEditor.Width = PreviewCanvas.Width; RegionEditor.Height = PreviewCanvas.Height;
         RegionEditor.Visibility = EditingRegions ? Visibility.Visible : Visibility.Collapsed;
         RegionEditor.InvalidateVisual();
         UpdateOverlayEditor();
+        UpdateRegionToolbar();
     }
 
     double _screenLayerOpacity = 1, _cameraLayerOpacity = 1, _shadowLayerOpacity;
@@ -1161,19 +1004,23 @@ public partial class EditorWindow : Window
         {
             return;
         }
-        // 屏幕侧近似：真透视不可画，用 anchor 缩放+rotZ+位移+rotX/Y 压扁的仿射近似，
-        // 复合在 ApplyZoomVisual 刚写好的 intro 变换之上。
+        // Spatial rotation is rendered by the shared projective mesh. Scale,
+        // planar rotation and translation stay outside the video texture.
         if (_project.ScreenMotions.Count > 0)
         {
             var viewport = new ScreenAnchorViewport(_pvOutW, _pvOutH, _pvFrame.Width, _pvFrame.Height);
-            var track = new ScreenMotionTrack(_project.ScreenMotions);
-            var s = track.SampleLayout(_player.Time, null, viewport);
+            var track = _screenMotionTrack ??= new ScreenMotionTrack(_project.ScreenMotions);
+            var selected = !_player.IsPlaying ? _project.ScreenMotions.FirstOrDefault(c => c.Id == _selectedDecoration) : null;
+            var s = selected is null ? track.SampleLayout(_player.Time, null, viewport)
+                : ScreenMotionTrack.TargetLayout(selected.Target, viewport);
             var mo = s.ManualOffset ?? new CompositionPoint(0, 0);
             var moBase = track.SampleLayout(-1, null, viewport).ManualOffset ?? new CompositionPoint(0, 0);
             var anchorX = (_pvFrame.X + s.ProjectionAnchor.X * _pvFrame.Width) * _pvFrameScale;
             var anchorY = (_pvFrame.Y + s.ProjectionAnchor.Y * _pvFrame.Height) * _pvFrameScale;
-            var sx = Math.Max(0.05, s.State.Scale) * Math.Cos(s.State.RotationY * Math.PI / 180);
-            var sy = Math.Max(0.05, s.State.Scale) * Math.Cos(s.State.RotationX * Math.PI / 180);
+            var sx = Math.Max(0.05, s.State.Scale);
+            var sy = sx;
+            UpdatePerspective(_project.Canvas.TiltX + s.State.RotationX, _project.Canvas.TiltY + s.State.RotationY,
+                s.State.Perspective, s.ProjectionAnchor.X, s.ProjectionAnchor.Y);
             var m = new Matrix();
             m.Translate(-anchorX, -anchorY);
             m.Scale(sx, sy);
@@ -1188,6 +1035,7 @@ public partial class EditorWindow : Window
         else
         {
             ShadowRect.RenderTransform = Transform.Identity;
+            UpdatePerspective(_project.Canvas.TiltX, _project.Canvas.TiltY);
         }
 
         if (_project.CameraMotions.Count > 0 && _project.HasCamera)
@@ -1199,8 +1047,12 @@ public partial class EditorWindow : Window
                 Size = _project.Camera.Size, Roundness = _project.Camera.Corner * 2,
                 Opacity = _project.Camera.Hidden ? 0 : 1,
             };
-            var sample = new CameraMotionTrack(_project.CameraMotions).Sample(
-                _player.Time, camBase, _cameraMaskAspect ?? CameraSourceAspect, (double)_pvOutW / _pvOutH);
+            var selected = !_player.IsPlaying ? _project.CameraMotions.FirstOrDefault(c => c.Id == _selectedDecoration) : null;
+            var cameraAspect = _cameraMaskAspect ?? CameraSourceAspect;
+            var canvasAspect = (double)_pvOutW / _pvOutH;
+            var sample = selected is null
+                ? (_cameraMotionTrack ??= new CameraMotionTrack(_project.CameraMotions)).Sample(_player.Time, camBase, cameraAspect, canvasAspect)
+                : CameraMotionTrack.Resolve(selected.Target, cameraAspect, canvasAspect);
             var rect = MotionExport.CameraPixels(sample, _pvOutW, _pvOutH);
             CameraBubble.Visibility = Visibility.Visible;
             CameraBubble.Width = Math.Max(2, rect.W * _pvFrameScale);
@@ -1211,7 +1063,7 @@ public partial class EditorWindow : Window
             CameraBubble.RadiusX = CameraBubble.RadiusY = side * Math.Clamp(sample.CornerFraction, 0, 0.5);
             // Hidden 基准时 UpdateCameraEntry 会提前返回（气泡 Collapsed），此时取 1 为底。
             var entryOpacity = CameraBubble.Opacity;
-            CameraBubble.Opacity = entryOpacity * Math.Clamp(sample.Opacity, 0, 1);
+            CameraBubble.Opacity = (selected is null ? entryOpacity : 1) * Math.Clamp(sample.Opacity, 0, 1);
             UpdateCameraContent();
         }
     }
@@ -1280,65 +1132,13 @@ public partial class EditorWindow : Window
     }
 
     /// <summary>壁纸预览：铺满 StageRect 的 ImageBrush，可选模糊。</summary>
-    void UpdateWallpaper(double viewWidth, double viewHeight)
-    {
-        var path = DecorationPath(_project.Canvas.Wallpaper);
-        if (path is null)
-        {
-            WallpaperImage.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        try
-        {
-            // 路径变了才重新解码，避免每次布局都读盘。
-            if (!Equals(WallpaperImage.Tag, path))
-            {
-                var image = new BitmapImage();
-                image.BeginInit();
-                image.CacheOption = BitmapCacheOption.OnLoad;
-                image.UriSource = new Uri(path);
-                image.EndInit();
-                image.Freeze();
-                WallpaperImage.Source = image;
-                WallpaperImage.Tag = path;
-            }
-
-            WallpaperImage.Width = viewWidth;
-            WallpaperImage.Height = viewHeight;
-            Canvas.SetLeft(WallpaperImage, 0);
-            Canvas.SetTop(WallpaperImage, 0);
-            WallpaperBlur.Radius = _project.Canvas.WallpaperBlur * 22;
-            WallpaperImage.Visibility = Visibility.Visible;
-        }
-        catch
-        {
-            WallpaperImage.Visibility = Visibility.Collapsed;
-        }
-    }
+    void UpdateWallpaper(double viewWidth, double viewHeight) => UpdateBackgroundImageOrVideo(viewWidth, viewHeight);
 
     /// <summary>贴图预览：按归一化矩形摆一张图。</summary>
     void UpdateSticker(double viewWidth, double viewHeight, int outputWidth, int outputHeight)
     {
         _stickerTrack ??= new StickerMotion.Track(_project.Canvas.Stickers);
         var viewScale = viewWidth / outputWidth;
-        var (samples, backdrop) = _stickerTrack.SampleAt(_player.Time);
-        var byId = samples.ToDictionary(s => s.Clip.Id);
-        // 背景通道：压屏幕/虚化屏幕作用于画面矩形，压/虚化摄像头作用于气泡。
-        FrameRect.Opacity = 1;
-        FrameRect.Effect = null;
-        FrameHost.Opacity = _screenLayerOpacity * (1 - backdrop.ScreenSuppression);
-        ShadowRect.Opacity = _shadowLayerOpacity * (1 - backdrop.ScreenSuppression);
-        var motionBlur = _project.ScreenMotions.Any(c => c.LinearBlur
-            && _player.Time >= c.Timing.StartTime && _player.Time < c.Timing.EffectEndTime) ? 7 : 0;
-        var screenBlur = Math.Sqrt(backdrop.ScreenBlur * backdrop.ScreenBlur + motionBlur * motionBlur);
-        FrameHost.Effect = screenBlur > 0.01
-            ? new BlurEffect { Radius = screenBlur * viewScale }
-            : null;
-        CameraBubble.Opacity = _cameraLayerOpacity * (1 - backdrop.CameraSuppression);
-        CameraBubble.Effect = backdrop.CameraBlur > 0.01
-            ? new BlurEffect { Radius = backdrop.CameraBlur * viewScale }
-            : null;
         foreach (var id in _stickerImages.Keys.Where(id => !_project.Canvas.Stickers.Any(x => x.Id == id)).ToArray())
         {
             StickerLayers.Children.Remove(_stickerImages[id]);
@@ -1349,6 +1149,12 @@ public partial class EditorWindow : Window
             if (!_stickerImages.TryGetValue(sticker.Id, out var holder))
             {
                 holder = new Border { Child = new Image { Stretch = Stretch.Fill } };
+                var motion = new TransformGroup();
+                motion.Children.Add(new ScaleTransform());
+                motion.Children.Add(new RotateTransform());
+                motion.Children.Add(new TranslateTransform());
+                holder.RenderTransform = motion;
+                holder.RenderTransformOrigin = new Point(.5, .5);
                 _stickerImages[sticker.Id] = holder;
                 StickerLayers.Children.Add(holder);
             }
@@ -1389,20 +1195,54 @@ public partial class EditorWindow : Window
                     + sticker.ShadowOffsetY * sticker.ShadowOffsetY) * viewScale,
                 Color = Colors.Black,
             } : null;
-            // 运动采样：透明度 + 缩放 + 归一化位移（转到画布像素）。
-            var sample = byId.GetValueOrDefault(sticker.Id);
-            holder.Opacity = sticker.Opacity * sample.Visibility;
-            var (scale, offsetX, offsetY) = StickerMotion.Transform(
-                sample.Preset, sample.Progress, sticker.X, sticker.Y, sticker.Width);
-            var motion = new TransformGroup();
-            motion.Children.Add(new ScaleTransform(scale, scale));
-            motion.Children.Add(new RotateTransform(sticker.Rotation));
-            motion.Children.Add(new TranslateTransform(offsetX * outputWidth * viewScale,
-                offsetY * outputHeight * viewScale));
-            holder.RenderTransformOrigin = new Point(.5, .5);
-            holder.RenderTransform = motion;
+            ((RotateTransform)((TransformGroup)holder.RenderTransform).Children[1]).Angle = sticker.Rotation;
             Canvas.SetLeft(holder, box.X * viewScale - holder.Width / 2);
             Canvas.SetTop(holder, box.Y * viewScale - holder.Height / 2);
+        }
+    }
+
+    readonly BlurEffect _screenBackdropBlur = new();
+    readonly BlurEffect _cameraBackdropBlur = new();
+
+    void UpdateStickerAnimation()
+    {
+        if (_pvFrameScale <= 0) return;
+        var (samples, backdrop) = (_stickerTrack ??= new StickerMotion.Track(_project.Canvas.Stickers)).SampleAt(_player.Time,
+            suppressesInitialEntry: OpeningMotion.SuppressesStickerEntry(_project));
+        foreach (var holder in _stickerImages.Values) holder.Opacity = 0;
+        foreach (var sticker in _project.Canvas.Stickers)
+        {
+            if (sticker.Timing.Duration <= 0)
+            {
+                samples.Add(new(sticker, 1, "none", 1));
+                backdrop.Merge(StickerMotion.Backdrop.Of(sticker, 1));
+            }
+            else if (EditingRegions && sticker.Id == _selectedDecoration && !samples.Any(s => s.Clip.Id == sticker.Id))
+                samples.Add(new(sticker, 1, "none", 1));
+        }
+        FrameHost.Opacity = _screenLayerOpacity * (1 - backdrop.ScreenSuppression);
+        ShadowRect.Opacity = _shadowLayerOpacity * (1 - backdrop.ScreenSuppression)
+            * OpeningMotion.Sample(_project, "screen", _player.Time, PreviewCanvas.Width, PreviewCanvas.Height).Opacity;
+        var motionBlur = _project.ScreenMotions.Any(c => c.LinearBlur
+            && _player.Time >= c.Timing.StartTime && _player.Time < c.Timing.EffectEndTime) ? 7 : 0;
+        _screenBackdropBlur.Radius = Math.Sqrt(backdrop.ScreenBlur * backdrop.ScreenBlur + motionBlur * motionBlur) * _pvFrameScale;
+        FrameHost.Effect = _screenBackdropBlur.Radius > .01 ? _screenBackdropBlur : null;
+        CameraBubble.Opacity = _cameraLayerOpacity * (1 - backdrop.CameraSuppression);
+        _cameraBackdropBlur.Radius = backdrop.CameraBlur * _pvFrameScale;
+        CameraBubble.Effect = _cameraBackdropBlur.Radius > .01 ? _cameraBackdropBlur : null;
+        foreach (var sample in samples)
+        {
+            if (!_stickerImages.TryGetValue(sample.Clip.Id, out var holder)) continue;
+            var sticker = sample.Clip;
+            var editing = EditingRegions && sticker.Id == _selectedDecoration;
+            var opening = sticker.Timing.Start <= .001 && !editing
+                ? OpeningMotion.Sample(_project, "stickers", _player.Time, _pvOutW, _pvOutH) : OpeningPose.Identity;
+            holder.Opacity = sticker.Opacity * (editing ? 1 : sample.Visibility) * opening.Opacity;
+            var (scale, x, y) = StickerMotion.Transform(sample.Preset, editing ? 1 : sample.Progress, sticker.X, sticker.Y, sticker.Width);
+            var motion = (TransformGroup)holder.RenderTransform;
+            var size = (ScaleTransform)motion.Children[0]; size.ScaleX = size.ScaleY = scale * opening.Scale;
+            var offset = (TranslateTransform)motion.Children[2];
+            offset.X = (x * _pvOutW + opening.X) * _pvFrameScale; offset.Y = (y * _pvOutH + opening.Y) * _pvFrameScale;
         }
     }
 
@@ -1419,20 +1259,18 @@ public partial class EditorWindow : Window
         var h = Math.Max(8, (int)Math.Round(44 * fx.Size * shortEdge / 1080));
         var assetId = sample.Asset ?? CursorCatalog.ResolveAsset(fx);
         var sprite = CursorArt.Render(assetId, h) ?? CursorArt.Render("system.arrow", h);
-        CursorSprite? rotated = null;
-        if (sprite is not null)
+        if (sprite is not null && _cursorBitmapKey != (assetId, h))
         {
-            rotated = Math.Abs(sample.Rotation) > 0.002 ? CursorArt.Rotate(sprite, sample.Rotation) : sprite;
+            CursorBitmap.Source = BitmapSource.Create(sprite.Width, sprite.Height, 96, 96,
+                PixelFormats.Bgra32, null, sprite.Bgra, sprite.Width * 4);
+            _cursorBitmapKey = (assetId, h);
         }
-        if (rotated is not null && _cursorBitmapKey != (assetId, h, sample.Rotation))
+        CursorBitmap.Visibility = sprite is null || sample.Pointer is null ? Visibility.Collapsed : Visibility.Visible;
+        if (sample.Pointer is { } point && sprite is { } r)
         {
-            CursorBitmap.Source = BitmapSource.Create(rotated.Width, rotated.Height, 96, 96,
-                PixelFormats.Bgra32, null, rotated.Bgra, rotated.Width * 4);
-            _cursorBitmapKey = (assetId, h, sample.Rotation);
-        }
-        CursorBitmap.Visibility = rotated is null || sample.Pointer is null ? Visibility.Collapsed : Visibility.Visible;
-        if (sample.Pointer is { } point && rotated is { } r)
-        {
+            _cursorRotation.Angle = sample.Rotation * 180 / Math.PI;
+            _cursorRotation.CenterX = r.HotspotX * displayScale;
+            _cursorRotation.CenterY = r.HotspotY * displayScale;
             CursorBitmap.Width = r.Width * displayScale;
             CursorBitmap.Height = r.Height * displayScale;
             Canvas.SetLeft(CursorBitmap, (point.X - crop.X) / crop.Width * FrameHost.ActualWidth - r.HotspotX * displayScale);
@@ -1453,13 +1291,14 @@ public partial class EditorWindow : Window
     }
     void SyncPlayback()
     {
-        Timeline.Playhead = _player.Time;
+        // A decoded preview may lag the mouse. It must not pull the pointer
+        // back to its previous sample while the user is dragging it.
+        if (!Timeline.IsScrubbing) Timeline.Playhead = _player.Time;
         TimeLabel.Text = Clock(_player.Time) + " / " + Clock(TimelineMath.Duration(_project));
         PlayIcon.Kind = _player.IsPlaying ? IconKind.Pause : IconKind.Play;
         PlayButton.ToolTip = _player.IsPlaying ? "暂停（Space）" : "播放（Space）";
         System.Windows.Automation.AutomationProperties.SetName(PlayButton, _player.IsPlaying ? "暂停" : "播放");
         ApplyZoomVisual();
-        UpdateDecorationTiming();
     }
 
     void SyncSelection()
@@ -1483,6 +1322,8 @@ public partial class EditorWindow : Window
         ProjectFile.Normalize(_project);
         _cursorTimeline = new CursorTimeline(_project);
         _stickerTrack = new StickerMotion.Track(_project.Canvas.Stickers);
+        _screenMotionTrack = new ScreenMotionTrack(_project.ScreenMotions);
+        _cameraMotionTrack = new CameraMotionTrack(_project.CameraMotions);
         _pendingSave = true;
         _saveTimer.Stop();
         _saveTimer.Start();
@@ -1969,8 +1810,7 @@ public partial class EditorWindow : Window
         }
 
         Push();
-        var unprojected = PerspectiveGeometry.SourcePoint(PerspectiveGeometry.Corners(FrameHost.ActualWidth, FrameHost.ActualHeight,
-            _project.Canvas.TiltX, _project.Canvas.TiltY), point.X, point.Y);
+        var unprojected = PerspectiveGeometry.SourcePoint(RegionQuad(), point.X, point.Y);
         var px = Math.Clamp(unprojected.X, 0, 1);
         var py = Math.Clamp(unprojected.Y, 0, 1);
         var divisor = 1 - 1 / zoom.Scale;

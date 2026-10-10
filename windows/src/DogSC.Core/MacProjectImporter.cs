@@ -113,6 +113,7 @@ public static class MacProjectImporter
             MapMotionClips(timeline, project);
             MapOverlays(timeline, project, r.MediaReferences, r.DroppedFields);
             MapCursor(root, project, r.DroppedFields);
+            MapOpening(root, project);
             CollectUnmappedEffects(root, r.DroppedFields);
             if (Arr(root, "recordingMarkers") is { } markers)
                 foreach (var marker in markers.EnumerateArray())
@@ -537,9 +538,22 @@ public static class MacProjectImporter
             }
     }
 
+    static void MapOpening(JsonElement root, ProjectDocument project)
+    {
+        if (Obj(root, "openingSequence") is not { } opening) return;
+        var canvas = project.Canvas;
+        canvas.Opening = opening.TryGetProperty("isEnabled", out var on) && on.ValueKind == JsonValueKind.True
+            ? Text(opening, "preset") switch { "聚拢" or "converge" => "converge", "侧滑" or "sideSlide" => "sideSlide", _ => "light3D" } : "none";
+        canvas.OpeningTiming = Text(opening, "motionCurve") switch { "swift" or "迅速" => "clear", "gentle" or "柔和" => "gentle", _ => "smooth" };
+        canvas.OpeningDuration = Num(opening, "duration", 2.2); canvas.OpeningInterval = Num(opening, "stagger", .16);
+        string Element(string? name) => name switch { "屏幕" or "screen" => "screen", "摄像头" or "camera" => "camera", _ => "stickers" };
+        if (Arr(opening, "elementOrder") is { } order) canvas.OpeningOrder = order.EnumerateArray().Select(e => Element(e.GetString())).ToList();
+        if (Arr(opening, "includedElements") is { } included) canvas.OpeningIncluded = included.EnumerateArray().Select(e => Element(e.GetString())).ToList();
+    }
+
     static void CollectUnmappedEffects(JsonElement root, List<string> dropped)
     {
-        foreach (var key in new[] { "openingSequence", "motion" })
+        foreach (var key in new[] { "motion" })
         {
             if (root.TryGetProperty(key, out _))
             {

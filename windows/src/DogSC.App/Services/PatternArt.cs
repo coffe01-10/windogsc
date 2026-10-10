@@ -8,6 +8,27 @@ namespace DogSC;
 /// </summary>
 public static class PatternArt
 {
+    public static DrawingImage Layer(PatternLibrary.WallpaperLayer layer)
+    {
+        var drawing = new DrawingGroup();
+        using (var context = drawing.Open()) Draw(layer, context);
+        drawing.Freeze(); return new DrawingImage(drawing);
+    }
+
+    public static DrawingImage Preview(PatternLibrary.WallpaperBake bake, double width, double height)
+    {
+        var drawing = new DrawingGroup();
+        using (var context = drawing.Open())
+        {
+            Brush background = bake.BaseKind == "linear"
+                ? new LinearGradientBrush(ToColor(bake.BaseColorA), ToColor(bake.BaseColorB), 45)
+                : new SolidColorBrush(ToColor(bake.BaseColorA));
+            context.DrawRectangle(background, null, new Rect(0, 0, width, height));
+            foreach (var layer in bake.Layers) Draw(layer, context);
+        }
+        drawing.Freeze(); return new DrawingImage(drawing);
+    }
+
     public static (string Base, List<string> Layers) Bake(
         PatternLibrary.WallpaperBake bake, int canvasW, int canvasH, string directory)
     {

@@ -150,6 +150,8 @@ public sealed class CanvasSettings
     public double OpeningDuration { get; set; } = 2.2;
     /// <summary>元素进场间隔（秒，Mac 默认 0.16）。</summary>
     public double OpeningInterval { get; set; } = 0.16;
+    public List<string> OpeningOrder { get; set; } = ["screen", "camera", "stickers"];
+    public List<string> OpeningIncluded { get; set; } = ["screen", "camera", "stickers"];
     /// <summary>光标呈现设置（录制不录光标，编辑期按轨迹重绘）。</summary>
     public CursorFx Cursor { get; set; } = new();
     /// <summary>壁纸图片：项目相对路径（media/ 下）或绝对路径；空 = 纯色背景。</summary>
@@ -376,7 +378,7 @@ public static class ProjectFile
         project.Canvas.TiltY = Math.Clamp(project.Canvas.TiltY, -40, 40);
         project.Canvas.FocusBlur = Math.Clamp(project.Canvas.FocusBlur, 0, 1);
         project.Canvas.Intro = project.Canvas.Intro is "fade" or "rise" or "zoom" ? project.Canvas.Intro : "none";
-        project.Canvas.Opening = project.Canvas.Opening is "slide" or "sideslide" or "lift" ? project.Canvas.Opening : "none";
+        project.Canvas.Opening = project.Canvas.Opening is "slide" or "sideslide" or "lift" or "converge" or "sideSlide" or "light3D" ? project.Canvas.Opening : "none";
         project.Canvas.OpeningTiming = project.Canvas.OpeningTiming is "clear" or "gentle" ? project.Canvas.OpeningTiming : "smooth";
         project.Canvas.OpeningDuration = Math.Clamp(project.Canvas.OpeningDuration, 0.2, 10);
         project.Canvas.OpeningInterval = Math.Clamp(project.Canvas.OpeningInterval, 0, 2);
@@ -481,7 +483,7 @@ public static class ProjectFile
             clip.Target.RotationX = Math.Clamp(clip.Target.RotationX, -89, 89);
             clip.Target.RotationY = Math.Clamp(clip.Target.RotationY, -89, 89);
             clip.Target.RotationZ = Math.Clamp(clip.Target.RotationZ, -180, 180);
-            clip.Target.Perspective = Math.Clamp(clip.Target.Perspective, 0, 1);
+            clip.Target.Perspective = Math.Clamp(clip.Target.Perspective, 0, 2);
         }
         foreach (var clip in project.CameraMotions)
         {

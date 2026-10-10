@@ -16,4 +16,5 @@ bin/
 obj/
 .vs/
 TestResults/
+/windows/artifacts/
 .zcode/

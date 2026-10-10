@@ -4,6 +4,31 @@ public readonly record struct ProjectionCorner(double X, double Y, double Weight
 
 public static class PerspectiveGeometry
 {
+    // Mac ScreenProjection: zero depth is orthographic; the authored anchor
+    // is the pivot for X/Y rotation. Keep the depth weights for WPF's mesh.
+    public static ProjectionCorner[] MotionCorners(double width, double height, double tiltX, double tiltY,
+        double perspective, double anchorX = .5, double anchorY = .5)
+    {
+        var ax = tiltX * Math.PI / 180;
+        var ay = tiltY * Math.PI / 180;
+        var depth = Math.Clamp(perspective, 0, 2);
+        var distance = depth > 0 ? Math.Max(width, height) * 2 / depth : double.PositiveInfinity;
+        var pivotX = width * anchorX; var pivotY = height * anchorY;
+        var result = new ProjectionCorner[4];
+        for (var i = 0; i < 4; i++)
+        {
+            var x = (i % 2) * width - pivotX;
+            var y = (i / 2) * height - pivotY;
+            var ry = y * Math.Cos(ax);
+            var z = y * Math.Sin(ax);
+            var rx = x * Math.Cos(ay) + z * Math.Sin(ay);
+            z = -x * Math.Sin(ay) + z * Math.Cos(ay);
+            var weight = depth > 0 ? Math.Max((distance - z) / distance, .12) : 1;
+            result[i] = new(pivotX + rx / weight, pivotY + ry / weight, weight);
+        }
+        return result;
+    }
+
     // A camera looking at a rotated plane. The same destination quadrilateral
     // drives the WPF mesh and ffmpeg's perspective filter.
     public static ProjectionCorner[] Corners(double width, double height, double tiltX, double tiltY)
