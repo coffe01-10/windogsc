@@ -36,6 +36,10 @@ public sealed class ProjectDocument
     public List<ClipSegment> Clips { get; set; } = [];
     public List<ZoomSpan> Zooms { get; set; } = [];
     public List<SourceMarker> Markers { get; set; } = [];
+    /// <summary>屏幕空间运动片段（Mac screenMotionClips）。</summary>
+    public List<ScreenMotionClip> ScreenMotions { get; set; } = [];
+    /// <summary>摄像头运动片段（Mac cameraMotionClips）。</summary>
+    public List<CameraMotionClip> CameraMotions { get; set; } = [];
     public CanvasSettings Canvas { get; set; } = new();
     public CameraBubble Camera { get; set; } = new();
     public string ExportResolution { get; set; } = "source";
@@ -408,6 +412,45 @@ public static class ProjectFile
             zoom.SpringStiffness = Math.Clamp(zoom.SpringStiffness, 10, 500);
             zoom.SpringDamping = Math.Clamp(zoom.SpringDamping, 1, 100);
         }
+        project.ScreenMotions ??= [];
+        project.CameraMotions ??= [];
+        foreach (var clip in project.ScreenMotions)
+        {
+            clip.Timing ??= new();
+            NormalizeTiming(clip.Timing);
+            clip.Target ??= new();
+            clip.Target.Scale = Math.Clamp(clip.Target.Scale, 0.2, 4);
+            clip.Target.X = Math.Clamp(clip.Target.X, 0, 1);
+            clip.Target.Y = Math.Clamp(clip.Target.Y, 0, 1);
+            clip.Target.RotationX = Math.Clamp(clip.Target.RotationX, -89, 89);
+            clip.Target.RotationY = Math.Clamp(clip.Target.RotationY, -89, 89);
+            clip.Target.RotationZ = Math.Clamp(clip.Target.RotationZ, -180, 180);
+            clip.Target.Perspective = Math.Clamp(clip.Target.Perspective, 0, 1);
+        }
+        foreach (var clip in project.CameraMotions)
+        {
+            clip.Timing ??= new();
+            NormalizeTiming(clip.Timing);
+            clip.Target ??= new();
+            clip.Target.Layout = clip.Target.Layout is "square" or "horizontal" or "vertical"
+                or "original" or "circle" or "fullscreen" ? clip.Target.Layout : "square";
+            clip.Target.X = Math.Clamp(clip.Target.X, 0, 1);
+            clip.Target.Y = Math.Clamp(clip.Target.Y, 0, 1);
+            clip.Target.Size = Math.Clamp(clip.Target.Size, 0.08, 1);
+            clip.Target.Roundness = Math.Clamp(clip.Target.Roundness, 0, 1);
+            clip.Target.Opacity = Math.Clamp(clip.Target.Opacity, 0, 1);
+        }
+    }
+
+    private static void NormalizeTiming(TransitionTiming timing)
+    {
+        timing.Duration = Math.Max(0.12, timing.Duration);
+        timing.LeadInDuration = Math.Clamp(timing.LeadInDuration, 0, timing.Duration);
+        timing.ReturnDuration = Math.Clamp(timing.ReturnDuration, 0, 5);
+        timing.LeadInProgressOffset = Math.Clamp(timing.LeadInProgressOffset, 0, 1);
+        timing.ReturnProgressOffset = Math.Clamp(timing.ReturnProgressOffset, 0, 1);
+        timing.Easing = timing.Easing is "linear" or "quadratic" or "cubic" or "quintic"
+            or "spring" or "custom" ? timing.Easing : "cubic";
     }
 
     public static string NormalizeColor(string? value)
