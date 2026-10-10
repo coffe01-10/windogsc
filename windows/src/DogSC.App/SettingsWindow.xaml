@@ -4,13 +4,48 @@
         Title="设置" Width="560" Height="560" WindowStartupLocation="CenterOwner"
         Background="{DynamicResource BgBrush}" ResizeMode="NoResize"
         FontFamily="{DynamicResource FontRegular}">
+    <Window.Resources>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+        </Style>
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="{DynamicResource InkSecondaryBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="14,9"/>
+            <Setter Property="HeaderTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}"/>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" CornerRadius="8">
+                            <ContentPresenter ContentSource="Header"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter Property="Opacity" Value="0.8"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
     <DockPanel Margin="20">
         <DockPanel DockPanel.Dock="Bottom">
             <Button Content="关闭" HorizontalAlignment="Right" Style="{StaticResource PrimaryButton}" IsCancel="True" Click="Close_Click"/>
         </DockPanel>
-        <TabControl x:Name="Tabs" Margin="0,0,0,12" BorderThickness="0" Background="Transparent">
+        <TabControl x:Name="Tabs" Margin="0,0,0,12" BorderThickness="0" Background="{DynamicResource BgBrush}" Foreground="{DynamicResource InkBrush}">
             <TabItem Header="通用">
-                <StackPanel Margin="4,16,4,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="4,16,4,0">
                     <TextBlock Text="录制帧率" Margin="0,0,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal">
                         <Button x:Name="Fps30" Content="30 FPS" Style="{StaticResource ChipButton}" Click="Fps30_Click"/>
@@ -26,11 +61,10 @@
                         <Button DockPanel.Dock="Right" Content="浏览" Style="{StaticResource QuietButton}" Click="BrowseFfmpeg_Click"/>
                         <TextBlock x:Name="FfmpegLabel" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                     </DockPanel>
-                    <CheckBox x:Name="CheckUpdatesBox" Content="启动时检查新版本（只提示，不自动更新）" Margin="0,18,0,0" Click="CheckUpdates_Changed"/>
-                </StackPanel>
+                </StackPanel></ScrollViewer>
             </TabItem>
             <TabItem Header="录制">
-                <StackPanel Margin="4,16,4,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="4,16,4,0">
                     <TextBlock Text="摄像头默认形状" Margin="0,0,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal">
                         <Button x:Name="CamCircle" Content="圆形" Style="{StaticResource ChipButton}" Click="CamCircle_Click"/>
@@ -48,30 +82,30 @@
                         <CheckBox x:Name="MicDefaultBox" Content="默认开麦克风" Margin="0,0,16,0" Click="MicDefault_Changed"/>
                         <CheckBox x:Name="SysAudioDefaultBox" Content="默认录系统声音" Click="SysAudioDefault_Changed"/>
                     </StackPanel>
-                </StackPanel>
+                </StackPanel></ScrollViewer>
             </TabItem>
             <TabItem Header="编辑器">
-                <StackPanel Margin="4,16,4,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="4,16,4,0">
                     <TextBlock Text="布局" Margin="0,0,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     <Button Content="重置编辑器布局（恢复默认轨道显示与时间线缩放）" Style="{StaticResource QuietButton}" Click="ResetLayout_Click" HorizontalAlignment="Left"/>
                     <TextBlock x:Name="ResetDone" Margin="0,8,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     <TextBlock Text="首次使用引导" Margin="0,18,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     <Button Content="重新播放引导" Style="{StaticResource QuietButton}" Click="ReplayTour_Click" HorizontalAlignment="Left"/>
-                </StackPanel>
+                </StackPanel></ScrollViewer>
             </TabItem>
             <TabItem Header="权限">
-                <StackPanel Margin="4,16,4,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="4,16,4,0">
                     <TextBlock Text="屏幕录制" FontFamily="{DynamicResource FontSemi}"/>
-                    <TextBlock TextWrapping="Wrap" Text="Windows 使用图形捕获 API 录制屏幕与应用窗口；首次录制时系统可能提示授权。" Margin="0,4,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
+                    <TextBlock TextWrapping="Wrap" Text="显示器、区域和窗口按桌面矩形采集；窗口移动或被遮挡会影响录制画面。" Margin="0,4,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     <TextBlock Text="摄像头" Margin="0,14,0,0" FontFamily="{DynamicResource FontSemi}"/>
                     <TextBlock TextWrapping="Wrap" Text="画中画录制需要摄像头设备访问权限。" Margin="0,4,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     <TextBlock Text="麦克风" Margin="0,14,0,0" FontFamily="{DynamicResource FontSemi}"/>
-                    <TextBlock TextWrapping="Wrap" Text="解说录制需要麦克风访问权限；未授权时录制会跳过麦克风轨。" Margin="0,4,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
+                    <TextBlock TextWrapping="Wrap" Text="解说录制需要允许桌面应用访问麦克风；无法访问时会跳过麦克风轨，请先检查权限与设备。" Margin="0,4,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     <Button Content="打开系统隐私设置" Margin="0,16,0,0" Style="{StaticResource QuietButton}" Click="OpenPrivacy_Click" HorizontalAlignment="Left"/>
-                </StackPanel>
+                </StackPanel></ScrollViewer>
             </TabItem>
             <TabItem Header="关于">
-                <StackPanel Margin="4,16,4,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="4,16,4,0">
                     <TextBlock x:Name="UpdateLabel" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Text="DogSC Windows。支持屏幕录制、剪辑、效果复制及导出，也可导入 macOS 项目；部分 macOS 画面效果暂未支持。" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     <TextBlock Margin="0,10,0,0" Foreground="{DynamicResource InkSecondaryBrush}">
@@ -83,7 +117,7 @@
                     <TextBlock Margin="0,4,0,0" Foreground="{DynamicResource InkSecondaryBrush}">
                         <Hyperlink NavigateUri="https://github.com/laogou717/dogsc" RequestNavigate="Link_Click">macOS 原版 laogou717/dogsc</Hyperlink>
                     </TextBlock>
-                </StackPanel>
+                </StackPanel></ScrollViewer>
             </TabItem>
         </TabControl>
     </DockPanel>

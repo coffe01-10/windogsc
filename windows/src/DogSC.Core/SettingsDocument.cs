@@ -132,6 +132,8 @@ public static class SettingsFile
         settings.ExportResolution ??= defaults.ExportResolution;
         settings.ExportFps = settings.ExportFps >= 60 ? 60 : 30;
         settings.PreviewQuality = settings.PreviewQuality == "low" ? "low" : "full";
+        settings.CameraDefaultShape = settings.CameraDefaultShape is "square" or "rounded" ? settings.CameraDefaultShape : "circle";
+        settings.RecordCountdownSeconds = settings.RecordCountdownSeconds <= 0 ? 0 : settings.RecordCountdownSeconds >= 5 ? 5 : 3;
     }
 
     static double FiniteOr(double value, double fallback) => double.IsFinite(value) ? value : fallback;

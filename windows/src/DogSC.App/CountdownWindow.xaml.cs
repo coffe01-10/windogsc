@@ -22,7 +22,7 @@ public partial class CountdownWindow : Window
         for (var value = seconds; value >= 1; value--)
         {
             window.Number.Text = value.ToString();
-            await Task.Delay(650);
+            await Task.Delay(1000);
         }
 
         window.Close();

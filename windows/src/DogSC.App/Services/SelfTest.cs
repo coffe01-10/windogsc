@@ -86,6 +86,7 @@ public static class SelfTest
             return 1;
         }
         ProjectFile.Save(root, project);
+        await CheckRecordingCompletionAsync(ffmpeg, root, project);
         var output = Path.Combine(root, "out.mp4");
         var exporter = new ExportService(ffmpeg);
         try
@@ -454,6 +455,52 @@ public static class SelfTest
         }
         finally { if (File.Exists(path)) File.Delete(path); }
         Console.WriteLine("SELFTEST_OK continuous-zoom/rapid-retarget/preview-export-position");
+    }
+
+    static async Task CheckRecordingCompletionAsync(string ffmpeg, string root, ProjectDocument original)
+    {
+        var source = Path.Combine(root, "media", "screen-camera-name.mov");
+        using var generated = FfmpegProcess.Start(ffmpeg, ["-y", "-f", "lavfi", "-i",
+            "color=c=red:size=320x180:rate=10:duration=1", "-c:v", "libx264", source]);
+        if (await generated.WaitAsync() != 0) throw new InvalidOperationException(generated.ErrorText());
+        var asset = new MediaAsset { Video = "media/screen-camera-name.mov", Duration = 1, Width = 320, Height = 180 };
+        var project = new ProjectDocument { Assets = [asset], Clips = [new ClipSegment { AssetId = asset.Id, SourceStart = .2, SourceEnd = 1 }] };
+        ProjectFile.Save(root, project);
+        try
+        {
+            var thumbnail = await RecordingThumbnail.LoadAsync(root, CancellationToken.None)
+                ?? throw new InvalidOperationException("完成卡片未生成缩略图。");
+            var image = new FormatConvertedBitmap(thumbnail, PixelFormats.Bgr32, null, 0);
+            var pixel = new byte[4];
+            image.CopyPixels(new Int32Rect(image.PixelWidth / 2, image.PixelHeight / 2, 1, 1), pixel, 4, 0);
+            if (pixel[2] < 200 || pixel[0] > 40 || pixel[1] > 40)
+                throw new InvalidOperationException("完成卡片选错了屏幕素材。");
+            using var cancelled = new CancellationTokenSource();
+            cancelled.Cancel();
+            if (await RecordingThumbnail.LoadAsync(root, cancelled.Token) is not null)
+                throw new InvalidOperationException("关闭完成卡片后仍生成缩略图。");
+        }
+        finally { ProjectFile.Save(root, original); }
+
+        var settings = SettingsStore.Current;
+        var oldShape = settings.CameraDefaultShape;
+        var oldPreset = settings.DefaultScenePresetId;
+        try
+        {
+            settings.DefaultScenePresetId = null;
+            foreach (var shape in new[] { "circle", "square", "rounded" })
+            {
+                settings.CameraDefaultShape = shape;
+                var recording = new ProjectDocument();
+                ScenePresets.ApplyDefault(recording, root);
+                ProjectFile.Normalize(recording);
+                if (recording.Camera.Shape != (shape == "rounded" ? "square" : shape)
+                    || Math.Abs(recording.Camera.Corner - (shape == "square" ? 0 : .18)) > .001)
+                    throw new InvalidOperationException("摄像头默认形状没有应用：" + shape);
+            }
+        }
+        finally { settings.CameraDefaultShape = oldShape; settings.DefaultScenePresetId = oldPreset; }
+        Console.WriteLine("SELFTEST_COMPLETION_OK thumbnail source, cancellation, camera defaults");
     }
 
     static async Task CheckRenderedPixels(string ffmpeg, string video, string root, ProjectDocument project)

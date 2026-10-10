@@ -508,7 +508,11 @@ public partial class RecorderBarWindow : Window
                 SizePopup.IsOpen = true;
                 BarSizeSlider.Focus();
             }),
-            ("设置", "帧率、ffmpeg、关于", () => new SettingsWindow { Owner = this }.ShowDialog()),
+            ("设置", "录制、编辑器、关于", () =>
+            {
+                new SettingsWindow { Owner = this }.ShowDialog();
+                PaintToggles();
+            }),
         };
         foreach (var recent in SettingsStore.Current.RecentProjects.Where(Directory.Exists).Take(5))
         {

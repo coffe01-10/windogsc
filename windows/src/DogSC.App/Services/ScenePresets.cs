@@ -25,6 +25,8 @@ static class ScenePresets
     public static void ApplyDefault(ProjectDocument project, string directory)
     {
         var settings = SettingsStore.Current;
+        project.Camera.Shape = settings.CameraDefaultShape == "rounded" ? "square" : settings.CameraDefaultShape;
+        project.Camera.Corner = settings.CameraDefaultShape == "square" ? 0 : 0.18;
         var preset = settings.ScenePresets.FirstOrDefault(p => p.Id == settings.DefaultScenePresetId);
         if (preset is null) return;
         try { Apply(preset, project, directory); }
