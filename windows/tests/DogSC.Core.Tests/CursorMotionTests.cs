@@ -5,6 +5,62 @@ namespace DogSC.Core.Tests;
 
 public class CursorMotionTests
 {
+    [Fact]
+    public void SpringResumesSmoothlyAfterAStationaryInterval()
+    {
+        var knots = Enumerable.Range(0, 11)
+            .Select(i => new PointerTrack.Knot(2 + i * .05, .2 + i * .05, .5, false, null))
+            .Prepend(new(0, .2, .5, false, null)).ToArray();
+        var track = new PointerTrack.Track(knots, "smooth");
+        var raw = new PointerTrack.Track(knots, "none");
+        Assert.True(track.PositionAt(2.3).X < raw.PositionAt(2.3).X - .02);
+    }
+
+    [Theory]
+    [InlineData("medium")]
+    [InlineData("rapid")]
+    public void HermiteMotionDoesNotReverseBeforeItsLastSample(string motion)
+    {
+        var track = new PointerTrack.Track([
+            new(0, .1, .5, false, null), new(.1, .4, .5, false, null),
+            new(.2, .7, .5, false, null)], motion);
+        double previous = .1;
+        for (var i = 0; i <= 200; i++)
+        {
+            var x = track.PositionAt(i * .001).X;
+            Assert.InRange(x, previous - 1e-9, .7 + 1e-9);
+            previous = x;
+        }
+    }
+
+    [Fact]
+    public void TrimmedClipStillSamplesTheRecordedCursorAcrossItsBoundary()
+    {
+        var project = Sample();
+        project.Canvas.Cursor.Motion = "none";
+        project.Clips[0].SourceStart = .02;
+        project.Clips[0].SourceEnd = .04;
+        project.Assets[0].Cursor = [new() { Time = 0, X = .1, Y = .5 },
+            new() { Time = .1, X = .6, Y = .5 }];
+        var sample = new CursorTimeline(project).At(.01);
+        Assert.NotNull(sample.Pointer);
+        Assert.Equal(.25, sample.Pointer.Value.X, 6);
+    }
+
+    [Fact]
+    public void ClickColorUsesBgraChannelOrder()
+    {
+        var pixels = CursorCatalog.RenderClick(80, "burst", .1,
+            CursorCatalog.ParseColor("#FF0000"), 1, 50);
+        for (var i = 0; i < pixels.Length; i += 4)
+        {
+            if (pixels[i + 3] == 0) continue;
+            Assert.Equal(0, pixels[i]);
+            Assert.Equal(0, pixels[i + 1]);
+            Assert.Equal(255, pixels[i + 2]);
+        }
+    }
+
     static ProjectDocument Sample() => new()
     {
         Width = 640, Height = 360,

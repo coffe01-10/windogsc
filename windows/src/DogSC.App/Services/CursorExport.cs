@@ -28,7 +28,7 @@ static class CursorExport
         using var ring = plan.RippleIndex < 0 ? null : Sprite(ringPath, ringSize, ringSize);
         var timeline = new CursorTimeline(project);
         var color = CursorCatalog.ParseColor(fx.ClickColor);
-        var spriteCache = new Dictionary<(string Asset, int Rot), CursorSprite>();
+        var spriteCache = new Dictionary<(string Asset, int Height, int HalfDegrees), CursorSprite>();
         await using var commands = new StreamWriter(Path.Combine(directory, "cursor.commands"), false, new UTF8Encoding(false));
         try
         {
@@ -48,11 +48,11 @@ static class CursorExport
                     var baseSprite = CursorArt.Render(assetId, h) ?? CursorArt.Render("system.arrow", h);
                     if (baseSprite is not null)
                     {
-                        var rotKey = (int)Math.Round(sample.Rotation * 180 / Math.PI * 2) / 2;
-                        var cacheKey = (assetId, rotKey);
+                        var rotKey = (int)Math.Round(sample.Rotation * 180 / Math.PI * 2);
+                        var cacheKey = (assetId, h, rotKey);
                         if (!spriteCache.TryGetValue(cacheKey, out sprite))
                         {
-                            sprite = CursorArt.Rotate(baseSprite, rotKey * Math.PI / 180);
+                            sprite = CursorArt.Rotate(baseSprite, rotKey * Math.PI / 360);
                             spriteCache[cacheKey] = sprite;
                         }
                     }
@@ -76,7 +76,7 @@ static class CursorExport
                     var framePixels = click is null || sample.Progress >= 1
                         ? new byte[ringSize * ringSize * 4]
                         : CursorCatalog.RenderClick(ringSize, sample.ClickStyle, sample.Progress, color,
-                            fx.ClickOpacity, clickH);
+                            fx.ClickOpacity, h * 1.45 * fx.ClickScale);
                     await ring.WriteInputAsync(framePixels, cancellation);
                 }
             }

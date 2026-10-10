@@ -28,16 +28,20 @@ public sealed class CursorTimeline
             .Where(p => p.Click && p.Time - advance >= clip.Clip.SourceStart && p.Time - advance < clip.Clip.SourceEnd)
             .Select(p => (Time: clip.Start + (p.Time - advance - clip.Clip.SourceStart) / clip.Clip.Speed, p.X, p.Y)))
             .OrderBy(p => p.Time).ToArray();
+        // Shared source tracks keep interpolation and spring state across cuts.
+        var tracks = new Dictionary<MediaAsset, PointerTrack.Track?>();
         _tracks = _clips.Select(clip =>
         {
+            if (tracks.TryGetValue(clip.Asset, out var cached)) return cached;
             var knots = clip.Asset.Cursor
                 .Select(p => (Eff: p.Time - advance, Point: p))
-                .Where(p => p.Eff >= clip.Clip.SourceStart && p.Eff <= clip.Clip.SourceEnd)
                 .OrderBy(p => p.Eff)
                 .Select(p => new PointerTrack.Knot(p.Eff,
                     Math.Clamp(p.Point.X, 0, 1), Math.Clamp(p.Point.Y, 0, 1), p.Point.Click, p.Point.Cursor))
                 .ToArray();
-            return knots.Length == 0 ? null : new PointerTrack.Track(knots, fx.Motion);
+            var track = knots.Length == 0 ? null : new PointerTrack.Track(knots, fx.Motion);
+            tracks[clip.Asset] = track;
+            return track;
         }).ToArray();
     }
 

@@ -28,7 +28,7 @@ public partial class EditorWindow : Window
     readonly RegionPreview _canvasRegions = new();
     readonly Dictionary<string, Image> _stickerImages = [];
     CursorTimeline? _cursorTimeline;
-    (string Asset, double Size, double Rotation)? _cursorBitmapKey;
+    (string Asset, int Height, double Rotation)? _cursorBitmapKey;
 
     public EditorWindow()
     {
@@ -983,11 +983,11 @@ public partial class EditorWindow : Window
         {
             rotated = Math.Abs(sample.Rotation) > 0.002 ? CursorArt.Rotate(sprite, sample.Rotation) : sprite;
         }
-        if (rotated is not null && _cursorBitmapKey != (assetId, fx.Size, sample.Rotation))
+        if (rotated is not null && _cursorBitmapKey != (assetId, h, sample.Rotation))
         {
             CursorBitmap.Source = BitmapSource.Create(rotated.Width, rotated.Height, 96, 96,
                 PixelFormats.Bgra32, null, rotated.Bgra, rotated.Width * 4);
-            _cursorBitmapKey = (assetId, fx.Size, sample.Rotation);
+            _cursorBitmapKey = (assetId, h, sample.Rotation);
         }
         CursorBitmap.Visibility = rotated is null || sample.Pointer is null ? Visibility.Collapsed : Visibility.Visible;
         if (sample.Pointer is { } point && rotated is { } r)

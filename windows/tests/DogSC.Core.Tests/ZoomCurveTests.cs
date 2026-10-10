@@ -5,6 +5,14 @@ namespace DogSC.Core.Tests;
 
 public class ZoomCurveTests
 {
+    [Fact]
+    public void CustomBezierSolvesAFlatXDerivativeNearTheStart()
+    {
+        const double x = .00001;
+        var t = Math.Cbrt(x);
+        Assert.Equal(1 - Math.Pow(1 - t, 3), ZoomMotion.BezierY(x, 0, 1, 0, 1), 6);
+    }
+
     static ProjectDocument Sample(string easing) => new()
     {
         Width = 640, Height = 360,

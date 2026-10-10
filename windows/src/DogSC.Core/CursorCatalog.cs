@@ -174,14 +174,11 @@ public static class CursorCatalog
         return pixels;
     }
 
-    /// <summary>#RRGGBB → 0x00BBGGRR（BGRA 字节序用的打包值）。</summary>
+    /// <summary>#RRGGBB → 0x00RRGGBB（低字节为蓝色，对应 BGRA）。</summary>
     public static uint ParseColor(string hex)
     {
         var normalized = ProjectFile.NormalizeColor(hex);
         var rgb = Convert.ToUInt32(normalized[1..], 16);
-        var r = rgb >> 16 & 255;
-        var g = rgb >> 8 & 255;
-        var b = rgb & 255;
-        return r | (g << 8) | (b << 16);
+        return rgb;
     }
 }

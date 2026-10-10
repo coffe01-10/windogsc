@@ -283,7 +283,12 @@ public static class MacProjectImporter
             };
             span.Easing = Text(clip, "easing") switch
             {
-                "quintic" => "smooth",
+                "quintic" or "五次平滑" => "smooth",
+                "线性" => "linear",
+                "二次方缓动" => "quadratic",
+                "三次方缓动" => "cubic",
+                "弹簧" => "spring",
+                "自定义曲线" => "custom",
                 "quadratic" or "cubic" or "custom" or "spring" or "linear" => Text(clip, "easing")!,
                 _ => span.Easing,
             };
@@ -310,7 +315,7 @@ public static class MacProjectImporter
 
         var c = cursor.Value;
         var assetId = Text(c, "assetID") ?? "";
-        if (CursorCatalog.Find(assetId) is { } known && known.Id != "system.automatic")
+        if (CursorCatalog.Find(assetId) is { } known)
         {
             project.Canvas.Cursor.Asset = known.Id;
         }
@@ -329,11 +334,14 @@ public static class MacProjectImporter
             project.Canvas.Cursor.ClickStyle = clickStyle;
         }
         project.Canvas.Cursor.ClickRipple = clickStyle is null or not "none";
-        if (Text(c, "motionSmoothing") is { } smoothing
-            && smoothing is "smooth" or "medium" or "rapid" or "none")
+        project.Canvas.Cursor.Motion = Text(c, "motionSmoothing") switch
         {
-            project.Canvas.Cursor.Motion = smoothing;
-        }
+            "平滑" or "smooth" => "smooth",
+            "适中" or "medium" => "medium",
+            "快速" or "rapid" => "rapid",
+            "无" or "none" => "none",
+            _ => project.Canvas.Cursor.Motion,
+        };
         project.Canvas.Cursor.MotionTilt = Num(c, "motionTiltStrength", 2);
         project.Canvas.Cursor.ClickColor = Text(c, "clickColor") ?? "#292929";
         project.Canvas.Cursor.ClickOpacity = Num(c, "clickOpacity", 0.8);
@@ -429,7 +437,7 @@ public static class MacProjectImporter
                 Cursor = Text(entry, "cursorAssetID") is { } id && id.StartsWith("system.") ? id : null };
             if (point.Time < 0) { seed = point; continue; }
             if (points.Count == 0 && seed is not null && point.Time > 0)
-                points.Add(new CursorPoint { Time = 0, X = seed.X, Y = seed.Y });
+                points.Add(new CursorPoint { Time = 0, X = seed.X, Y = seed.Y, Cursor = seed.Cursor });
             points.Add(point);
         }
         if (points.Count == 0 && seed is not null) points.Add(new CursorPoint { X = seed.X, Y = seed.Y });

@@ -41,6 +41,13 @@ public static class SelfTest
 
     static async Task<int> RunInDirectoryAsync(string ffmpeg, string ffprobe, string root)
     {
+        foreach (var style in CursorCatalog.Assets.Where(a => a.Id != "system.hidden"))
+        {
+            var sprite = CursorArt.Render(style.Id, 31);
+            if (sprite is null || !sprite.Bgra.Where((_, i) => i % 4 == 3).Any(a => a > 0))
+                throw new InvalidOperationException("光标样式不可见：" + style.Id);
+        }
+        await CheckCursorScalingAsync(ffmpeg, ffprobe, root);
         var source = Path.Combine(root, "media", "screen.mp4");
         using var generated = FfmpegProcess.Start(ffmpeg, [
             "-y", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=30:duration=2",
@@ -162,6 +169,41 @@ public static class SelfTest
 
         Console.WriteLine($"SELFTEST_OK capture {grabInfo.Width}x{grabInfo.Height}");
         return 0;
+    }
+
+    static async Task CheckCursorScalingAsync(string ffmpeg, string ffprobe, string root)
+    {
+        var dir = Path.Combine(root, "cursor-scaling");
+        Directory.CreateDirectory(dir);
+        var asset = new MediaAsset { Id = "cursor", Width = 640, Height = 360, Duration = 2,
+            Cursor = [new() { Time = 0, X = .5, Y = .5, Click = true },
+                new() { Time = 1, X = .5, Y = .5, Click = true }] };
+        var project = new ProjectDocument { Width = 640, Height = 360, Assets = [asset],
+            Clips = [new() { AssetId = asset.Id, SourceEnd = 2 }],
+            Zooms = [new() { Start = 0, Duration = 2, Scale = 2, EnterDuration = 1, ExitDuration = 0 }] };
+        var plan = new ExportPlan { Inputs = ["", ""], FilterScript = "", CursorIndex = 0,
+            RippleIndex = 1, Duration = 2, Fps = 30 };
+        await CursorExport.PrepareAsync(ffmpeg, project, plan, dir, CancellationToken.None);
+        foreach (var name in new[] { "cursor", "ripple" })
+        {
+            var video = Path.Combine(dir, name + ".mov");
+            var info = (await FfmpegTools.Probe(ffprobe, video))!;
+            var heights = new List<int>();
+            foreach (var time in new[] { .1, 1.1 })
+            {
+                var raw = Path.Combine(dir, name + ".bgra");
+                using var extract = FfmpegProcess.Start(ffmpeg, ["-y", "-ss", time.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "-i", video, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "bgra", raw]);
+                if (await extract.WaitAsync() != 0) throw new InvalidOperationException(extract.ErrorText());
+                var pixels = await File.ReadAllBytesAsync(raw);
+                var rows = Enumerable.Range(0, info.Height).Where(y => Enumerable.Range(0, info.Width)
+                    .Any(x => pixels[(y * info.Width + x) * 4 + 3] > 20)).ToArray();
+                heights.Add(rows.Length == 0 ? 0 : rows[^1] - rows[0] + 1);
+            }
+            if (heights[0] == 0 || heights[1] < heights[0] * 1.6)
+                throw new InvalidOperationException("导出缩放未改变光标 / 点击反馈尺寸：" + name + " " + string.Join("/", heights));
+        }
+        Console.WriteLine("SELFTEST_OK cursor-styles/zoom-size/click-size");
     }
 
     static async Task CheckMultiOverlayAsync(string ffmpeg, string ffprobe, string root)

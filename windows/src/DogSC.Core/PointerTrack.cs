@@ -74,8 +74,8 @@ public static class PointerTrack
                 var t = Math.Clamp((source - _springT[0]) * SpringRate, 0, _springT.Length - 1.0001);
                 var j = (int)t;
                 var f = t - j;
-                return (_springX[j] + (_springX[j + 1] - _springX[j]) * f,
-                        _springY[j] + (_springY[j + 1] - _springY[j]) * f);
+                return (_springX![j] + (_springX[j + 1] - _springX[j]) * f,
+                        _springY![j] + (_springY[j + 1] - _springY[j]) * f);
             }
             if (_tx is not null)
             {
@@ -204,6 +204,7 @@ public static class PointerTrack
                 while (ki + 1 < knots.Length && knots[ki + 1].Time <= t)
                 {
                     ki++;
+                    if (tx != knots[ki].X || ty != knots[ki].Y) frozen = false;
                     tx = knots[ki].X;
                     ty = knots[ki].Y;
                     targetSince = t;
@@ -276,10 +277,10 @@ public static class PointerTrack
         static double EndpointTangent(Knot[] k, Func<Knot, double> v, int i, int j, int m)
         {
             var h0 = k[j].Time - k[i].Time;
-            var d0 = (v(k[j]) - v(k[i])) / Math.Max(h0 == 0 ? 1 : Math.Abs(h0), 1e-9);
+            var d0 = (v(k[j]) - v(k[i])) / (h0 == 0 ? 1 : h0);
             if (m < 0 || m >= k.Length) return d0;
             var h1 = k[m].Time - k[j].Time;
-            var d1 = (v(k[m]) - v(k[j])) / Math.Max(h1 == 0 ? 1 : Math.Abs(h1), 1e-9);
+            var d1 = (v(k[m]) - v(k[j])) / (h1 == 0 ? 1 : h1);
             var t = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1);
             if (t * d0 < 0) return 0;
             if (d0 * d1 < 0 && Math.Abs(t) > Math.Abs(3 * d0)) return 3 * d0;

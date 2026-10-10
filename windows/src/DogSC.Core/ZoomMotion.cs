@@ -157,12 +157,15 @@ public sealed class ZoomMotion
         x = Math.Clamp(x, 0, 1);
         if (x is 0 or 1) return x;
         var t = x;
-        for (var i = 0; i < 12; i++)
+        double lo = 0, hi = 1;
+        for (var i = 0; i < 32; i++)
         {
             var cx = B(t, x1, x2) - x;
             var dx = Bd(t, x1, x2);
-            if (Math.Abs(cx) < 1e-7 || Math.Abs(dx) < 1e-9) break;
-            t = Math.Clamp(t - cx / dx, 0, 1);
+            if (Math.Abs(cx) < 1e-12) break;
+            if (cx < 0) lo = t; else hi = t;
+            var next = Math.Abs(dx) < 1e-9 ? double.NaN : t - cx / dx;
+            t = double.IsFinite(next) && next > lo && next < hi ? next : (lo + hi) / 2;
         }
         return B(t, y1, y2);
 
@@ -282,7 +285,7 @@ public sealed class ZoomMotion
             }
             if (_bezier is { } b)
             {
-                // ffmpeg 表达式不支持求逆，按 16 段线性逼近贝塞尔（误差 <0.5%）。
+                // ffmpeg 表达式不支持求逆，按 16 段线性逼近贝塞尔。
                 const int pieces = 16;
                 var vterm = "+(" + F(_v) + ")*(" + u + ")*pow(1-(" + u + "),2)";
                 var expr = "";
