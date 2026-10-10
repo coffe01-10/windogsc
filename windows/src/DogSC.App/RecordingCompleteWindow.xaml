@@ -1,0 +1,20 @@
+<Window x:Class="DogSC.RecordingCompleteWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="录制完成" Width="360" Height="300" WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource BgBrush}" ResizeMode="NoResize"
+        FontFamily="{DynamicResource FontRegular}" Topmost="True">
+    <StackPanel Margin="20">
+        <TextBlock Text="录制完成" FontFamily="{DynamicResource FontSemi}" FontSize="20"/>
+        <Border x:Name="ThumbBorder" Height="140" Margin="0,14,0,0" CornerRadius="8" ClipToBounds="True"
+                Background="{DynamicResource WellBrush}">
+            <Image x:Name="Thumb" Stretch="UniformToFill"/>
+        </Border>
+        <TextBlock x:Name="InfoLabel" Margin="0,10,0,0" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource InkSecondaryBrush}"/>
+        <Button Content="打开编辑器" Margin="0,16,0,0" Style="{StaticResource PrimaryButton}" Click="OpenEditor_Click"/>
+        <DockPanel Margin="0,8,0,0">
+            <Button Content="在文件夹中显示" Style="{StaticResource QuietButton}" Click="Reveal_Click"/>
+            <Button Content="关闭" Style="{StaticResource QuietButton}" HorizontalAlignment="Right" IsCancel="True" Click="Close_Click"/>
+        </DockPanel>
+    </StackPanel>
+</Window>

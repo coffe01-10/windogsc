@@ -10,48 +10,61 @@ public partial class SettingsWindow : Window
         Paint();
     }
 
+    void Chip(Button b, bool on)
+    {
+        b.Background = on ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("WellBrush");
+        b.Foreground = on ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
+    }
+
     void Paint()
     {
-        var fps60 = SettingsStore.Current.FrameRate >= 60;
-        Fps30.Background = fps60 ? (Brush)FindResource("WellBrush") : (Brush)FindResource("AccentBrush");
-        Fps30.Foreground = fps60 ? (Brush)FindResource("InkBrush") : (Brush)FindResource("OnAccentBrush");
-        Fps60.Background = fps60 ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("WellBrush");
-        Fps60.Foreground = fps60 ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
-        var lowQuality = SettingsStore.Current.PreviewQuality == "low";
-        QualityLow.Background = lowQuality ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("WellBrush");
-        QualityLow.Foreground = lowQuality ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
-        QualityFull.Background = lowQuality ? (Brush)FindResource("WellBrush") : (Brush)FindResource("AccentBrush");
-        QualityFull.Foreground = lowQuality ? (Brush)FindResource("InkBrush") : (Brush)FindResource("OnAccentBrush");
+        var s = SettingsStore.Current;
+        Chip(Fps30, s.FrameRate < 60); Chip(Fps60, s.FrameRate >= 60);
+        Chip(QualityLow, s.PreviewQuality == "low"); Chip(QualityFull, s.PreviewQuality != "low");
+        CheckUpdatesBox.IsChecked = s.CheckUpdates;
+        var shape = s.CameraDefaultShape;
+        Chip(CamCircle, shape == "circle"); Chip(CamSquare, shape == "square"); Chip(CamRounded, shape == "rounded");
+        Chip(Cd0, s.RecordCountdownSeconds <= 0); Chip(Cd3, s.RecordCountdownSeconds == 3); Chip(Cd5, s.RecordCountdownSeconds >= 5);
+        MicDefaultBox.IsChecked = s.RecordMicrophone;
+        SysAudioDefaultBox.IsChecked = s.RecordSystemAudio;
         FfmpegLabel.Text = FfmpegTools.LocateFfmpeg() ?? "未找到";
         UpdateLabel.Text = "当前版本 " + AppVersion.Current;
+        ResetDone.Text = "";
     }
 
-    void Fps30_Click(object sender, RoutedEventArgs e)
+    void Set(Action apply) { apply(); SettingsStore.Save(); Paint(); }
+    void Fps30_Click(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.FrameRate = 30);
+    void Fps60_Click(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.FrameRate = 60);
+    void QualityLow_Click(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.PreviewQuality = "low");
+    void QualityFull_Click(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.PreviewQuality = "full");
+    void CheckUpdates_Changed(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.CheckUpdates = CheckUpdatesBox.IsChecked == true);
+    void CamCircle_Click(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.CameraDefaultShape = "circle");
+    void CamSquare_Click(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.CameraDefaultShape = "square");
+    void CamRounded_Click(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.CameraDefaultShape = "rounded");
+    void Cd0_Click(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.RecordCountdownSeconds = 0);
+    void Cd3_Click(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.RecordCountdownSeconds = 3);
+    void Cd5_Click(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.RecordCountdownSeconds = 5);
+    void MicDefault_Changed(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.RecordMicrophone = MicDefaultBox.IsChecked == true);
+    void SysAudioDefault_Changed(object s, RoutedEventArgs e) => Set(() => SettingsStore.Current.RecordSystemAudio = SysAudioDefaultBox.IsChecked == true);
+
+    void ResetLayout_Click(object sender, RoutedEventArgs e)
     {
-        SettingsStore.Current.FrameRate = 30;
+        var s = SettingsStore.Current;
+        s.TimelineTracks = 1;
         SettingsStore.Save();
-        Paint();
+        ResetDone.Text = "已恢复默认：只显示缩放轨、时间线缩放重置。打开中的编辑器重启后生效。";
     }
 
-    void QualityLow_Click(object sender, RoutedEventArgs e)
+    void ReplayTour_Click(object sender, RoutedEventArgs e)
     {
-        SettingsStore.Current.PreviewQuality = "low";
+        SettingsStore.Current.TourSeen = false;
         SettingsStore.Save();
-        Paint();
+        ResetDone.Text = "下次打开编辑器会重新播放引导。";
     }
 
-    void QualityFull_Click(object sender, RoutedEventArgs e)
+    void OpenPrivacy_Click(object sender, RoutedEventArgs e)
     {
-        SettingsStore.Current.PreviewQuality = "full";
-        SettingsStore.Save();
-        Paint();
-    }
-
-    void Fps60_Click(object sender, RoutedEventArgs e)
-    {
-        SettingsStore.Current.FrameRate = 60;
-        SettingsStore.Save();
-        Paint();
+        Process.Start(new ProcessStartInfo("ms-settings:privacy") { UseShellExecute = true });
     }
 
     void BrowseFfmpeg_Click(object sender, RoutedEventArgs e)

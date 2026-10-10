@@ -37,7 +37,11 @@ public partial class EditorWindow : Window
         InitializeRegionEditor();
         InitializeOverlayEditor();
         _saveTimer.Tick += (_, _) => FlushPendingSave();
-        Loaded += (_, _) => WindowPlacement.KeepInWorkArea(this, center: true);
+        Loaded += (_, _) =>
+        {
+            WindowPlacement.KeepInWorkArea(this, center: true);
+            if (!SettingsStore.Current.TourSeen) ShowTour(0);
+        };
         Closing += (_, _) => { CancelOverlayGesture(); CancelRegionEditing(); FlushPendingSave(); };
         SetToolContent(ToolLayout, IconKind.Layout, "画面");
         SetToolContent(ToolZoom, IconKind.Zoom, "缩放");
@@ -128,6 +132,41 @@ public partial class EditorWindow : Window
         {
             MessageBox.Show(ex.Message, "DogSC");
         }
+    }
+
+    int _tourStep;
+    static readonly (string Title, string Body)[] TourSteps =
+    [
+        ("欢迎使用 DogSC", "录制条选好显示器/窗口/区域/设备即可开录；录制完成后项目会在这里打开，画面、缩放、效果都可直接调整。"),
+        ("时间线与效果", "下方时间线可切开片段、加缩放与屏幕/摄像头运动、贴贴图与柔化区域、打标记；「轨道」菜单可收起或显示各行。"),
+        ("布局与导出", "左侧面板调画布比例、背景、外框与全局开场；右上角导出按钮走 ffmpeg 渲染成片，低清预览可在设置里切换。"),
+    ];
+
+    void ShowTour(int step)
+    {
+        _tourStep = Math.Clamp(step, 0, TourSteps.Length - 1);
+        var (title, body) = TourSteps[_tourStep];
+        TourTitle.Text = title;
+        TourBody.Text = body;
+        TourStep.Text = $"{_tourStep + 1} / {TourSteps.Length}";
+        TourPrev.IsEnabled = _tourStep > 0;
+        TourNext.Content = _tourStep == TourSteps.Length - 1 ? "完成" : "下一步";
+        TourOverlay.Visibility = Visibility.Visible;
+    }
+
+    void EndTour()
+    {
+        TourOverlay.Visibility = Visibility.Collapsed;
+        SettingsStore.Current.TourSeen = true;
+        SettingsStore.Save();
+    }
+
+    void TourPrev_Click(object sender, RoutedEventArgs e) => ShowTour(_tourStep - 1);
+    void TourSkip_Click(object sender, RoutedEventArgs e) => EndTour();
+    void TourNext_Click(object sender, RoutedEventArgs e)
+    {
+        if (_tourStep >= TourSteps.Length - 1) EndTour();
+        else ShowTour(_tourStep + 1);
     }
 
     void Load(string directory)

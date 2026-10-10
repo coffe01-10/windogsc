@@ -149,5 +149,23 @@
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><local:TimelineControl x:Name="Timeline" Grid.Row="1"/></ScrollViewer>
             </Grid>
         </Border>
+        <Grid x:Name="TourOverlay" Visibility="Collapsed" Background="#66000000">
+            <Border Width="380" Padding="24" CornerRadius="14" Background="{DynamicResource PanelBrush}"
+                    BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock x:Name="TourTitle" FontFamily="{DynamicResource FontSemi}" FontSize="20"/>
+                    <TextBlock x:Name="TourBody" Margin="0,10,0,0" TextWrapping="Wrap" Foreground="{DynamicResource InkSecondaryBrush}"/>
+                    <TextBlock x:Name="TourStep" Margin="0,14,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
+                    <DockPanel Margin="0,12,0,0">
+                        <Button Content="跳过" Style="{StaticResource QuietButton}" Click="TourSkip_Click"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="TourPrev" Content="上一步" Style="{StaticResource QuietButton}" Margin="0,0,8,0" Click="TourPrev_Click"/>
+                            <Button x:Name="TourNext" Content="下一步" Style="{StaticResource PrimaryButton}" Click="TourNext_Click"/>
+                        </StackPanel>
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

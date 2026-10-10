@@ -590,7 +590,7 @@ public partial class RecorderBarWindow : Window
         string? directory = null;
         try
         {
-            await CountdownWindow.RunAsync(Native.MonitorAtCursor());
+            await CountdownWindow.RunAsync(Native.MonitorAtCursor(), SettingsStore.Current.RecordCountdownSeconds);
             directory = ProjectFactory.CreateDirectory("录制 " + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss"));
             var options = new RecordingOptions
             {
@@ -659,7 +659,7 @@ public partial class RecorderBarWindow : Window
         {
             var project = await session.FinishAsync();
             SettingsStore.Remember(directory);
-            EditorWindow.Open(directory);
+            new RecordingCompleteWindow(directory).Show();
             _ = project;
         }
         catch (Exception ex)
