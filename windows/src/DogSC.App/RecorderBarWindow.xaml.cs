@@ -11,7 +11,6 @@ public partial class RecorderBarWindow : Window
     readonly HwndSourceHook _hook;
     RecordingSession? _session;
     string? _directory;
-    TouchDotWindow? _touchDot;
     CaptureTarget? _lastTarget;
     bool _paused;
     bool _busy;
@@ -611,8 +610,6 @@ public partial class RecorderBarWindow : Window
             await session.StartAsync();
             _session = session;
             _directory = directory;
-            _touchDot = new TouchDotWindow();
-            _touchDot.Show();
             _paused = false;
             PaintPauseState();
             TimerLabel.Text = CompactTimer.Text = "00:00";
@@ -686,8 +683,6 @@ public partial class RecorderBarWindow : Window
             await session.DisposeAsync();
             _session = null;
             _directory = null;
-            _touchDot?.Close();
-            _touchDot = null;
             _busy = false;
             ContentHost.IsEnabled = true;
             ApplyBarLayout(true);

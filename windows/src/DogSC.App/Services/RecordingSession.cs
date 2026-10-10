@@ -272,7 +272,9 @@ public sealed class RecordingSession : IAsyncDisposable
             ]);
         }
 
-        videoArgs.AddRange(["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", take.VideoPath]);
+        // frag_keyframe+empty_moov：进程被硬杀也能得到可探测的 mp4，恢复日志才有意义。
+        videoArgs.AddRange(["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+            "-movflags", "+frag_keyframe+empty_moov", take.VideoPath]);
         _video = FfmpegProcess.Start(_ffmpeg, videoArgs);
         if (_options.Camera && !string.IsNullOrWhiteSpace(_options.CameraName) &&
             !string.Equals(_options.CameraName, _target.DeviceName, StringComparison.Ordinal))
@@ -285,7 +287,7 @@ public sealed class RecordingSession : IAsyncDisposable
                     "-f", "dshow", "-framerate", "30",
                     "-i", "video=" + _options.CameraName,
                     "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
-                    take.CameraPath,
+                    "-movflags", "+frag_keyframe+empty_moov", take.CameraPath,
                 ]);
             }
             catch (Exception ex)

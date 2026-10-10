@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -69,6 +70,7 @@ public sealed class FfmpegProcess : IDisposable
             StandardOutputEncoding = Encoding.UTF8,
         };
         var process = Process.Start(start) ?? throw new InvalidOperationException("无法启动 ffmpeg。");
+        ChildJob.Assign(process);
         AppPaths.Log("ffmpeg " + start.Arguments);
         return new FfmpegProcess(process);
     }
@@ -336,5 +338,102 @@ public static class FfmpegTools
         {
             return null;
         }
+    }
+}
+
+/// <summary>
+/// Job Object with KILL_ON_JOB_CLOSE：DogSC 进程退出（含被强杀）时
+/// 连带杀掉所有挂进来的子进程，防止孤儿 ffmpeg 继续录。
+/// </summary>
+static class ChildJob
+{
+    static IntPtr _job;
+
+    public static void Assign(Process process)
+    {
+        try
+        {
+            if (_job == IntPtr.Zero)
+            {
+                _job = CreateJobObject(IntPtr.Zero, null);
+                if (_job == IntPtr.Zero)
+                {
+                    return;
+                }
+
+                var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+                {
+                    BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION
+                    {
+                        LimitFlags = JobObjectLimitKillOnJobClose,
+                    },
+                };
+                var length = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
+                var pointer = Marshal.AllocHGlobal(length);
+                try
+                {
+                    Marshal.StructureToPtr(info, pointer, false);
+                    SetInformationJobObject(_job, JobObjectInfoTypeExtendedLimitInformation, pointer, (uint)length);
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(pointer);
+                }
+            }
+
+            AssignProcessToJobObject(_job, process.Handle);
+        }
+        catch
+        {
+            // Job 挂不上只是少了自动清理，不阻断录制。
+        }
+    }
+
+    const uint JobObjectLimitKillOnJobClose = 0x2000;
+    const int JobObjectInfoTypeExtendedLimitInformation = 9;
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    static extern IntPtr CreateJobObject(IntPtr attributes, string? name);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    static extern bool SetInformationJobObject(IntPtr job, int infoType, IntPtr info, uint length);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+    {
+        public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+        public IO_COUNTERS IoInfo;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
     }
 }

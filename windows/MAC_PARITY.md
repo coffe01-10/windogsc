@@ -44,7 +44,7 @@
 | 录制后流程 | Mac RecordingCompletionWindow 完成浮层 | 已加入停止后的完成卡片：异步读取项目首个片段生成缩略图，打开编辑器 / 在文件夹中显示 / 关闭；关闭或超时取消抽帧并立即删除临时图片 |
 | 首次使用 | Mac FirstUseTour 分步卡片 | 已加入三页引导，可跳过、翻页与立即重播；查看时暂停播放并拦截编辑快捷键。仍为居中卡片，没有跟随控件定位 |
 | 设置页 | Mac AppSettingsView 分页 | 通用、录制、编辑器、权限、关于五页；倒计时关 / 3 秒 / 5 秒、摄像头默认形状与声音选项接入录制。布局重置、预览画质对打开的编辑器立即生效。没有加入尚未接通的更新开关 |
-| 触点指示 | Mac 录制时系统级触点圆点 | 已移植：录制期间置顶透明圆点跟随光标、点击脉冲扩散（WS_EX_TRANSPARENT 穿透 + WDA_EXCLUDEFROMCAPTURE 不进画面）；停止即消失 |
+| 触点指示 | Mac 录制时系统级触点圆点（SCK 可排除自身窗口不录进画面） | 平台差异不移植：实测 WDA_EXCLUDEFROMCAPTURE 只作用于 Windows.Graphics.Capture 路径，gdigrab（GDI 读回）无排除机制——置顶圆点会被烘进成片，点击指示在成片端已由点击效果（涟漪/光晕/脉冲/微闪）覆盖 |
 | 录制日志 | Mac RecordingRecoveryJournal 录制中实时写元数据 | 已移植：录制中实时写 journal.json（take/assetId/时长/标记），FinishAsync 成功后删除；半成品目录恢复时读日志回填 assetId 与标记，没有日志退回纯文件名归组 |
 | 屏幕 / 摄像头运动 | 独立效果片段、三轴旋转、联动和曲线 | 已移植并接通导出：TransitionTiming（进入/回落窗口+进度偏移+六种缓动+自定义贝塞尔+弹簧）、屏幕轨道（rect 空间插值+投影锚点+三轴旋转，导出经 15Hz 常量角点 perspective 分段逼近逐帧）、摄像头轨道（形状↔全屏连续解析、隐藏目标原位淡出，导出经 15Hz 常量分段链：split+trim+scale+geq+定点 overlay（ffmpeg 9.0.2 的 scale eval=frame 输出尺寸被首帧锁死，逐帧表达式方案作废）；Mac 项目导入映射 screenMotionClips/cameraMotionClips。预览中 X/Y 旋转使用仿射近似；成片近似：ffmpeg 9.0.2 perspective 不支持逐帧角点表达式故分段常量（15Hz）；摄像头圆角遮罩为静态形状不随布局插值变形。屏幕运动已补聚焦锚点 AnchorX/AnchorY（Mac Focus/Center Anchors）与 LinearBlur 开关（导出在运动窗口分段内叠 gblur）；轨道行标题带缓动名与进入/回落秒数（Mac "Tension 0.70/0.70" 样式） |
 | 摄像头构图 | 方 / 横 / 竖 / 原比例、内容缩放与位置、分段同步点 | 已移植：分段同步点（SyncAnchor + 分段线性曲线：首锚前从原点爬升、末锚后保持；导出时按校正窗口重定每段播放速率）；画中画面板新增「全片偏移 ±10ms/±1帧/归零」和「播放头固定/微调/删除同步点」（播放头→源时间映射、±10 秒钳制）——对齐 Mac EditorInspector 摄像头同步控件；效果面板新增「＋屏幕运动/＋摄像头运动」在播放头插片段、装饰轨渲染运动片段行（可拖动/两端拉长写回 StartTime/Duration）、选中后编辑进入/回落时长、五种缓动曲线与目标构图（屏幕 XYZ 旋转+透视/摄像头形状+圆角+隐藏）；缩放×运动联动已复合（zoompan 作用于卡片内容、运动 perspective 包整卡；预览缩放在 FrameHost 内、运动在外层） |
