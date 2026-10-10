@@ -358,6 +358,18 @@ public static class SelfTest
         var hiddenBase = await Render("hidden-base-camera-motion");
         if (Pixel(hiddenBase, .7, .7, 1) > 100)
             throw new InvalidOperationException("隐藏基态下的摄像头运动无法显示目标。");
+        project.Camera.Hidden = false;
+        project.CameraMotions.Clear();
+        project.Canvas.Stickers.Clear();
+        project.Canvas.OpeningDuration = .6;
+        foreach (var style in new[] { "slide", "sideslide", "lift" })
+        {
+            project.Canvas.Opening = style;
+            var pixels = await Render("opening-" + style);
+            if (Pixel(pixels, .02, .5, 1) < 230 || Pixel(pixels, .02, .5, 2) < 230)
+                throw new InvalidOperationException("全局开场完成后未恢复屏幕边缘：" + style);
+        }
+        Console.WriteLine("SELFTEST_OK global-opening-slide/sideslide/lift/completed-frame");
         Console.WriteLine("SELFTEST_OK screen-camera-motion-duration/mixed-sticker-order/straight-alpha/screen-camera-suppression/multi-slice-sync-blur");
     }
 

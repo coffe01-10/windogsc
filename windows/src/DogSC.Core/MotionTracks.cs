@@ -217,8 +217,8 @@ public sealed class ScreenMotionTrack : MotionClipTrack<ScreenMotionClip>
                 return LayoutSample(clip.Target, viewport, Framing.Focus);
             return InterpolateLayout(inherited, clip.Target, progress, viewport,
                 inheritedFraming, Framing.Focus,
-                inheritedFraming == Framing.Focus ? new NormalizedPoint(inherited.X, inherited.Y) : (NormalizedPoint?)null,
-                new NormalizedPoint(clip.Target.X, clip.Target.Y));
+                inheritedFraming == Framing.Focus ? new NormalizedPoint(inherited.AnchorX, inherited.AnchorY) : (NormalizedPoint?)null,
+                new NormalizedPoint(clip.Target.AnchorX, clip.Target.AnchorY));
         }
         if (TouchesNextClip(index.Value))
             return LayoutSample(clip.Target, viewport, Framing.Focus);
@@ -272,8 +272,8 @@ public sealed class ScreenMotionTrack : MotionClipTrack<ScreenMotionClip>
                     return LayoutSample(clip.Target, viewport, Framing.Focus);
                 return InterpolateLayout(inherited, clip.Target, progress, viewport,
                     inheritedFraming, Framing.Focus,
-                    inheritedFraming == Framing.Focus ? new NormalizedPoint(inherited.X, inherited.Y) : (NormalizedPoint?)null,
-                    new NormalizedPoint(clip.Target.X, clip.Target.Y));
+                    inheritedFraming == Framing.Focus ? new NormalizedPoint(inherited.AnchorX, inherited.AnchorY) : (NormalizedPoint?)null,
+                    new NormalizedPoint(clip.Target.AnchorX, clip.Target.AnchorY));
             }
             var touchesNext = TouchesNextClip(index);
             if (!touchesNext && ReturnOf(timing) > 0.0001)
@@ -328,7 +328,7 @@ public sealed class ScreenMotionTrack : MotionClipTrack<ScreenMotionClip>
     private static ScreenMotionSample LayoutSample(
         ScreenMotionState state, ScreenAnchorViewport? viewport, Framing framing)
         => new(state, viewport?.Let(v => DirectOffset(state, v, framing)),
-            new NormalizedPoint(state.X, state.Y));
+            framing == Framing.Focus ? new NormalizedPoint(state.AnchorX, state.AnchorY) : new NormalizedPoint(state.X, state.Y));
 
     private static ScreenMotionSample InterpolateLayout(
         ScreenMotionState from, ScreenMotionState to, double progress,

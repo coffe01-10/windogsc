@@ -39,4 +39,11 @@ public class MotionTimingEditsTests
         var b = 1.6 + SyncAnchorCurve.Offset(anchors, 1.6);
         Assert.True(b > a); Assert.Equal(.01, SyncAnchorCurve.SourceRate(anchors, 1.5), 6);
     }
+    [Fact] public void ProjectionAnchorWorksDuringEntryAndHold()
+    {
+        ScreenMotionClip clip = new() { Timing = new() { Duration = 2, LeadInDuration = .5 },
+            Target = new() { X = .8, Y = .8, AnchorX = .2, AnchorY = .3 } };
+        var sample = new ScreenMotionTrack([clip]).SampleLayout(1);
+        Assert.Equal(.2, sample.ProjectionAnchor.X); Assert.Equal(.3, sample.ProjectionAnchor.Y);
+    }
 }

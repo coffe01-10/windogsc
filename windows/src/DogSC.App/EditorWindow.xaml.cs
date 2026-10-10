@@ -288,6 +288,37 @@ public partial class EditorWindow : Window
         }
 
         Inspector.Children.Add(intros);
+
+        // Global Opening（Mac）：启用后替代上方「开场」，元素按间隔级联进场。
+        Inspector.Children.Add(Caption("全局开场（Global Opening）"));
+        var openStyles = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var (name, key) in new[] { ("关", "none"), ("滑动", "slide"), ("侧滑", "sideslide"), ("上浮", "lift") })
+        {
+            var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 0) };
+            chip.Background = (Brush)FindResource(_project.Canvas.Opening == key ? "AccentBrush" : "WellBrush");
+            chip.Foreground = _project.Canvas.Opening == key ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
+            chip.Click += (_, _) => { Push(); _project.Canvas.Opening = (string)chip.Tag; Commit(); };
+            openStyles.Children.Add(chip);
+        }
+        Inspector.Children.Add(openStyles);
+        var openTiming = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var (name, key) in new[] { ("平滑", "smooth"), ("干脆", "clear"), ("轻柔", "gentle") })
+        {
+            var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 4, 4, 0) };
+            chip.Background = (Brush)FindResource(_project.Canvas.OpeningTiming == key ? "AccentBrush" : "WellBrush");
+            chip.Foreground = _project.Canvas.OpeningTiming == key ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
+            chip.Click += (_, _) => { Push(); _project.Canvas.OpeningTiming = (string)chip.Tag; Commit(); };
+            openTiming.Children.Add(chip);
+        }
+        Inspector.Children.Add(openTiming);
+        Inspector.Children.Add(Caption("总时长 (s)"));
+        Inspector.Children.Add(Slider(0.5, 6, _project.Canvas.OpeningDuration, value => _project.Canvas.OpeningDuration = value));
+        Inspector.Children.Add(Caption("元素间隔 (s)"));
+        Inspector.Children.Add(Slider(0, 1, _project.Canvas.OpeningInterval, value => _project.Canvas.OpeningInterval = value));
+        var previewOpening = new Button { Content = "从头预览开场", Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 6, 0, 0) };
+        previewOpening.Click += (_, _) => _player.Seek(0, true);
+        Inspector.Children.Add(previewOpening);
+
         var cursor = _project.Canvas.Cursor;
         Inspector.Children.Add(Caption("光标样式"));
         Inspector.Children.Add(CursorChipRow(
@@ -1000,15 +1031,30 @@ public partial class EditorWindow : Window
         CursorLayer.RenderTransform = SourceEffects.RenderTransform;
         CursorLayer.RenderTransformOrigin = SourceEffects.RenderTransformOrigin;
 
-        // 开场动画：fade=淡入，rise=淡入+上移，zoom=淡入+轻微放大。
-        var intro = EditingRegions ? 1 : CanvasLayout.IntroProgress(_project.Canvas, _player.Time);
+        // 开场动画：fade=淡入，rise=淡入+上移，zoom=淡入+轻微放大；
+        // Global Opening 启用时取而代之（slide/sideslide/lift + 缓动进度）。
+        var openingActive = _project.Canvas.Opening is "slide" or "sideslide" or "lift";
+        var intro = EditingRegions ? 1 : openingActive
+            ? CanvasLayout.OpeningProgress(_project.Canvas, _player.Time, 0)
+            : CanvasLayout.IntroProgress(_project.Canvas, _player.Time);
         FrameHost.Opacity = _screenLayerOpacity = intro;
         FrameHost.RenderTransform = Transform.Identity;
-        if (_project.Canvas.Intro == "rise" && intro < 1)
+        if (openingActive && intro < 1)
+        {
+            var og = new TransformGroup();
+            if (_project.Canvas.Opening is "slide" or "lift")
+                og.Children.Add(new TranslateTransform(0, (1 - intro) * FrameHost.Height * (_project.Canvas.Opening == "lift" ? 0.04 : 0.08)));
+            else
+                og.Children.Add(new TranslateTransform((1 - intro) * FrameHost.Width * 0.08, 0));
+            if (_project.Canvas.Opening == "lift")
+                og.Children.Add(new ScaleTransform(0.94 + 0.06 * intro, 0.94 + 0.06 * intro, FrameHost.Width / 2, FrameHost.Height / 2));
+            FrameHost.RenderTransform = og;
+        }
+        else if (!openingActive && _project.Canvas.Intro == "rise" && intro < 1)
         {
             FrameHost.RenderTransform = new TranslateTransform(0, (1 - intro) * FrameHost.Height * 0.08);
         }
-        else if (_project.Canvas.Intro == "zoom" && intro < 1)
+        else if (!openingActive && _project.Canvas.Intro == "zoom" && intro < 1)
         {
             var zoomIn = 0.9 + 0.1 * intro;
             FrameHost.RenderTransform = new ScaleTransform(zoomIn, zoomIn,
@@ -1089,7 +1135,7 @@ public partial class EditorWindow : Window
             var side = Math.Min(CameraBubble.Width, CameraBubble.Height);
             CameraBubble.RadiusX = CameraBubble.RadiusY = side * Math.Clamp(sample.CornerFraction, 0, 0.5);
             // Hidden 基准时 UpdateCameraEntry 会提前返回（气泡 Collapsed），此时取 1 为底。
-            var entryOpacity = _project.Camera.Hidden ? 1 : CameraBubble.Opacity;
+            var entryOpacity = CameraBubble.Opacity;
             CameraBubble.Opacity = entryOpacity * Math.Clamp(sample.Opacity, 0, 1);
             UpdateCameraContent();
         }
@@ -1098,7 +1144,7 @@ public partial class EditorWindow : Window
     /// <summary>画中画进出场预览：按播放头相对片段首尾的进度做透明度/位移。</summary>
     void UpdateCameraEntry()
     {
-        if (!_project.HasCamera || CameraBubble.Visibility != Visibility.Visible)
+        if (!_project.HasCamera || (CameraBubble.Visibility != Visibility.Visible && _project.CameraMotions.Count == 0))
         {
             return;
         }
@@ -1125,6 +1171,22 @@ public partial class EditorWindow : Window
             }
         }
 
+        // Global Opening：摄像头是元素 1，延迟 Interval 进场（透明×进度+方向位移）。
+        if (_project.Canvas.Opening is "slide" or "sideslide" or "lift")
+        {
+            var camp = CanvasLayout.OpeningProgress(_project.Canvas, _player.Time, 1);
+            opacity *= camp;
+            if (camp < 1)
+            {
+                rise += _project.Canvas.Opening == "sideslide" ? 0 : (1 - camp) * CameraBubble.Height * 0.4;
+                if (_project.Canvas.Opening == "sideslide")
+                {
+                    CameraBubble.RenderTransform = new TranslateTransform((1 - camp) * CameraBubble.Width * 0.4, 0);
+                    CameraBubble.Opacity = opacity;
+                    return;
+                }
+            }
+        }
         CameraBubble.Opacity = opacity;
         CameraBubble.RenderTransform = rise > 0.5 ? new TranslateTransform(0, rise) : Transform.Identity;
     }
