@@ -375,7 +375,7 @@ public class TimelineAndExportTests
         rise.Canvas.Intro = "rise";
         var risePlan = ExportGraph.Build(rise, new ExportOptions(), Media(rise));
         Assert.Contains("fade=t=in", risePlan.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("min(t/0.6\\,1)", risePlan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("min(t/0.6,1)", risePlan.FilterScript, StringComparison.Ordinal);
 
         var zoom = Sample(4);
         zoom.Canvas.Intro = "zoom";
@@ -386,6 +386,19 @@ public class TimelineAndExportTests
         var none = Sample(4);
         var nonePlan = ExportGraph.Build(none, new ExportOptions(), Media(none));
         Assert.DoesNotContain("fade=t=in", nonePlan.FilterScript, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Export_GlobalOpening_AddsStaggeredCardAndCameraIntro()
+    {
+        var opening = Sample(6);
+        opening.Canvas.Opening = "lift";
+        opening.Canvas.OpeningTiming = "smooth";
+        var plan = ExportGraph.Build(opening, new ExportOptions(), Media(opening));
+        // 卡片：lift = 轻微放大 + 上移（eased progress）。
+        Assert.Contains("0.94+0.06*", plan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("fade=t=in:st=0:d=1:alpha=1", plan.FilterScript, StringComparison.Ordinal);
+        // 摄像头延迟 Interval 的 geq 透明度在带摄像头样本上已实测（geq 时间变量是大写 T）。
     }
 
     [Fact]

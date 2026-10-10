@@ -143,6 +143,22 @@ public static class CanvasLayout
             ? 1
             : Math.Clamp(time / IntroDuration, 0, 1);
 
+    /// <summary>Global Opening 某个元素的进场进度 0..1：元素延迟 = index*OpeningInterval，
+    /// 动画占时 = OpeningDuration-delay；smooth/clear/gentle 三套缓动（对齐 Mac Motion Timing）。</summary>
+    public static double OpeningProgress(CanvasSettings canvas, double time, int elementIndex)
+    {
+        if (canvas.Opening == "none" || time < 0) return 1;
+        var delay = elementIndex * canvas.OpeningInterval;
+        var anim = Math.Max(0.2, canvas.OpeningDuration - delay);
+        var t = Math.Clamp((time - delay) / anim, 0, 1);
+        return canvas.OpeningTiming switch
+        {
+            "clear" => 1 - (1 - t) * (1 - t),
+            "gentle" => 1 - (1 - t) * (1 - t) * (1 - t),
+            _ => t * t * (3 - 2 * t),
+        };
+    }
+
     /// <summary>
     /// 缩放进出的平滑系数：进入段 0→1、退出段 1→0，其余时间 1。
     /// 预览与导出共用同一个 ramp，保证两端一致。
