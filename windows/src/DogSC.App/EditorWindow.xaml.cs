@@ -37,7 +37,16 @@ public partial class EditorWindow : Window
         InitializeRegionEditor();
         InitializeOverlayEditor();
         _saveTimer.Tick += (_, _) => FlushPendingSave();
-        Loaded += (_, _) => WindowPlacement.KeepInWorkArea(this, center: true);
+        Loaded += (_, _) =>
+        {
+            WindowPlacement.KeepInWorkArea(this, center: true);
+            if (!SettingsStore.Current.TourSeen) ShowTour(0);
+        };
+        Activated += (_, _) =>
+        {
+            if (TourOverlay.Visibility == Visibility.Visible)
+                Dispatcher.BeginInvoke(() => Keyboard.Focus(TourNext), DispatcherPriority.ContextIdle);
+        };
         Closing += (_, _) => { CancelOverlayGesture(); CancelRegionEditing(); FlushPendingSave(); };
         SetToolContent(ToolLayout, IconKind.Layout, "画面");
         SetToolContent(ToolZoom, IconKind.Zoom, "缩放");
@@ -128,6 +137,67 @@ public partial class EditorWindow : Window
         {
             MessageBox.Show(ex.Message, "DogSC");
         }
+    }
+
+    int _tourStep;
+    static readonly (string Title, string Body)[] TourSteps =
+    [
+        ("欢迎使用 DogSC", "在录制条选择显示器、窗口、区域或视频设备开始录制；停止后，在完成卡片中选择「打开编辑器」，继续调整画面、缩放和效果。"),
+        ("时间线与效果", "下方时间线可切开片段、加缩放与屏幕/摄像头运动、贴贴图与柔化区域、打标记；「轨道」菜单可收起或显示各行。"),
+        ("布局与导出", "右侧画面面板调整背景、外框与开场动画，预览上方切换画布比例；右上角导出成片，时间线右侧可切换预览画质。"),
+    ];
+
+    void ShowTour(int step)
+    {
+        var opening = TourOverlay.Visibility != Visibility.Visible;
+        if (opening)
+        {
+            _player.Pause();
+            CancelOverlayGesture();
+            CancelRegionEditing();
+            foreach (UIElement child in ((Panel)TourOverlay.Parent).Children)
+                if (child != TourOverlay) child.IsEnabled = false;
+        }
+        _tourStep = Math.Clamp(step, 0, TourSteps.Length - 1);
+        var (title, body) = TourSteps[_tourStep];
+        TourTitle.Text = title;
+        TourBody.Text = body;
+        TourStep.Text = $"{_tourStep + 1} / {TourSteps.Length}";
+        TourPrev.IsEnabled = _tourStep > 0;
+        TourNext.Content = _tourStep == TourSteps.Length - 1 ? "完成" : "下一步";
+        TourOverlay.Visibility = Visibility.Visible;
+        if (opening)
+        {
+            FocusManager.SetFocusedElement(this, TourNext);
+            Dispatcher.BeginInvoke(() => Keyboard.Focus(TourNext), DispatcherPriority.ContextIdle);
+        }
+    }
+
+    void EndTour()
+    {
+        TourOverlay.Visibility = Visibility.Collapsed;
+        foreach (UIElement child in ((Panel)TourOverlay.Parent).Children)
+            if (child != TourOverlay) child.IsEnabled = true;
+        Timeline.Focus();
+        SettingsStore.Current.TourSeen = true;
+        SettingsStore.Save();
+    }
+
+    void TourPrev_Click(object sender, RoutedEventArgs e) => ShowTour(_tourStep - 1);
+    public void ReplayTour() { ShowTour(0); Activate(); }
+
+    public void ResetLayout()
+    {
+        Timeline.TrackFlags = 1;
+        TimelineZoom.Value = 1;
+        TrackMenu_Opened(this, new RoutedEventArgs());
+        Timeline.InvalidateVisual();
+    }
+    void TourSkip_Click(object sender, RoutedEventArgs e) => EndTour();
+    void TourNext_Click(object sender, RoutedEventArgs e)
+    {
+        if (_tourStep >= TourSteps.Length - 1) EndTour();
+        else ShowTour(_tourStep + 1);
     }
 
     void Load(string directory)
@@ -1796,8 +1866,18 @@ public partial class EditorWindow : Window
         if (SettingsStore.Current.PreviewQuality == quality) return;
         SettingsStore.Current.PreviewQuality = quality;
         SettingsStore.Save();
-        _player.Quality = quality;
-        _player.Seek(_player.Time, _player.IsPlaying);
+        foreach (var editor in Application.Current.Windows.OfType<EditorWindow>()) editor.SyncPreviewQuality();
+    }
+
+    public void SyncPreviewQuality()
+    {
+        var quality = SettingsStore.Current.PreviewQuality;
+        foreach (ComboBoxItem item in PreviewQualityBox.Items) item.IsSelected = (item.Tag as string) == quality;
+        if (_player.Quality != quality)
+        {
+            _player.Quality = quality;
+            _player.Seek(_player.Time, _player.IsPlaying);
+        }
     }
 
     /// <summary>片段右键菜单：切分 / 速度 / 波纹删除 / 删除（对齐 Mac 时间线菜单）。</summary>
@@ -1897,6 +1977,12 @@ public partial class EditorWindow : Window
 
     void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (TourOverlay.Visibility == Visibility.Visible)
+        {
+            if (e.Key == Key.Escape) EndTour();
+            e.Handled = e.Key is not (Key.Tab or Key.Space or Key.Enter);
+            return;
+        }
         if (Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase
             || Keyboard.FocusedElement is PasswordBox)
         {

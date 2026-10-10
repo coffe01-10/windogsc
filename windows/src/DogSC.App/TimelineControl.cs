@@ -371,6 +371,9 @@ public sealed class TimelineControl : FrameworkElement
         {
             var edge = HitDecoration(point, pixels)?.Edge ?? HitZoom(point, pixels)?.Edge ?? HitClip(point, pixels)?.Edge;
             Cursor = edge is < 0 or > 0 ? Cursors.SizeWE : edge == 0 ? Cursors.Hand : Cursors.Arrow;
+            ToolTip = HitMarker(point, pixels) is { } marker
+                ? "标记 " + TimeSpan.FromSeconds(TimelineMath.MarkerTime(_project, marker) ?? 0).ToString(@"mm\:ss\.f")
+                : null;
             return;
         }
         var time = XToTime(point.X, pixels);

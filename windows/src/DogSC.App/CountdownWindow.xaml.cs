@@ -10,14 +10,19 @@ public partial class CountdownWindow : Window
         InitializeComponent();
     }
 
-    public static async Task RunAsync(MonitorDesc monitor)
+    public static async Task RunAsync(MonitorDesc monitor, int seconds = 3)
     {
+        if (seconds <= 0)
+        {
+            return;
+        }
+
         var window = new CountdownWindow(monitor);
         window.Show();
-        for (var value = 3; value >= 1; value--)
+        for (var value = seconds; value >= 1; value--)
         {
             window.Number.Text = value.ToString();
-            await Task.Delay(650);
+            await Task.Delay(1000);
         }
 
         window.Close();

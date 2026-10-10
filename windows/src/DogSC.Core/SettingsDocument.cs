@@ -45,6 +45,9 @@ public sealed class AppSettings
     /// <summary>时间线轨道显示位集（对齐 Mac EditorTimelineTrackVisibility）：1=缩放 2=屏幕运动 4=摄像头运动 8=叠加。默认只显示缩放轨，隐藏只是收起行。</summary>
     public int TimelineTracks { get; set; } = 1;
     public List<ScenePreset> ScenePresets { get; set; } = [];
+    public bool TourSeen { get; set; }
+    public string CameraDefaultShape { get; set; } = "circle";
+    public int RecordCountdownSeconds { get; set; } = 3;
     public string? DefaultScenePresetId { get; set; }
     /// <summary>启动时自动检测 GitHub 上的新版本（只提示，不自动更新）。</summary>
     public bool CheckUpdates { get; set; } = true;
@@ -129,6 +132,8 @@ public static class SettingsFile
         settings.ExportResolution ??= defaults.ExportResolution;
         settings.ExportFps = settings.ExportFps >= 60 ? 60 : 30;
         settings.PreviewQuality = settings.PreviewQuality == "low" ? "low" : "full";
+        settings.CameraDefaultShape = settings.CameraDefaultShape is "square" or "rounded" ? settings.CameraDefaultShape : "circle";
+        settings.RecordCountdownSeconds = settings.RecordCountdownSeconds <= 0 ? 0 : settings.RecordCountdownSeconds >= 5 ? 5 : 3;
     }
 
     static double FiniteOr(double value, double fallback) => double.IsFinite(value) ? value : fallback;
