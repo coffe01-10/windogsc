@@ -338,14 +338,45 @@ public static class ExportGraph
                 script.Append("[pl0]crop=").Append(canvasWidth).Append(':').Append(canvasHeight)
                     .AppendLine(":0:0[placed]");
             }
-            script.AppendLine("[placed]alphaextract,negate[bgn]");
+            // 屏幕运动轨道：ffmpeg 9.0.2 的 perspective 不支持逐帧表达式，
+            // 切成 15Hz 常量角点分段（trim+perspective(eval=init) 再 concat），
+            // 每段取中点采样的单应四角（tilt+缩放+rotZ+位移）。
+            var placedSrc = "placed";
+            if (project.ScreenMotions.Count > 0)
+            {
+                var viewport = new ScreenAnchorViewport(canvasWidth, canvasHeight, placement.Width, placement.Height);
+                var screenTrack = new ScreenMotionTrack(project.ScreenMotions);
+                var baseSample = screenTrack.SampleLayout(-1, null, viewport);
+                const double segDur = 1.0 / 15;
+                var segCount = Math.Max(1, (int)Math.Ceiling(duration / segDur - 0.0001));
+                script.Append("[placed]split=").Append(segCount);
+                for (var i = 0; i < segCount; i++) script.Append("[pms").Append(i).Append(']');
+                script.AppendLine();
+                for (var i = 0; i < segCount; i++)
+                {
+                    var s0 = i * segDur;
+                    var mid = Math.Min(s0 + segDur / 2, duration - 0.0001);
+                    var corners = MotionExport.ScreenCorners(
+                        screenTrack.SampleLayout(mid, null, viewport), baseSample,
+                        canvasWidth, canvasHeight, placement.X, placement.Y, placement.Width, placement.Height);
+                    script.Append("[pms").Append(i).Append("]trim=start=").Append(F(s0))
+                        .Append(":end=").Append(F(Math.Min(s0 + segDur, duration)))
+                        .Append(",setpts=PTS-STARTPTS+").Append(F(s0)).Append("/TB,perspective=")
+                        .Append(string.Join(":", corners.SelectMany(p => new[] { F(p.X), F(p.Y) })))
+                        .Append(":sense=destination:eval=init[pmsq").Append(i).AppendLine("]");
+                }
+                for (var i = 0; i < segCount; i++) script.Append("[pmsq").Append(i).Append(']');
+                script.Append("concat=n=").Append(segCount).AppendLine(":v=1:a=0[pmot]");
+                placedSrc = "pmot";
+            }
+            script.Append('[').Append(placedSrc).AppendLine("]alphaextract,negate[bgn]");
             // —— 贴纸背景通道（压屏幕/虚化）：先把背景拆出一份供压制合并 ——
             var stickerTrack = new StickerMotion.Track(project.Canvas.Stickers);
             var backdropMax = StickerBackdropMax(stickerTrack, duration, fps);
             // 背景挖洞（screen 区域 alpha=0）后叠在画面流上，视频流做主避免 overlay 帧配对漂移。
             script.Append('[').Append(under).AppendLine("]format=rgba[bgrgb]");
             script.AppendLine("[bgrgb][bgn]alphamerge[bga]");
-            script.Append("[placed][bga]overlay=0:0:format=auto:shortest=1")
+            script.Append('[').Append(placedSrc).Append("][bga]overlay=0:0:format=auto:shortest=1")
                 .AppendLine("[composed]");
             videoMap = "composed";
             var camOn = includeCamera && cameraSlices.Count > 0;
@@ -398,6 +429,17 @@ public static class ExportGraph
                 var cameraUnder = videoMap;
                 var step = 0;
                 var entry = project.Camera.Entry;
+                // 摄像头运动轨道：以项目摄像头外观为基态，逐帧几何表达式。
+                CameraMotionTrack? camTrack = project.CameraMotions.Count > 0
+                    ? new CameraMotionTrack(project.CameraMotions) : null;
+                var camBase = new CameraMotionState
+                {
+                    Layout = project.Camera.Shape is "circle" or "horizontal" or "vertical" or "original"
+                        ? project.Camera.Shape : "square",
+                    X = project.Camera.CenterX, Y = project.Camera.CenterY,
+                    Size = project.Camera.Size, Roundness = project.Camera.Corner * 2,
+                    Opacity = project.Camera.Hidden ? 0 : 1,
+                };
                 // 进出动画时长：跟开场一致，太长会吃掉短片段。
                 var anim = Math.Min(0.5, Math.Max(0.12, cameraSlices.Min(c => c.End - c.Start) / 4));
                 foreach (var cam in cameraSlices)
@@ -439,14 +481,42 @@ public static class ExportGraph
                         src = "camf" + cam.Index;
                     }
 
+                    string oxExpr, oyExpr;
+                    if (camTrack is not null)
+                    {
+                        // 运动轨道：逐帧 scale(w,h) + geq 透明度 + overlay(x,y) 分段线性表达式。
+                        var window = MotionExport.SampleTrack(cam.Start, cam.End, fps, 64,
+                            t => MotionExport.CameraPixels(
+                                camTrack.Sample(t, camBase, media.CameraAspect,
+                                    (double)canvasWidth / canvasHeight), canvasWidth, canvasHeight));
+                        string Expr(Func<MotionExport.CameraFrame, double> pick, string fallback) =>
+                            MotionExport.Piecewise(window.Select(s => (s.Time, pick(s.Value))).ToList(),
+                                fallback, "t");
+                        var wE = Expr(f => Math.Max(2, f.W), "2");
+                        var hE = Expr(f => Math.Max(2, f.H), "2");
+                        oxExpr = "'" + Expr(f => f.X, "0") + "'";
+                        oyExpr = "'" + Expr(f => f.Y, "0") + "'";
+                        // geq 的时间变量是大写 T（overlay/enable 用小写 t）。
+                        var oE = MotionExport.Piecewise(
+                            window.Select(s => (s.Time, Math.Clamp(s.Value.Opacity, 0, 1))).ToList(),
+                            "1", "T");
+                        script.Append('[').Append(src).Append("]scale=w='").Append(wE)
+                            .Append("':h='").Append(hE).Append("':eval=frame,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*")
+                            .Append(oE).Append("'[camm").Append(cam.Index).AppendLine("]");
+                        src = "camm" + cam.Index;
+                    }
+                    else
+                    {
+                        // rise：在入场窗口内 y 从下方滑到位。
+                        oxExpr = bubble.X.ToString();
+                        oyExpr = entry == "rise"
+                            ? F(bubble.Y) + "+(1-min((t-" + F(cam.Start) + ")/" + F(anim) + "\\,1))*" + F(bubble.Height * 0.4)
+                            : bubble.Y.ToString();
+                    }
                     var next = step == cameraSlices.Count - 1 ? "vfinal" : "cover" + step;
-                    // rise：在入场窗口内 y 从下方滑到位。
-                    var oy = entry == "rise"
-                        ? F(bubble.Y) + "+(1-min((t-" + F(cam.Start) + ")/" + F(anim) + "\\,1))*" + F(bubble.Height * 0.4)
-                        : bubble.Y.ToString();
                     // 只在该片段的时间窗内叠加画中画，缺摄像头的片段保持背景画面。
                     script.Append('[').Append(cameraUnder).Append("][").Append(src)
-                        .Append("]overlay=").Append(bubble.X).Append(':').Append(oy)
+                        .Append("]overlay=").Append(oxExpr).Append(':').Append(oyExpr)
                         .Append(":format=auto:eval=frame:eof_action=pass:repeatlast=0:enable='gte(t,").Append(F(cam.Start))
                         .Append(")*lt(t,").Append(F(cam.End)).Append(")'")
                         .Append('[').Append(next).AppendLine("]");

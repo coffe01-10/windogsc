@@ -97,6 +97,7 @@ public static class MacProjectImporter
             MapCamera(root, project, r.DroppedFields);
             MapAudio(root, project);
             MapZooms(timeline, project);
+            MapMotionClips(timeline, project);
             MapOverlays(timeline, project, r.MediaReferences, r.DroppedFields);
             MapCursor(root, project, r.DroppedFields);
             CollectUnmappedEffects(root, r.DroppedFields);
@@ -284,6 +285,93 @@ public static class MacProjectImporter
         }
     }
 
+    static TransitionTiming MapTiming(JsonElement clip)
+    {
+        var t = Obj(clip, "timing");
+        if (t is null) return new TransitionTiming();
+        var v = t.Value;
+        var easing = Text(v, "easing") switch
+        {
+            "线性" or "linear" => "linear",
+            "二次方缓动" or "quadratic" => "quadratic",
+            "三次方缓动" or "cubic" => "cubic",
+            "五次平滑" or "quintic" => "quintic",
+            "弹簧" or "spring" => "spring",
+            "自定义曲线" or "custom" => "custom",
+            _ => "quintic",
+        };
+        double[]? custom = null;
+        static double NumOf(JsonElement e) =>
+            e.ValueKind == JsonValueKind.Number && e.TryGetDouble(out var n) ? n : 0;
+        if (Obj(v, "customCurve") is { } curve && Arr(curve, "points") is { } pts)
+            custom = pts.EnumerateArray().Select(NumOf).Take(4).ToArray();
+        else if (Arr(v, "customCurve") is { } flat)
+            custom = flat.EnumerateArray().Select(NumOf).Take(4).ToArray();
+        return new TransitionTiming
+        {
+            StartTime = Num(v, "startTime"),
+            Duration = Num(v, "duration", .7),
+            LeadInDuration = Num(v, "leadInDuration"),
+            LeadInProgressOffset = Num(v, "leadInProgressOffset"),
+            Easing = easing,
+            CustomCurve = custom is { Length: 4 } ? custom : null,
+            ReturnDuration = Num(v, "returnDuration"),
+            ReturnProgressOffset = Num(v, "returnProgressOffset"),
+            PreferredLeadInDuration = v.TryGetProperty("preferredLeadInDuration", out var pl) && pl.ValueKind == JsonValueKind.Number ? pl.GetDouble() : null,
+            PreferredReturnDuration = v.TryGetProperty("preferredReturnDuration", out var pr) && pr.ValueKind == JsonValueKind.Number ? pr.GetDouble() : null,
+        };
+    }
+
+    /// <summary>屏幕/摄像头独立运动轨道：timeline.screenMotionClips / cameraMotionClips。</summary>
+    static void MapMotionClips(JsonElement? timeline, ProjectDocument project)
+    {
+        if (timeline is not { } track) return;
+        if (Arr(track, "screenMotionClips") is { } screens)
+            foreach (var clip in screens.EnumerateArray())
+            {
+                var target = Obj(clip, "target");
+                var pos = target is { } t2 ? Obj(t2, "position") : null;
+                project.ScreenMotions.Add(new ScreenMotionClip
+                {
+                    Id = Text(clip, "id") ?? Guid.NewGuid().ToString("N"),
+                    Timing = MapTiming(clip),
+                    Target = new ScreenMotionState
+                    {
+                        X = pos is { } px ? Num(px, "x", .5) : .5,
+                        Y = pos is { } py ? Num(py, "y", .5) : .5,
+                        Scale = target is { } ts ? Num(ts, "scale", 1) : 1,
+                        RotationX = target is { } tx ? Num(tx, "rotationX") : 0,
+                        RotationY = target is { } ty ? Num(ty, "rotationY") : 0,
+                        RotationZ = target is { } tz ? Num(tz, "rotationZ") : 0,
+                        Perspective = target is { } tp ? Num(tp, "perspective", .65) : .65,
+                    },
+                });
+            }
+        if (Arr(track, "cameraMotionClips") is { } cameras)
+            foreach (var clip in cameras.EnumerateArray())
+            {
+                var target = Obj(clip, "target");
+                var pos = target is { } t2 ? Obj(t2, "position") : null;
+                var layout = target is { } lt && Obj(lt, "layout") is { } lo
+                    ? (Text(lo, "kind") == "fullscreen" ? "fullscreen" : Text(lo, "shape") ?? "square")
+                    : "square";
+                project.CameraMotions.Add(new CameraMotionClip
+                {
+                    Id = Text(clip, "id") ?? Guid.NewGuid().ToString("N"),
+                    Timing = MapTiming(clip),
+                    Target = new CameraMotionState
+                    {
+                        Layout = layout,
+                        X = pos is { } px ? Num(px, "x", .86) : .86,
+                        Y = pos is { } py ? Num(py, "y", .82) : .82,
+                        Size = target is { } ts ? Num(ts, "size", .35) : .35,
+                        Roundness = target is { } tr ? Num(tr, "roundness", .5) : .5,
+                        Opacity = target is { } to ? Num(to, "opacity", 1) : 1,
+                    },
+                });
+            }
+    }
+
     static void MapCursor(JsonElement root, ProjectDocument project, List<string> dropped)
     {
         var cursor = Obj(root, "cursorStyle");
@@ -385,10 +473,7 @@ public static class MacProjectImporter
                 dropped.Add(key);
             }
         }
-        if (Obj(root, "timeline") is { } timeline)
-            foreach (var key in new[] { "screenMotionClips", "cameraMotionClips" })
-                if (timeline.TryGetProperty(key, out var clips) && clips.ValueKind == JsonValueKind.Array && clips.GetArrayLength() > 0)
-                    dropped.Add("timeline." + key);
+
     }
 
     public static List<CursorPoint> ImportPointerEvents(IEnumerable<string> lines, double advance)
