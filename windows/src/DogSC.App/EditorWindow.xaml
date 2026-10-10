@@ -111,6 +111,7 @@
                     <StackPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Content="分割" ToolTip="在播放头分割（S）" Style="{StaticResource QuietButton}" Click="Split_Click"/>
                         <Button Content="删除" ToolTip="删除所选片段（Delete）" Style="{StaticResource QuietButton}" Click="Delete_Click"/>
+                        <Button x:Name="RestoreButton" Content="还原" ToolTip="还原所选片段附近被剪掉的源素材" Style="{StaticResource QuietButton}" Click="Restore_Click"/>
                         <Button Content="标记" ToolTip="在播放头添加标记（M）" Style="{StaticResource QuietButton}" Click="Marker_Click"/>
                         <ComboBox x:Name="SpeedBox" Width="88" Margin="8,0,0,0" VerticalAlignment="Center" SelectionChanged="Speed_Changed"/>
                         <Rectangle Width="1" Height="20" Fill="{DynamicResource LineBrush}" Margin="8,0" VerticalAlignment="Center"/>

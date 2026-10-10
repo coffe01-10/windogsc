@@ -40,6 +40,8 @@ public sealed class AppSettings
     public string ExportResolution { get; set; } = "source";
     public int ExportFps { get; set; } = 30;
     public string? FfmpegPath { get; set; }
+    /// <summary>预览画质：low = 四分之一分辨率代理（流畅），full = 完整分辨率。</summary>
+    public string PreviewQuality { get; set; } = "full";
     public List<ScenePreset> ScenePresets { get; set; } = [];
     public string? DefaultScenePresetId { get; set; }
     /// <summary>启动时自动检测 GitHub 上的新版本（只提示，不自动更新）。</summary>
@@ -124,6 +126,7 @@ public static class SettingsFile
         settings.ExportDirectory ??= defaults.ExportDirectory;
         settings.ExportResolution ??= defaults.ExportResolution;
         settings.ExportFps = settings.ExportFps >= 60 ? 60 : 30;
+        settings.PreviewQuality = settings.PreviewQuality == "low" ? "low" : "full";
     }
 
     static double FiniteOr(double value, double fallback) => double.IsFinite(value) ? value : fallback;

@@ -38,6 +38,8 @@ public sealed class PreviewPlayer : IDisposable
 
     public VideoDrawing ScreenDrawing { get; }
     public VideoDrawing CameraDrawing { get; }
+    /// <summary>预览画质："low" 走四分之一分辨率代理文件（解码更省），"full" 播原素材。</summary>
+    public string Quality { get; set; } = "full";
     public bool IsPlaying { get; private set; }
     public double Time { get; private set; }
     public event Action? Changed;
@@ -222,10 +224,10 @@ public sealed class PreviewPlayer : IDisposable
     void OpenAsset(MediaAsset asset)
     {
         _activeAsset = asset;
-        OpenMedia(_screen, ProjectFile.Media(_directory, asset.Video), ref _screenPending);
+        OpenMedia(_screen, PreviewVideo(ProjectFile.Media(_directory, asset.Video)), ref _screenPending);
         if (!string.IsNullOrWhiteSpace(asset.Camera))
         {
-            OpenMedia(_camera, ProjectFile.Media(_directory, asset.Camera), ref _cameraPending);
+            OpenMedia(_camera, PreviewVideo(ProjectFile.Media(_directory, asset.Camera)), ref _cameraPending);
         }
         else _camera.Close();
 
@@ -242,6 +244,64 @@ public sealed class PreviewPlayer : IDisposable
         }
 
         OpenMedia(player, ProjectFile.Media(_directory, relative), ref pending);
+    }
+
+    /// <summary>
+    /// 低画质档把屏幕/摄像头视频换成项目目录下 previews/ 里的四分之一分辨率代理，
+    /// 代理按源文件 mtime 复用；转码失败或无 ffmpeg 时回退原文件。与 Mac 的
+    /// 「清晰预览/完整分辨率」同语义：只影响预览解码，导出不走这里。
+    /// </summary>
+    string PreviewVideo(string path)
+    {
+        if (Quality != "low" || !File.Exists(path))
+        {
+            return path;
+        }
+
+        try
+        {
+            var proxyDirectory = Path.Combine(_directory, "previews");
+            var proxy = Path.Combine(proxyDirectory,
+                Path.GetFileNameWithoutExtension(path) + ".q.mp4");
+            var sourceStamp = File.GetLastWriteTimeUtc(path);
+            if (File.Exists(proxy) && new FileInfo(proxy).Length > 0
+                && File.GetLastWriteTimeUtc(proxy) >= sourceStamp)
+            {
+                return proxy;
+            }
+
+            var ffmpeg = FfmpegTools.LocateFfmpeg();
+            if (ffmpeg is null)
+            {
+                return path;
+            }
+
+            Directory.CreateDirectory(proxyDirectory);
+            var temporary = proxy + ".tmp.mp4";
+            var start = new ProcessStartInfo(ffmpeg, FfmpegProcess.Join(
+                ["-y", "-i", path,
+                "-vf", "scale=trunc(iw/4)*2:trunc(ih/4)*2",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-an",
+                "-movflags", "+faststart", temporary]))
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var process = Process.Start(start);
+            if (process is null || !process.WaitForExit(60_000) || process.ExitCode != 0 || !File.Exists(temporary))
+            {
+                try { process?.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                try { File.Delete(temporary); } catch { /* best effort */ }
+                return path;
+            }
+
+            File.Move(temporary, proxy, overwrite: true);
+            return proxy;
+        }
+        catch
+        {
+            return path;
+        }
     }
 
     void OpenMedia(MediaPlayer player, string path, ref bool pending)

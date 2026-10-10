@@ -7,7 +7,7 @@ namespace DogSC;
 
 public partial class EditorWindow : Window
 {
-    readonly PreviewPlayer _player = new();
+    readonly PreviewPlayer _player = new() { Quality = SettingsStore.Current.PreviewQuality };
     readonly Stack<string> _undo = new();
     readonly Stack<string> _redo = new();
     readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
@@ -1041,6 +1041,7 @@ public partial class EditorWindow : Window
         SpeedBox.IsEnabled = clip is not null;
         var label = (clip?.Speed ?? 1).ToString("0.##", CultureInfo.InvariantCulture) + "×";
         SpeedBox.SelectedItem = label;
+        RestoreButton.IsEnabled = RestorableGapForSelection();
         _lock = false;
         UndoButton.IsEnabled = _undo.Count > 0;
         RedoButton.IsEnabled = _redo.Count > 0;
@@ -1201,6 +1202,60 @@ public partial class EditorWindow : Window
         _selectedZoom = null;
         _selectedClip = _project.Clips.FirstOrDefault()?.Id;
         Commit();
+    }
+
+    void Restore_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedClip is null)
+        {
+            return;
+        }
+
+        var index = _project.Clips.FindIndex(item => item.Id == _selectedClip);
+        if (index < 0)
+        {
+            return;
+        }
+
+        var clips = _project.Clips;
+        var clip = clips[index];
+        var sourceDuration = _project.Asset(clip.AssetId)?.Duration ?? 0;
+        Push();
+        // 优先还原选中片段后面的缺口，其次前面，再片头 / 片尾。
+        var restored =
+            (index + 1 < clips.Count && GapRestore.RestoreGap(_project, clip.Id, clips[index + 1].Id))
+            || (index > 0 && GapRestore.RestoreGap(_project, clips[index - 1].Id, clip.Id))
+            || (index == 0 && GapRestore.RestoreLeading(_project))
+            || (index == clips.Count - 1 && GapRestore.RestoreTrailing(_project, sourceDuration));
+        if (!restored)
+        {
+            _undo.Pop();
+            return;
+        }
+
+        Commit();
+    }
+
+    bool RestorableGapForSelection()
+    {
+        if (_selectedClip is null)
+        {
+            return false;
+        }
+
+        var index = _project.Clips.FindIndex(item => item.Id == _selectedClip);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        var clips = _project.Clips;
+        var clip = clips[index];
+        var sourceDuration = _project.Asset(clip.AssetId)?.Duration ?? 0;
+        return (index + 1 < clips.Count && GapRestore.RestorableGap(_project, clip.Id) > 0)
+            || (index > 0 && GapRestore.RestorableGap(_project, clips[index - 1].Id) > 0)
+            || (index == 0 && clip.SourceStart > 0)
+            || (index == clips.Count - 1 && sourceDuration - clip.SourceEnd > 0);
     }
 
     void Marker_Click(object sender, RoutedEventArgs e)
