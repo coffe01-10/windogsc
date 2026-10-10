@@ -149,12 +149,13 @@ public static class MotionExport
     public static (double X, double Y)[] ScreenCorners(
         ScreenMotionSample sample, ScreenMotionSample baseSample,
         double canvasW, double canvasH,
-        double cardX, double cardY, double cardW, double cardH)
+        double cardX, double cardY, double cardW, double cardH, OpeningPose? opening = null)
     {
         var s = sample.State;
         // 1. tilt：卡片局部四角 → tilt 后四角（平移到画布坐标）
-        var tiltQuad = PerspectiveGeometry.Corners(cardW, cardH, s.RotationX, s.RotationY);
-        var srcCard = new[] { (0.0, 0.0), (cardW, 0.0), (0.0, cardH), (cardW, cardH) };
+        var tiltQuad = PerspectiveGeometry.MotionCorners(cardW, cardH, s.RotationX, s.RotationY,
+            s.Perspective, sample.ProjectionAnchor.X, sample.ProjectionAnchor.Y);
+        var srcCard = new[] { (cardX, cardY), (cardX + cardW, cardY), (cardX, cardY + cardH), (cardX + cardW, cardY + cardH) };
         var dstTilt = tiltQuad
             .Select(p => (p.X + cardX, p.Y + cardY)).ToArray();
         var hTilt = Homography.FromQuad(srcCard, dstTilt);
@@ -168,6 +169,13 @@ public static class MotionExport
             Math.Max(s.Scale, 0.05), s.RotationZ, mo.X - moBase.X, mo.Y - moBase.Y);
 
         var h = hTilt.Then(hMove);
+        if (opening is { } pose)
+        {
+            var quad = PerspectiveGeometry.MotionCorners(cardW, cardH, pose.RotationX, pose.RotationY, pose.Perspective, .5, .5);
+            var projection = Homography.FromQuad(srcCard, quad.Select(p => (p.X + cardX, p.Y + cardY)).ToArray());
+            var affine = Homography.AnchorScaleRot(cardX + cardW / 2, cardY + cardH / 2, pose.Scale, 0, pose.X, pose.Y);
+            h = h.Then(projection).Then(affine);
+        }
         return new[]
         {
             h.Apply(0, 0), h.Apply(canvasW, 0), h.Apply(0, canvasH), h.Apply(canvasW, canvasH),

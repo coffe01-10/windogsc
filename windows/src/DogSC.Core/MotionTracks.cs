@@ -167,6 +167,9 @@ public sealed class ScreenMotionTrack : MotionClipTrack<ScreenMotionClip>
     public ScreenMotionTrack(IEnumerable<ScreenMotionClip> clips)
         : base(clips, c => c.Timing, c => c.Id) { }
 
+    public static ScreenMotionSample TargetLayout(ScreenMotionState target, ScreenAnchorViewport viewport)
+        => LayoutSample(target, viewport, Framing.Focus);
+
     /// <summary>回落默认时长 0.7s（Mac requestedReturnDuration defaultTransition）。</summary>
     private static double ReturnOf(TransitionTiming t) =>
         t.PreferredReturnDuration ?? (t.ReturnDuration > 0.0001 ? t.ReturnDuration : 0);

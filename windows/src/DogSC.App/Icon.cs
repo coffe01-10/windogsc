@@ -31,10 +31,32 @@ public enum IconKind
     ChevronUp,
     ChevronDown,
     ArrowUp,
+    CanvasPicture,
+    OpeningStack,
+    MotionViewfinder,
+    CursorMotion,
+    Crop,
+    Sliders,
+    Plus,
+    Layers,
+    InsetRectangle,
+    Photo,
+    GridPattern,
+    WaveformRectangle,
+    PhotoPlus,
 }
 
 public sealed class Icon : FrameworkElement
 {
+    static readonly Geometry OpeningSparkles = CreateGeometry("M7,2 L8.15,5.3 L11.5,6.4 L8.15,7.55 L7,10.9 L5.85,7.55 L2.5,6.4 L5.85,5.3 Z M17.2,2.1 L17.9,4.1 L19.9,4.8 L17.9,5.5 L17.2,7.5 L16.5,5.5 L14.5,4.8 L16.5,4.1 Z");
+
+    static Geometry CreateGeometry(string path)
+    {
+        var geometry = Geometry.Parse(path);
+        geometry.Freeze();
+        return geometry;
+    }
+
     static readonly IReadOnlyDictionary<IconKind, Geometry> Geometries = Enum.GetValues<IconKind>()
         .Where(kind => kind != IconKind.Record)
         .ToDictionary(kind => kind, kind =>
@@ -96,9 +118,14 @@ public sealed class Icon : FrameworkElement
         var filled = Kind is IconKind.Play or IconKind.Pause or IconKind.Stop or IconKind.SkipStart or IconKind.SkipEnd;
         var geometry = Geometries[Kind];
         var bounds = geometry.Bounds;
+        if (Kind == IconKind.OpeningStack) bounds.Union(OpeningSparkles.Bounds);
         // 按图形的实际边界居中，麦克风、扬声器等非对称路径不再偏向画布一侧。
         drawing.PushTransform(new TranslateTransform(12 - (bounds.Left + bounds.Width / 2) + (Kind == IconKind.Play ? 1 : 0), 12 - (bounds.Top + bounds.Height / 2)));
         drawing.DrawGeometry(filled ? brush : null, filled ? null : pen, geometry);
+        if (Kind is IconKind.CanvasPicture or IconKind.Photo or IconKind.PhotoPlus)
+            drawing.DrawEllipse(brush, null, Kind == IconKind.CanvasPicture ? new Point(15.5, 9.2) : new Point(8, 8), 1.3, 1.3);
+        if (Kind == IconKind.OpeningStack)
+            drawing.DrawGeometry(brush, null, OpeningSparkles);
         drawing.Pop();
         drawing.Pop();
         drawing.Pop();
@@ -134,6 +161,24 @@ public sealed class Icon : FrameworkElement
         IconKind.ChevronUp => "M6,14.5 L12,8.5 L18,14.5",
         IconKind.ChevronDown => "M6,9.5 L12,15.5 L18,9.5",
         IconKind.ArrowUp => "M12,20 V4 M5,11 L12,4 L19,11",
+        // WPF counterparts of the SF Symbols used by InspectorTab / RecorderViews.swift.
+        // photo.on.rectangle.angled
+        IconKind.CanvasPicture => "M6,7 L3.2,7.9 Q1.8,8.3 2.2,9.7 L5,19.2 Q5.4,20.7 6.9,20.3 L16,17.5 M9,5 H20 Q21.5,5 21.5,6.5 V15.5 Q21.5,17 20,17 H9 Q7.5,17 7.5,15.5 V6.5 Q7.5,5 9,5 Z M8,14 L11.4,10.8 L14.1,13.2 L16.8,10.7 L21,14.7",
+        // sparkles.rectangle.stack
+        IconKind.OpeningStack => "M11.7,9 H19.5 Q21,9 21,10.5 V18 Q21,19.5 19.5,19.5 H5.5 Q4,19.5 4,18 V12 M11,6.6 H19 M12,4.1 H14 M7,22 H18",
+        // viewfinder
+        IconKind.MotionViewfinder => "M9,3 H5 Q3,3 3,5 V9 M15,3 H19 Q21,3 21,5 V9 M21,15 V19 Q21,21 19,21 H15 M9,21 H5 Q3,21 3,19 V15",
+        // cursorarrow.motionlines
+        IconKind.CursorMotion => "M4,3 L4,18 L8.1,14.2 L11.2,20.2 L13.9,18.8 L10.7,12.9 L16.1,12.5 Z M17,4 L20,3 M18.5,7 H22 M17.8,10 L21,11",
+        IconKind.Crop => "M6,2 V16 Q6,18 8,18 H22 M2,6 H16 Q18,6 18,8 V22 M9,6 H18 M6,9 V18",
+        IconKind.Sliders => "M3,6 H8 M12,6 H21 M3,12 H15 M19,12 H21 M3,18 H5 M9,18 H21 M10,4 V8 M17,10 V14 M7,16 V20",
+        IconKind.Plus => "M12,4 V20 M4,12 H20",
+        IconKind.Layers => "M12,3 L22,8 L12,13 L2,8 Z M3,12 L12,16.5 L21,12 M3,16 L12,20.5 L21,16",
+        IconKind.InsetRectangle => "M4,5 H20 Q22,5 22,7 V17 Q22,19 20,19 H4 Q2,19 2,17 V7 Q2,5 4,5 Z M6,9 H18 V15 H6 Z",
+        IconKind.Photo => "M4,4 H20 Q22,4 22,6 V18 Q22,20 20,20 H4 Q2,20 2,18 V6 Q2,4 4,4 Z M2,17 L8.5,10.5 L13,14.7 L16.7,11 L22,17",
+        IconKind.GridPattern => "M4,3 H20 Q21,3 21,4 V20 Q21,21 20,21 H4 Q3,21 3,20 V4 Q3,3 4,3 Z M9,3 V21 M15,3 V21 M3,9 H21 M3,15 H21",
+        IconKind.WaveformRectangle => "M4,4 H20 Q22,4 22,6 V18 Q22,20 20,20 H4 Q2,20 2,18 V6 Q2,4 4,4 Z M4,12 H7 L9,7 L12,17 L15,10 L17,12 H20",
+        IconKind.PhotoPlus => "M4,4 H19 Q21,4 21,6 V11 M21,20 H4 Q2,20 2,18 V6 Q2,4 4,4 M2,17 L8.5,10.5 L13,14.7 L15.5,12.2 M19,13 V21 M15,17 H23",
         _ => "M4,4 H20 V20 H4 Z",
     };
 }

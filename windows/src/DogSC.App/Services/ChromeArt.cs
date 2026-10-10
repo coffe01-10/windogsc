@@ -15,6 +15,14 @@ public static class ChromeArt
 {
     public static string Bake(ChromeSpec spec, int canvasW, int canvasH, string output)
     {
+        var bitmap = Preview(spec, canvasW, canvasH);
+        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+        using var stream = File.Create(output); encoder.Save(stream); return output;
+    }
+
+    public static BitmapSource Preview(ChromeSpec spec, int canvasW, int canvasH)
+    {
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
@@ -100,11 +108,7 @@ public static class ChromeArt
 
         var bmp = new RenderTargetBitmap(canvasW, canvasH, 96, 96, PixelFormats.Pbgra32);
         bmp.Render(visual);
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(bmp));
-        Directory.CreateDirectory(Path.GetDirectoryName(output)!);
-        using (var stream = File.Create(output)) encoder.Save(stream);
-        return output;
+        bmp.Freeze(); return bmp;
     }
 
     static FormattedText Text(string s, double size, Brush brush) =>

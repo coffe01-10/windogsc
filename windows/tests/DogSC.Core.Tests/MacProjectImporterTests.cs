@@ -126,7 +126,7 @@ public class MacProjectImporterTests
         Assert.DoesNotContain(result.DroppedFields, f => f.StartsWith("canvas.crop"));
         Assert.Equal(1, project.Canvas.Crop.Width);
         Assert.Equal(2, project.Canvas.Cursor.Size);
-        Assert.Contains(result.DroppedFields, f => f == "openingSequence");
+        Assert.DoesNotContain(result.DroppedFields, f => f == "openingSequence");
         Assert.Contains(result.DroppedFields, f => f == "motion");
         Assert.Contains(result.DroppedFields, f => f.StartsWith("camera.borderWidth"));
 

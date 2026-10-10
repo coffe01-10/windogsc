@@ -7,9 +7,6 @@ public partial class EditorWindow
 {
     void UpdateDecorationTiming()
     {
-        foreach (var sticker in _project.Canvas.Stickers)
-            if (_stickerImages.TryGetValue(sticker.Id, out var image))
-                image.Opacity = sticker.Opacity * (EditingRegions && sticker.Id == _selectedDecoration ? 1 : EffectTiming.OpacityAt(sticker.Timing, _player.Time));
         var drawing = EditingRegions && _regionDrawingStyle is not null;
         _sourceRegions.Update(_player.Time, EditingRegions ? _selectedDecoration : null, drawing);
         _canvasRegions.Update(_player.Time, EditingRegions ? _selectedDecoration : null, drawing);

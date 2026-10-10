@@ -9,6 +9,8 @@ public sealed class PreviewPlayer : IDisposable
     readonly MediaPlayer _microphone = new() { Volume = 1 };
     readonly MediaPlayer _system = new() { Volume = 1 };
     readonly DispatcherTimer _timer;
+    readonly DispatcherTimer _scrubTimer;
+    double? _scrubTime;
     ProjectDocument? _project;
     (string Id, string AssetId, double Start, double End, double Speed)[] _timeline = [];
     string _directory = "";
@@ -39,6 +41,10 @@ public sealed class PreviewPlayer : IDisposable
         _screen.MediaFailed += (_, args) => Failed?.Invoke(args.ErrorException.Message);
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
         _timer.Tick += (_, _) => OnTick();
+        // Decode after input and rendering have moved the pointer. Render priority
+        // puts seeks ahead of queued mouse events and makes the drag miss frames.
+        _scrubTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(33) };
+        _scrubTimer.Tick += (_, _) => FlushScrub();
     }
 
     public VideoDrawing ScreenDrawing { get; }
@@ -112,8 +118,26 @@ public sealed class PreviewPlayer : IDisposable
         Changed?.Invoke();
     }
 
+    // Mouse input can arrive much faster than the decoder can seek. Keep only
+    // the latest position; the timeline draws its pointer independently.
+    public void Scrub(double timeline)
+    {
+        _scrubTime = timeline;
+        if (!_scrubTimer.IsEnabled) _scrubTimer.Start();
+    }
+
+    public void FlushScrub()
+    {
+        _scrubTimer.Stop();
+        if (_scrubTime is not { } time) return;
+        _scrubTime = null;
+        Seek(time, play: false);
+    }
+
     public void Seek(double timeline, bool play)
     {
+        _scrubTimer.Stop();
+        _scrubTime = null;
         if (_project is null)
         {
             return;
@@ -130,6 +154,7 @@ public sealed class PreviewPlayer : IDisposable
             return;
         }
 
+        var wasPlaying = IsPlaying;
         Time = timeline;
         _clipId = hit.Value.Clip.Clip.Id;
         _wantPlay = play;
@@ -155,10 +180,15 @@ public sealed class PreviewPlayer : IDisposable
         {
             IsPlaying = false;
             _timer.Stop();
-            Nudge(_screen);
-            Nudge(_camera);
-            _microphone.Pause();
-            _system.Pause();
+            // ScrubbingEnabled displays Position changes while paused. Repeated
+            // Play/Pause pairs restart the media clock for every mouse sample.
+            if (wasPlaying)
+            {
+                _screen.Pause();
+                _camera.Pause();
+                _microphone.Pause();
+                _system.Pause();
+            }
         }
 
         Changed?.Invoke();
@@ -180,6 +210,7 @@ public sealed class PreviewPlayer : IDisposable
         _disposed = true;
         _proxyCancellation.Cancel();
         _timer.Stop();
+        _scrubTimer.Stop();
         _screen.Close();
         _camera.Close();
         _microphone.Close();
@@ -243,7 +274,7 @@ public sealed class PreviewPlayer : IDisposable
         {
             OpenMedia(_camera, PreviewVideo(ProjectFile.Media(_directory, asset.Camera)), ref _cameraPending);
         }
-        else _camera.Close();
+        else if (_camera.Source is not null) _camera.Close();
 
         OpenAudio(_microphone, asset.Microphone, ref _microphonePending);
         OpenAudio(_system, asset.SystemAudio, ref _systemPending);
@@ -253,7 +284,7 @@ public sealed class PreviewPlayer : IDisposable
     {
         if (string.IsNullOrWhiteSpace(relative))
         {
-            player.Stop();
+            if (player.Source is not null) player.Close();
             return;
         }
 
@@ -365,10 +396,6 @@ public sealed class PreviewPlayer : IDisposable
         {
             player.Play();
         }
-        else if (drawing is not null)
-        {
-            Nudge(player);
-        }
         else
         {
             player.Pause();
@@ -393,9 +420,4 @@ public sealed class PreviewPlayer : IDisposable
     double CameraSource(double source) => Math.Max(0, source + (_activeAsset?.CameraOffset ?? 0)
         + _cameraAdvance + (_activeAsset is null ? 0 : SyncAnchorCurve.Offset(_activeAsset.CameraSyncAnchors, source)));
 
-    static void Nudge(MediaPlayer player)
-    {
-        player.Play();
-        player.Pause();
-    }
 }

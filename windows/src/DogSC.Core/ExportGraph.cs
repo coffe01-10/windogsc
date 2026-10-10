@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 
 namespace DogSC.Core;
@@ -328,11 +328,14 @@ public static class ExportGraph
                 script.Append("[shadowc][shadowa]alphamerge,colorchannelmixer=aa=")
                     .Append(F(placement.ShadowAlpha))
                     .AppendLine("[shadow]");
-                script.Append("[bg][shadow]overlay=")
-                    .Append(placement.X + placement.ShadowOffset / 3).Append(':')
-                    .Append(placement.Y + placement.ShadowOffset)
-                    .AppendLine(":format=auto:shortest=1[bgsh]");
-                under = "bgsh";
+                if (project.ScreenMotions.Count == 0 && !OpeningMotion.IsNative(project.Canvas))
+                {
+                    script.Append("[bg][shadow]overlay=")
+                        .Append(placement.X + placement.ShadowOffset / 3).Append(':')
+                        .Append(placement.Y + placement.ShadowOffset)
+                        .AppendLine(":format=auto:shortest=1[bgsh]");
+                    under = "bgsh";
+                }
             }
 
             // 倾斜/透视：对圆角内容帧做四角透视变换，再叠到背景。
@@ -459,33 +462,51 @@ public static class ExportGraph
             // 屏幕运动轨道：ffmpeg 9.0.2 的 perspective 不支持逐帧表达式，
             // 切成 15Hz 常量角点分段（trim+perspective(eval=init) 再 concat），
             // 每段取中点采样的单应四角（tilt+缩放+rotZ+位移）。
-            if (project.ScreenMotions.Count > 0)
+            if (project.ScreenMotions.Count > 0 || OpeningMotion.IsNative(project.Canvas))
             {
+                // A moving card owns its shadow. Leaving it on the background
+                // produces a stationary rectangle underneath a tilted screen.
+                if (placement.ShadowBlur > 0)
+                {
+                    script.Append("color=c=black@0:s=").Append(canvasWidth).Append('x').Append(canvasHeight)
+                        .Append(":r=").Append(fps).Append(":d=").Append(F(Math.Max(duration, .1)))
+                        .AppendLine(",format=rgba[pmshadowbg]");
+                    script.Append("[pmshadowbg][shadow]overlay=")
+                        .Append(placement.X + placement.ShadowOffset / 3).Append(':').Append(placement.Y + placement.ShadowOffset)
+                        .AppendLine(":format=auto:shortest=1[pmshadow]");
+                    script.Append("[pmshadow][").Append(placedSrc).AppendLine("]overlay=0:0:format=auto:shortest=1[pmshadowcard]");
+                    placedSrc = "pmshadowcard";
+                }
                 var viewport = new ScreenAnchorViewport(canvasWidth, canvasHeight, placement.Width, placement.Height);
                 var screenTrack = new ScreenMotionTrack(project.ScreenMotions);
                 var baseSample = screenTrack.SampleLayout(-1, null, viewport);
                 const double segDur = 1.0 / 15;
-                var segCount = Math.Max(1, (int)Math.Ceiling(duration / segDur - 0.0001));
+                var frameCount = Math.Max(1, (int)Math.Ceiling(duration * fps - .0001));
+                var segCount = Math.Clamp((int)Math.Ceiling(duration / segDur - 0.0001), 1, frameCount);
                 script.Append('[').Append(placedSrc).Append("]split=").Append(segCount);
                 for (var i = 0; i < segCount; i++) script.Append("[pms").Append(i).Append(']');
                 script.AppendLine();
                 for (var i = 0; i < segCount; i++)
                 {
-                    var s0 = i * segDur;
-                    var mid = Math.Min(s0 + segDur / 2, duration - 0.0001);
+                    var firstFrame = frameCount * i / segCount;
+                    var endFrame = frameCount * (i + 1) / segCount;
+                    var mid = Math.Min((firstFrame + endFrame) / (2.0 * fps), duration - 0.0001);
                     var corners = MotionExport.ScreenCorners(
                         screenTrack.SampleLayout(mid, null, viewport), baseSample,
-                        canvasWidth, canvasHeight, placement.X, placement.Y, placement.Width, placement.Height);
+                        canvasWidth, canvasHeight, placement.X, placement.Y, placement.Width, placement.Height,
+                        OpeningMotion.Sample(project, "screen", mid, canvasWidth, canvasHeight));
                     // 线性模糊（Mac Linear Blur 近似）：处于启用片段窗口内的分段加高斯模糊。
                     var blur = project.ScreenMotions.Any(c => c.LinearBlur
                         && mid >= c.Timing.StartTime
                         && mid <= c.Timing.StartTime + c.Timing.Duration + c.Timing.ReturnDuration)
                         ? ",gblur=sigma=7" : "";
-                    script.Append("[pms").Append(i).Append("]trim=start=").Append(F(s0))
-                        .Append(":end=").Append(F(Math.Min(s0 + segDur, duration)))
+                    script.Append("[pms").Append(i).Append("]trim=start_frame=").Append(firstFrame)
+                        .Append(":end_frame=").Append(endFrame)
                         .Append(",setpts=PTS-STARTPTS,perspective=")
                         .Append(string.Join(":", corners.SelectMany(p => new[] { F(p.X), F(p.Y) })))
                         .Append(":sense=destination:eval=init").Append(blur)
+                        .Append(",format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*")
+                        .Append(F(OpeningMotion.Sample(project, "screen", mid, canvasWidth, canvasHeight).Opacity)).Append("'")
                         .Append("[pmsq").Append(i).AppendLine("]");
                 }
                 for (var i = 0; i < segCount; i++) script.Append("[pmsq").Append(i).Append(']');
@@ -583,7 +604,7 @@ public static class ExportGraph
                 var step = 0;
                 var entry = project.Camera.Entry;
                 // 摄像头运动轨道：以项目摄像头外观为基态，逐帧几何表达式。
-                CameraMotionTrack? camTrack = project.CameraMotions.Count > 0
+                CameraMotionTrack? camTrack = project.CameraMotions.Count > 0 || OpeningMotion.IsNative(project.Canvas)
                     ? new CameraMotionTrack(project.CameraMotions) : null;
                 var camBase = new CameraMotionState
                 {
@@ -642,46 +663,49 @@ public static class ExportGraph
                         // 运动轨道：ffmpeg 9.0.2 scale 不能逐帧改输出尺寸——改走
                         // 15Hz 常量分段链（trim+scale+geq 透明度+定点 overlay），
                         // 与屏幕运动的 perspective 分段同一逼近策略。
-                        var segCount = Math.Max(1, (int)Math.Ceiling((cam.End - cam.Start) * 15));
-                        var window = MotionExport.SampleTrack(cam.Start, cam.End, fps, segCount,
-                            t => MotionExport.CameraPixels(
-                                camTrack.Sample(t, camBase, media.CameraAspect,
-                                    (double)canvasWidth / canvasHeight), canvasWidth, canvasHeight));
+                        var segCount = Math.Max(1, Math.Min((int)Math.Ceiling((cam.End - cam.Start) * 15),
+                            (int)Math.Ceiling((cam.End - cam.Start) * fps)));
+                        var firstCameraFrame = (int)Math.Ceiling(cam.Start * fps - 1e-7);
+                        var lastCameraFrame = (int)Math.Ceiling(cam.End * fps - 1e-7);
                         script.Append('[').Append(src).Append("]split=").Append(segCount);
                         for (var i = 0; i < segCount; i++) script.Append("[cms").Append(cam.Index).Append('_').Append(i).Append(']');
                         script.AppendLine();
-                        var segDuration = (cam.End - cam.Start) / segCount;
                         for (var i = 0; i < segCount; i++)
                         {
-                            var segStart = cam.Start + i * segDuration;
-                            var segEnd = i == segCount - 1 ? cam.End : segStart + segDuration;
-                            var sample = window[Math.Min(i, window.Count - 1)];
-                            var frame = sample.Value;
-                            // Global Opening：摄像头是元素 1，延迟 Interval 进场（透明度×进度+滑动偏移）。
-                            var camp = openingActive ? CanvasLayout.OpeningProgress(project.Canvas, sample.Time, 1) : 1;
-                            var label = "cmm" + cam.Index + "_" + i;
-                            script.Append("[cms").Append(cam.Index).Append('_').Append(i).Append(']');
-                            script.Append("trim=start=").Append(F(segStart)).Append(":end=").Append(F(segEnd))
-                                .Append(",setpts=PTS-STARTPTS+").Append(F(segStart)).Append("/TB,scale=")
+                            var firstFrame = firstCameraFrame + (lastCameraFrame - firstCameraFrame) * i / segCount;
+                            var endFrame = firstCameraFrame + (lastCameraFrame - firstCameraFrame) * (i + 1) / segCount;
+                            var sampleTime = (firstFrame + endFrame) / (2.0 * fps);
+                            var frame = OpeningMotion.CameraFrame(MotionExport.CameraPixels(
+                                camTrack.Sample(sampleTime, camBase, media.CameraAspect, (double)canvasWidth / canvasHeight), canvasWidth, canvasHeight),
+                                OpeningMotion.Sample(project, "camera", sampleTime, canvasWidth, canvasHeight));
+                            var camp = openingActive ? CanvasLayout.OpeningProgress(project.Canvas, sampleTime, 1) : 1;
+                            var suffix = cam.Index + "_" + i;
+                            var label = "cmm" + suffix;
+                            script.Append("[cms").Append(suffix).Append("]trim=start_pts=").Append(firstFrame).Append(":end_pts=").Append(endFrame)
+                                .Append(",setpts=PTS-STARTPTS,scale=")
                                 .Append(Math.Max(2, (int)Math.Round(frame.W))).Append(':')
                                 .Append(Math.Max(2, (int)Math.Round(frame.H))).Append(",format=rgba");
                             var opacity = Math.Clamp(frame.Opacity, 0, 1) * camp;
                             if (opacity < 0.999)
-                            {
-                                script.Append(",geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*")
-                                    .Append(F(opacity)).Append('\'');
-                            }
+                                script.Append(",geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*").Append(F(opacity)).Append("'");
                             script.Append('[').Append(label).AppendLine("]");
-                            var underLabel = i == 0 ? cameraUnder : "cmo" + cam.Index + "_" + (i - 1);
-                            var over = i == segCount - 1 ? next : "cmo" + cam.Index + "_" + i;
+                            // Compose each segment on its own transparent canvas, then concatenate.
+                            // Chaining timed overlays loses frames at EOF boundaries in ffmpeg.
+                            script.Append("color=c=black@0:s=").Append(canvasWidth).Append('x').Append(canvasHeight)
+                                .Append(":r=").Append(fps).Append(",format=rgba,trim=end_frame=").Append(endFrame - firstFrame)
+                                .Append("[cmbg").Append(suffix).AppendLine("]");
                             var camX = frame.X + (opening == "sideslide" ? (1 - camp) * 60 : 0);
                             var camY = frame.Y + (opening is "slide" or "lift" ? (1 - camp) * 40 : 0);
-                            script.Append('[').Append(underLabel).Append("][").Append(label)
-                                .Append("]overlay=").Append(F(camX)).Append(':').Append(F(camY))
-                                .Append(":format=auto:eof_action=pass:repeatlast=0:enable='gte(t,")
-                                .Append(F(segStart)).Append(")*lt(t,").Append(F(segEnd)).Append(")'")
-                                .Append('[').Append(over).AppendLine("]");
+                            script.Append("[cmbg").Append(suffix).Append("][").Append(label).Append("]overlay=")
+                                .Append(F(camX)).Append(':').Append(F(camY))
+                                .Append(":format=auto:shortest=1[cmo").Append(suffix).AppendLine("]");
                         }
+                        for (var i = 0; i < segCount; i++) script.Append("[cmo").Append(cam.Index).Append('_').Append(i).Append(']');
+                        script.Append("concat=n=").Append(segCount).Append(":v=1:a=0,setpts=PTS+")
+                            .Append(F(firstCameraFrame / (double)fps)).Append("/TB[cmlayer").Append(cam.Index).AppendLine("]");
+                        script.Append('[').Append(cameraUnder).Append("][cmlayer").Append(cam.Index)
+                            .Append("]overlay=0:0:format=auto:eof_action=repeat:repeatlast=1:enable='gte(t,")
+                            .Append(F(cam.Start)).Append(")*lt(t,").Append(F(cam.End)).Append(")'[").Append(next).AppendLine("]");
                     }
                     else
                     {
@@ -750,7 +774,7 @@ public static class ExportGraph
                 videoMap = "focused";
             }
 
-            if (project.Canvas.Stickers.Any(s =>
+            if (OpeningMotion.SuppressesStickerEntry(project) || project.Canvas.Stickers.Any(s =>
                     (s.Animation is { Length: > 0 } a && a != "none")
                     || (s.ExitAnimation is { Length: > 0 } e && e != "none")))
             {

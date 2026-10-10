@@ -14,6 +14,44 @@ public partial class EditorWindow
     bool _regionDragging;
     bool EditingRegions => _tool == "effects" && !_player.IsPlaying;
 
+    string? _regionToolbarId, _regionToolbarStyle;
+
+    void UpdateRegionToolbar()
+    {
+        var region = _project.Canvas.SoftRegions.FirstOrDefault(r => r.Id == _selectedDecoration);
+        var visible = EditingRegions && _regionDrawingStyle is null && region is not null;
+        RegionToolbar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (!visible) return;
+        if (_regionToolbarId != region!.Id || _regionToolbarStyle != region.Style)
+        {
+            _regionToolbarId = region.Id; _regionToolbarStyle = region.Style;
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            foreach (var (name, style) in new[] { ("柔化", "blur"), ("聚光", "spotlight") })
+            {
+                var button = DecorationButton(name, () => { Push(); region.Style = style; Commit(); });
+                ControlAppearance.SelectChip(button, region.Style == style); row.Children.Add(button);
+            }
+            void Control(string name, double value, Action<double> assign)
+            {
+                var group = new StackPanel { Width = 84, Margin = new Thickness(6, 0, 4, 0) };
+                group.Children.Add(new TextBlock { Text = name, FontSize = 10 });
+                var slider = Slider(0, 1, value, assign);
+                System.Windows.Automation.AutomationProperties.SetName(slider, "选区" + name);
+                group.Children.Add(slider); row.Children.Add(group);
+                // Rebuild the toolbar after inspector changes so both controls agree.
+                slider.PreviewMouseLeftButtonUp += (_, _) => { _regionToolbarId = null; RebuildInspector(); };
+            }
+            Control("强度", region.Style == "spotlight" ? region.Dimming : region.Strength,
+                v => { if (region.Style == "spotlight") region.Dimming = v; else region.Strength = v; });
+            Control("圆角", region.Corner, v => region.Corner = v);
+            RegionToolbar.Child = row;
+        }
+        RegionToolbar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var corners = RegionCorners(region!);
+        Canvas.SetLeft(RegionToolbar, Math.Clamp(corners.Min(p => p.X), 0, Math.Max(0, PreviewCanvas.Width - RegionToolbar.DesiredSize.Width)));
+        Canvas.SetTop(RegionToolbar, Math.Max(0, corners.Min(p => p.Y) - RegionToolbar.DesiredSize.Height - 10));
+    }
+
     void InitializeRegionEditor()
     {
         RegionEditor.Paint = PaintRegionEditor;
@@ -38,7 +76,7 @@ public partial class EditorWindow
         RegionEditor.InvalidateVisual();
     }
 
-    ProjectionCorner[] RegionQuad() => PerspectiveGeometry.Corners(FrameHost.Width, FrameHost.Height,
+    ProjectionCorner[] RegionQuad() => _screenProjectionQuad ?? PerspectiveGeometry.Corners(FrameHost.Width, FrameHost.Height,
         _project.Canvas.TiltX, _project.Canvas.TiltY);
 
     Point RegionToView(SoftRegion region, double x, double y)

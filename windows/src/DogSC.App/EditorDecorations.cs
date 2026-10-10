@@ -4,7 +4,7 @@ namespace DogSC;
 
 public partial class EditorWindow
 {
-    sealed record DecorationClipboard(StickerImage? Sticker, SoftRegion? Region);
+    sealed record DecorationClipboard(StickerImage? Sticker, SoftRegion? Region, ScreenMotionClip? ScreenMotion = null, CameraMotionClip? CameraMotion = null);
     static DecorationClipboard? _decorationClipboard;
 
     EffectWindow? DecorationTiming(string id) => _project.Canvas.Stickers.FirstOrDefault(x => x.Id == id)?.Timing
@@ -14,7 +14,8 @@ public partial class EditorWindow
     {
         CancelOverlayGesture(); _cameraSelected = false; CancelRegionEditing();
         _player.Pause();
-        _selectedDecoration = id; _selectedClip = null; _selectedZoom = null; _tool = "effects";
+        _selectedDecoration = id; _selectedClip = null; _selectedZoom = null;
+        _tool = MotionTimingOf(id) is not null ? "zoom" : "effects";
         _expandedDetails.Add("贴图、柔化与聚光");
         if (rebuild) RebuildInspector();
         SyncSelection(); ApplyZoomVisual();
@@ -42,16 +43,27 @@ public partial class EditorWindow
         return button;
     }
 
+    void AddSticker() => PickDecoration((path, name) =>
+    {
+        CancelOverlayGesture(); CancelRegionEditing(); _cameraSelected = false;
+        _player.Pause();
+        var image = new StickerImage { Path = path, Name = name, Timing = NewDecorationTiming() };
+        _project.Canvas.Stickers.Add(image); _selectedDecoration = image.Id; _selectedClip = _selectedZoom = null;
+        _tool = "effects";
+        _expandedDetails.Add("贴图、柔化与聚光");
+        ApplyTrackFlags(TrackFlags | 8);
+    });
+
     void BuildDecorations()
     {
-        var section = Disclosure("贴图、柔化与聚光");
+        var selectedSoft = _project.Canvas.SoftRegions.FirstOrDefault(x => x.Id == _selectedDecoration);
+        var selectedSticker = _project.Canvas.Stickers.Any(x => x.Id == _selectedDecoration);
+        InspectorHeader(selectedSoft is null ? selectedSticker ? "贴图" : "效果" : selectedSoft.Style == "spotlight" ? "聚光" : "柔化",
+            selectedSoft is null ? selectedSticker ? "所选图片" : "项目片段" : "所选区域");
+        var section = selectedSoft is null ? Disclosure("贴图、柔化与聚光") : Inspector;
+        var management = selectedSoft is null ? section : Disclosure("管理效果");
         var add = new WrapPanel();
-        add.Children.Add(DecorationButton("＋贴图", () => PickDecoration((path, name) =>
-        {
-            var image = new StickerImage { Path = path, Name = name, Timing = NewDecorationTiming() };
-            _project.Canvas.Stickers.Add(image); _selectedDecoration = image.Id; _selectedClip = _selectedZoom = null;
-            ApplyTrackFlags(TrackFlags | 8);
-        })));
+        add.Children.Add(DecorationButton("＋贴图", AddSticker));
         foreach (var (title, style) in new[] { ("＋柔化", "blur"), ("＋聚光", "spotlight") })
             add.Children.Add(DecorationButton(title, () => BeginRegionDrawing(style)));
         // Mac 运动轨道：在播放头插入屏幕 / 摄像头运动片段。
@@ -79,7 +91,7 @@ public partial class EditorWindow
             ApplyTrackFlags(TrackFlags | 4);
             Commit();
         }));
-        section.Children.Add(add);
+        management.Children.Add(add);
         if (_regionDrawingStyle is not null)
         {
             section.Children.Add(Caption("在预览画面上拖动框选。选区效果暂时隐藏，方便看清目标；Esc 取消。"));
@@ -109,7 +121,7 @@ public partial class EditorWindow
             selectionPending = false; RebuildInspector();
             if (_project.Canvas.Stickers.Any(s => s.Id == _selectedDecoration)) OverlayEditor.Focus(); else RegionEditor.Focus();
         };
-        if (list.Items.Count > 0) section.Children.Add(list);
+        if (list.Items.Count > 0) management.Children.Add(list);
         var sticker = _project.Canvas.Stickers.FirstOrDefault(x => x.Id == _selectedDecoration);
         var soft = _project.Canvas.SoftRegions.FirstOrDefault(x => x.Id == _selectedDecoration);
         var screenMotion = _project.ScreenMotions.FirstOrDefault(x => x.Id == _selectedDecoration);
@@ -217,6 +229,12 @@ public partial class EditorWindow
         }
         if (soft is not null)
         {
+            section.Children.Add(Segments([("柔化", "blur"), ("聚光", "spotlight")], soft.Style,
+                key => { Push(); soft.Style = key; Commit(); }));
+            section.Children.Add(ValueSlider("圆角", 0, .5, soft.Corner, v => soft.Corner = v, Percent));
+            section.Children.Add(Caption("过渡"));
+            section.Children.Add(Segments([("无", "none"), ("线性", "linear"), ("平滑", "smooth")], soft.Timing.Transition,
+                key => { Push(); soft.Timing.Transition = key; Commit(); }));
             commands.Children.Insert(0, DecorationButton("重画区域", () => BeginRegionDrawing(soft.Style, soft.Id)));
             var guidance = Caption("拖动移动 · 拖边角缩放 · 方向键微调");
             guidance.ToolTip = "方向键移动 1 像素，Shift + 方向键移动 10 像素。暂停时完整显示所选效果，播放时按时间线显示。";
@@ -248,6 +266,10 @@ public partial class EditorWindow
         }
         else if (_project.Canvas.SoftRegions.FirstOrDefault(x => x.Id == _selectedDecoration) is { } region)
             _decorationClipboard = new(null, ScenePreset.Clone(region));
+        else if (_project.ScreenMotions.FirstOrDefault(x => x.Id == _selectedDecoration) is { } screen)
+            _decorationClipboard = new(null, null, ScenePreset.Clone(screen));
+        else if (_project.CameraMotions.FirstOrDefault(x => x.Id == _selectedDecoration) is { } camera)
+            _decorationClipboard = new(null, null, null, ScenePreset.Clone(camera));
         else return false;
         _zoomClipboard = null; _effectClipboard = null;
         TimeLabel.Text = "已复制效果；Ctrl+V 添加副本，Ctrl+Shift+V 只粘属性。";
@@ -264,6 +286,11 @@ public partial class EditorWindow
     void PasteDecoration(bool includeTiming)
     {
         var source = _decorationClipboard!;
+        if (source.ScreenMotion is not null || source.CameraMotion is not null)
+        {
+            PasteMotion(source, includeTiming);
+            return;
+        }
         var targetSticker = _project.Canvas.Stickers.FirstOrDefault(x => x.Id == _selectedDecoration);
         var targetRegion = _project.Canvas.SoftRegions.FirstOrDefault(x => x.Id == _selectedDecoration);
         if (!includeTiming && (source.Sticker is not null ? targetSticker is null : targetRegion is null))
@@ -301,6 +328,50 @@ public partial class EditorWindow
         }
         _selectedClip = _selectedZoom = null; _tool = "effects"; Commit();
     }
+
+    void PasteMotion(DecorationClipboard source, bool includeTiming)
+    {
+        var screen = source.ScreenMotion is not null;
+        var targetScreen = _project.ScreenMotions.FirstOrDefault(x => x.Id == _selectedDecoration);
+        var targetCamera = _project.CameraMotions.FirstOrDefault(x => x.Id == _selectedDecoration);
+        if (!includeTiming && (screen ? targetScreen is null : targetCamera is null))
+        { TimeLabel.Text = "请先选中同类型运动，再粘贴属性。"; return; }
+        var total = TimelineMath.Duration(_project);
+        var start = Math.Clamp(Timeline.PasteTime, 0, Math.Max(0, total - .05));
+        var original = source.ScreenMotion?.Timing ?? source.CameraMotion!.Timing;
+        if (includeTiming && Timeline.SnapEnabled)
+        {
+            var boundaries = screen ? _project.ScreenMotions.SelectMany(c => new[] { c.Timing.StartTime, c.Timing.EndTime })
+                : _project.CameraMotions.SelectMany(c => new[] { c.Timing.StartTime, c.Timing.EndTime });
+            var closest = boundaries.OrderBy(t => Math.Abs(t - start)).FirstOrDefault(start);
+            if (Math.Abs(closest - start) <= Timeline.SnapThreshold) start = Math.Clamp(closest, 0, Math.Max(0, total - .05));
+        }
+        var timing = ScenePreset.Clone(original);
+        var target = targetScreen?.Timing ?? targetCamera?.Timing;
+        timing.Id = includeTiming ? Guid.NewGuid().ToString("N") : target!.Id;
+        timing.StartTime = includeTiming ? start : target!.StartTime;
+        timing.Duration = includeTiming ? Math.Min(Math.Max(.05, original.Duration), total - start) : target!.Duration;
+        Push();
+        if (screen)
+        {
+            var copy = ScenePreset.Clone(source.ScreenMotion!); copy.Timing = timing;
+            copy.Id = includeTiming ? Guid.NewGuid().ToString("N") : targetScreen!.Id;
+            copy.GroupId = includeTiming ? null : targetScreen!.GroupId;
+            if (includeTiming) _project.ScreenMotions.Add(copy);
+            else _project.ScreenMotions[_project.ScreenMotions.IndexOf(targetScreen!)] = copy;
+            _selectedDecoration = copy.Id; ApplyTrackFlags(TrackFlags | 2);
+        }
+        else
+        {
+            var copy = ScenePreset.Clone(source.CameraMotion!); copy.Timing = timing;
+            copy.Id = includeTiming ? Guid.NewGuid().ToString("N") : targetCamera!.Id;
+            copy.GroupId = includeTiming ? null : targetCamera!.GroupId;
+            if (includeTiming) _project.CameraMotions.Add(copy);
+            else _project.CameraMotions[_project.CameraMotions.IndexOf(targetCamera!)] = copy;
+            _selectedDecoration = copy.Id; ApplyTrackFlags(TrackFlags | 4);
+        }
+        _selectedClip = _selectedZoom = null; _tool = "effects"; Commit();
+    }
 }
 
 public partial class EditorWindow
@@ -308,6 +379,9 @@ public partial class EditorWindow
     /// <summary>Mac 运动片段编辑：时间（起止/进入/回落/曲线）+ 目标构图。</summary>
     void BuildMotionInspector(Panel section, ScreenMotionClip? screen, CameraMotionClip? camera)
     {
+        if (screen is not null)
+            section.Children.Add(Segments([("缩放", "zoom"), ("屏幕 3D", "screen3d")], "screen3d",
+                key => { if (key == "zoom") ConvertScreenMotionToZoom(screen); }));
         var timing = (screen?.Timing ?? camera!.Timing)!;
         section.Children.Add(Caption(screen is not null ? "屏幕运动片段 · 轨道可拖动、两端可拉长" : "摄像头运动片段 · 轨道可拖动、两端可拉长"));
         var commands = new WrapPanel();
@@ -315,10 +389,11 @@ public partial class EditorWindow
         {
             Push(); DeleteDecoration(_selectedDecoration!); _selectedDecoration = null; Commit();
         }));
+        commands.Children.Add(DecorationButton("从起点播放", () => _player.Seek(timing.StartTime, play: true)));
         section.Children.Add(commands);
 
         void Control(string title, double min, double max, double value, Action<double> assign)
-        { section.Children.Add(Caption(title)); section.Children.Add(Slider(min, max, value, assign, refresh: true)); }
+        { section.Children.Add(MotionSlider(title, min, max, value, assign)); }
 
         var duration = TimelineMath.Duration(_project);
         section.Children.Add(Caption("时间"));
@@ -328,7 +403,7 @@ public partial class EditorWindow
         Control("回落时长", 0, 2, timing.ReturnDuration, x => { timing.ReturnDuration = x; timing.PreferredReturnDuration = null; });
 
         var easings = new WrapPanel();
-        foreach (var (name, key) in new[] { ("线性", "linear"), ("二次", "quadratic"), ("三次", "cubic"), ("五次", "quintic"), ("弹簧", "spring") })
+        foreach (var (name, key) in new[] { ("线性", "linear"), ("二次", "quadratic"), ("三次", "cubic"), ("五次", "quintic"), ("弹簧", "spring"), ("自定义", "custom") })
         {
             var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
             ControlAppearance.SelectChip(chip, timing.Easing == key);
@@ -337,17 +412,25 @@ public partial class EditorWindow
         }
         section.Children.Add(Caption("曲线"));
         section.Children.Add(easings);
+        if (timing.Easing == "custom")
+        {
+            timing.CustomCurve ??= [.65, 0, .35, 1];
+            Control("曲线 X1", 0, 1, timing.CustomCurve[0], x => timing.CustomCurve[0] = x);
+            Control("曲线 Y1", -2, 2, timing.CustomCurve[1], x => timing.CustomCurve[1] = x);
+            Control("曲线 X2", 0, 1, timing.CustomCurve[2], x => timing.CustomCurve[2] = x);
+            Control("曲线 Y2", -2, 2, timing.CustomCurve[3], x => timing.CustomCurve[3] = x);
+        }
 
         if (screen is not null)
         {
             section.Children.Add(Caption("目标构图（归一化）"));
             Control("水平位置", 0, 1, screen.Target.X, x => screen.Target.X = x);
             Control("垂直位置", 0, 1, screen.Target.Y, x => screen.Target.Y = x);
-            Control("缩放", .25, 3, screen.Target.Scale, x => screen.Target.Scale = x);
+            Control("缩放", .25, 4, screen.Target.Scale, x => screen.Target.Scale = x);
             Control("旋转 Z", -90, 90, screen.Target.RotationZ, x => screen.Target.RotationZ = x);
-            Control("旋转 X", -60, 60, screen.Target.RotationX, x => screen.Target.RotationX = x);
-            Control("旋转 Y", -60, 60, screen.Target.RotationY, x => screen.Target.RotationY = x);
-            Control("透视", 0, 1, screen.Target.Perspective, x => screen.Target.Perspective = x);
+            Control("旋转 X", -89, 89, screen.Target.RotationX, x => screen.Target.RotationX = x);
+            Control("旋转 Y", -89, 89, screen.Target.RotationY, x => screen.Target.RotationY = x);
+            Control("透视", 0, 2, screen.Target.Perspective, x => screen.Target.Perspective = x);
             section.Children.Add(Caption("聚焦锚点（%）"));
             Control("锚点 X", 0, 1, screen.Target.AnchorX, x => screen.Target.AnchorX = x);
             Control("锚点 Y", 0, 1, screen.Target.AnchorY, x => screen.Target.AnchorY = x);

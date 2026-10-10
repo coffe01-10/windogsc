@@ -26,7 +26,7 @@ public static class StickerAnimatedExport
     {
         var animated = project.Canvas.Stickers.Where(NeedsAnimation).ToList();
         var track = new StickerMotion.Track(project.Canvas.Stickers);
-        if (animated.Count == 0) return null;
+        if (animated.Count == 0 && !OpeningMotion.SuppressesStickerEntry(project)) return null;
         var w = Math.Max(2, (int)Math.Round(canvasW / 2) * 2);
         var h = Math.Max(2, (int)Math.Round(canvasH / 2) * 2);
         var fps = plan.Fps <= 0 ? 30 : plan.Fps;
@@ -50,13 +50,15 @@ public static class StickerAnimatedExport
                     foreach (var st in project.Canvas.Stickers)
                     {
                         if (!baked.TryGetValue(st.Id, out var r)) continue;
-                        var (samples, _) = track.SampleAt(t, suppressesInitialEntry: false);
+                        var (samples, _) = track.SampleAt(t, suppressesInitialEntry: OpeningMotion.SuppressesStickerEntry(project));
+                        if (st.Timing.Duration <= 0) samples.Add(new(st, 1, "none", 1));
                         foreach (var s in samples.Where(x => x.Clip == st))
                         {
                             if (s.Visibility <= 0) continue;
                             var (scale, ox, oy) = StickerMotion.Transform(
                                 s.Preset, s.Progress, st.X, st.Y, st.Width);
-                            var wb = st.Width * canvasW * scale * (1 + 2 * r.Margin);
+                            var opening = st.Timing.Start <= .001 ? OpeningMotion.Sample(project, "stickers", t, canvasW, canvasH) : OpeningPose.Identity;
+                            var wb = st.Width * canvasW * scale * opening.Scale * (1 + 2 * r.Margin);
                             var hb = wb / r.Aspect;
                             if (wb < 1 || hb < 1) continue;
                             if (!bmps.TryGetValue(st.Id, out var bmp))
@@ -69,9 +71,9 @@ public static class StickerAnimatedExport
                                 bmp.Freeze();
                                 bmps[st.Id] = bmp;
                             }
-                            var cx = (st.X + ox) * canvasW;
-                            var cy = (st.Y + oy) * canvasH;
-                            dc.PushOpacity(s.Visibility * st.Opacity);
+                            var cx = (st.X + ox) * canvasW + opening.X;
+                            var cy = (st.Y + oy) * canvasH + opening.Y;
+                            dc.PushOpacity(s.Visibility * st.Opacity * opening.Opacity);
                             if (st.Rotation != 0)
                                 dc.PushTransform(new RotateTransform(st.Rotation, cx, cy));
                             dc.DrawImage(bmp, new Rect(cx - wb / 2, cy - hb / 2, wb, hb));

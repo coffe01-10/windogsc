@@ -19,12 +19,15 @@ public sealed class TimelineControl : FrameworkElement
     double _playhead;
     double _zoom = 1;
     double _scroll;
+    double _duration;
     string? _selectedClip;
     string? _selectedZoom;
     Drag? _drag;
     readonly DrawingVisual _playheadVisual = new();
+    readonly TranslateTransform _playheadOffset = new();
 
     public event EventHandler<double>? SeekRequested;
+    public event EventHandler? SeekFinished;
     public event EventHandler? InteractionStarted;
     public event EventHandler<ClipTrim>? TrimFinished;
     public event EventHandler<ZoomMove>? ZoomFinished;
@@ -48,6 +51,7 @@ public sealed class TimelineControl : FrameworkElement
         Focusable = true;
         Cursor = Cursors.Arrow;
         ClipToBounds = true;
+        _playheadVisual.Transform = _playheadOffset;
         AddVisualChild(_playheadVisual);
     }
 
@@ -60,6 +64,7 @@ public sealed class TimelineControl : FrameworkElement
         set
         {
             _project = value;
+            _duration = value is null ? 0 : TimelineMath.Duration(value);
             MinHeight = Math.Max(168, Decorations().Select(x => x.Top + 34).DefaultIfEmpty(168).Max());
             InvalidateVisual();
         }
@@ -70,10 +75,13 @@ public sealed class TimelineControl : FrameworkElement
         get => _playhead;
         set
         {
+            if (_playhead == value) return;
             _playhead = value;
-            DrawPlayhead();
+            MovePlayhead();
         }
     }
+
+    public bool IsScrubbing => _drag?.Kind == DragKind.Seek;
 
     public string? SelectedClipId
     {
@@ -235,10 +243,12 @@ public sealed class TimelineControl : FrameworkElement
         using var drawing = _playheadVisual.RenderOpen();
         if (_project is null || ActualWidth < 10 || ActualHeight < 10) return;
         var accent = BrushOf("AccentBrush", Brushes.Black);
-        var x = TimeToX(_playhead, PixelsPerSecond(ActualWidth));
-        drawing.DrawLine(new Pen(accent, 1.5), new Point(x, 4), new Point(x, ActualHeight - 4));
-        drawing.DrawEllipse(accent, null, new Point(x, 6), 4, 4);
+        drawing.DrawLine(new Pen(accent, 1.5), new Point(0, 4), new Point(0, ActualHeight - 4));
+        drawing.DrawEllipse(accent, null, new Point(0, 6), 4, 4);
+        MovePlayhead();
     }
+
+    void MovePlayhead() => _playheadOffset.X = TimeToX(_playhead, PixelsPerSecond(ActualWidth));
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
@@ -251,6 +261,13 @@ public sealed class TimelineControl : FrameworkElement
         InteractionStarted?.Invoke(this, EventArgs.Empty);
         var point = e.GetPosition(this);
         var pixels = PixelsPerSecond(ActualWidth);
+        // The visible pointer is a drag handle, including the line over a clip.
+        if (Math.Abs(point.X - TimeToX(_playhead, pixels)) <= 5)
+        {
+            BeginSeek(XToTime(point.X, pixels));
+            e.Handled = true;
+            return;
+        }
         var decoration = HitDecoration(point, pixels);
         if (decoration is { } effect)
         {
@@ -292,10 +309,32 @@ public sealed class TimelineControl : FrameworkElement
             return;
         }
 
+        BeginSeek(time);
+        e.Handled = true;
+    }
+
+    void BeginSeek(double time)
+    {
         _drag = new Drag(DragKind.Seek, "", time);
         CaptureMouse();
-        SeekRequested?.Invoke(this, Math.Max(0, time));
-        e.Handled = true;
+        CompositionTarget.Rendering += RenderScrub;
+        Playhead = Math.Clamp(time, 0, _duration);
+        SeekRequested?.Invoke(this, Playhead);
+    }
+
+    void RenderScrub(object? sender, EventArgs e)
+    {
+        // Sample the current pointer once per displayed frame, even when mouse
+        // messages are waiting behind a video update on the dispatcher.
+        UpdateSeek(Mouse.GetPosition(this).X);
+    }
+
+    void UpdateSeek(double x)
+    {
+        var time = Math.Clamp(XToTime(x, PixelsPerSecond(ActualWidth)), 0, _duration);
+        if (_playhead == time) return;
+        Playhead = time;
+        SeekRequested?.Invoke(this, time);
     }
 
     SourceMarker? HitMarker(Point point, double pixels)
@@ -381,7 +420,7 @@ public sealed class TimelineControl : FrameworkElement
         switch (_drag.Kind)
         {
             case DragKind.Seek:
-                SeekRequested?.Invoke(this, Math.Clamp(time, 0, TimelineMath.Duration(_project)));
+                UpdateSeek(point.X);
                 break;
             case DragKind.MoveClip:
             case DragKind.TrimStart:
@@ -405,6 +444,7 @@ public sealed class TimelineControl : FrameworkElement
         }
 
         var drag = _drag;
+        if (drag.Kind == DragKind.Seek) CompositionTarget.Rendering -= RenderScrub;
         _drag = null;
         ReleaseMouseCapture();
         if (_project is null)
@@ -419,6 +459,11 @@ public sealed class TimelineControl : FrameworkElement
         }
         switch (drag.Kind)
         {
+            case DragKind.Seek:
+                Playhead = Math.Clamp(XToTime(e.GetPosition(this).X, PixelsPerSecond(ActualWidth)), 0, _duration);
+                SeekRequested?.Invoke(this, Playhead);
+                SeekFinished?.Invoke(this, EventArgs.Empty);
+                break;
             case DragKind.TrimStart:
             case DragKind.TrimEnd:
                 var clip = _project.Clips.FirstOrDefault(item => item.Id == drag.Id);
@@ -473,7 +518,10 @@ public sealed class TimelineControl : FrameworkElement
     protected override void OnLostMouseCapture(MouseEventArgs e)
     {
         base.OnLostMouseCapture(e);
+        var seeking = IsScrubbing;
+        CompositionTarget.Rendering -= RenderScrub;
         _drag = null;
+        if (seeking) SeekFinished?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
     }
 
@@ -481,8 +529,11 @@ public sealed class TimelineControl : FrameworkElement
     {
         if (e.Key == Key.Escape && _drag is not null)
         {
+            var seeking = IsScrubbing;
+            CompositionTarget.Rendering -= RenderScrub;
             _drag = null;
             ReleaseMouseCapture();
+            if (seeking) SeekFinished?.Invoke(this, EventArgs.Empty);
             InvalidateVisual();
             e.Handled = true;
         }
@@ -700,7 +751,7 @@ public sealed class TimelineControl : FrameworkElement
     }
 
     double PixelsPerSecond(double width) =>
-        Math.Max(48, (width - 16) / Math.Max(TimelineMath.Duration(_project ?? new ProjectDocument()), 0.1)) * _zoom;
+        Math.Max(48, (width - 16) / Math.Max(_duration, 0.1)) * _zoom;
 
     double TimeToX(double time, double pixels) => 8 + time * pixels - _scroll;
 
