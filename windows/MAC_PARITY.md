@@ -44,7 +44,7 @@
 | 背景与样机 | 视频 / 动态背景、浏览器 / 窗口 / 手机外框、边框 | 已移植：视频壁纸（-stream_loop 循环 + cover 裁切 + 模糊）；屏幕外框 windowLight/Dark、browserLight/Dark（顶栏+红绿灯+标题/地址栏药丸，46pt 规格）、devicePhone/Tablet（四边 bezel + 圆角 + home 指示条，方向按画面宽高比选），烘成画布大小 PNG 叠在卡片上、随屏幕运动透视一起变；外框启用时卡片圆角改用内容圆角贴合外框轮廓。Mac 项目导入映射 screenFrame* 与 projectVideo/systemVideo 壁纸。pattern 矢量网格背景（obsidianGrid / engineeringWhiteGrid / midnightDots / architecturalDots / isometricMesh 全部 5 个：底色 + 网格 / 点阵 / 斜交网格层烘 PNG 叠加）与 dynamicFlow 动态背景（cyberDriftGrid 斜漂网格+摆动辉光、starfieldDots 漂移点阵、auroraFluid 蓝色渐变+三块高斯光斑相位漂移：每层烘带透明通道 PNG 用 overlay eval=frame 逐帧位移表达式）已移植；patternScale / patternOpacity 字段对齐（0.4..6 / 0..1）。Mac 项目导入映射 pattern / dynamicFlow 的 patternPreset / dynamicFlowPreset（中文 rawValue→case id）与两个强度字段；程序生成背景不套用图片壁纸的模糊 |
 | 时间线深度 | 剪切缺口恢复、更多轨道及显示控制 | 已移植剪切缺口恢复（交界处/片头/片尾三入口，插回被裁源段并把后续时间轴效果整体移位、跨插入点区间拉长，工具条「还原」按钮按选中片段启停、可撤销）；仍缺更多轨道及显示控制 |
 | 效果复制 | 各效果轨道独立复制完整片段或只粘属性 | 缩放和装饰已支持；屏幕 / 摄像头独立运动尚未实现，仍无法复制那些轨道 |
-| 素材交换 | 导出屏幕 / 摄像头 / 麦克风源文件、替换摄像头 | 已移植替换摄像头：Core 层 MediaSwap 保留片段/效果/偏移换源文件，编辑器「画中画」面板有「替换摄像头素材」按钮（拷进项目 media/ 后换引用）；仍缺导出源文件清单与替换屏幕/麦克风入口 |
+| 素材交换 | 导出屏幕 / 摄像头 / 麦克风源文件、替换摄像头 | 已移植：替换摄像头（MediaSwap 保留片段/效果/偏移换源文件，「画中画」面板按钮，拷进项目 media/ 后换引用）；导出源文件（源素材原样拷到 <项目名>-源文件/，多素材文件名加序号，编辑器面板按钮+资源管理器定位）。Mac 侧本身没有替换屏幕/麦克风入口，无需对应 |
 | 预览质量与渲染 | 质量档位、共享渲染链路 | 已移植质量档位：设置页「清晰预览（流畅）/完整分辨率」，低清档为屏幕和摄像头素材生成四分之一像素数代理（previews/*.q.mp4，按源文件 mtime 复用、转码失败回退原片）；WPF 和 ffmpeg 的模糊、阴影、抗锯齿仍有视觉差别 |
 | Mac 项目兼容 | 原生保存全部轨道 | 仍是单向转换；未迁移复杂运动、贴图高级外观 / 运动、媒体 sourceTimeScale / 分段同步锚点及完整开场，导入时说明略过项 |
 | iOS 设备 | 原生发现 / 录制 | DirectShow 采集卡不等于原生 iOS 采集 |

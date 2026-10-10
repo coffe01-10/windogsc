@@ -433,6 +433,31 @@ public partial class EditorWindow : Window
 
         Inspector.Children.Add(entries);
         Inspector.Children.Add(DecorationButton("替换摄像头素材", SwapCamera));
+        Inspector.Children.Add(DecorationButton("导出源文件", ExportSources));
+    }
+
+    /// <summary>Mac「导出源文件」：原始屏幕/摄像头/麦克风素材原样拷到 <项目名>-源文件/。</summary>
+    void ExportSources()
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "选择源文件导出文件夹",
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var folder = SourceExport.Export(_project, _directory, dialog.FolderName);
+            TimeLabel.Text = "已导出源文件：" + folder;
+            System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + folder + "\"");
+        }
+        catch (Exception ex)
+        {
+            TimeLabel.Text = "导出源文件失败：" + ex.Message;
+        }
     }
 
     /// <summary>Mac「替换摄像头」：换一个摄像头源文件，保留片段、效果与偏移。</summary>
