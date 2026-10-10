@@ -50,6 +50,7 @@ public partial class EditorWindow
         {
             var image = new StickerImage { Path = path, Name = name, Timing = NewDecorationTiming() };
             _project.Canvas.Stickers.Add(image); _selectedDecoration = image.Id; _selectedClip = _selectedZoom = null;
+            ApplyTrackFlags(TrackFlags | 8);
         })));
         foreach (var (title, style) in new[] { ("＋柔化", "blur"), ("＋聚光", "spotlight") })
             add.Children.Add(DecorationButton(title, () => BeginRegionDrawing(style)));
@@ -63,6 +64,7 @@ public partial class EditorWindow
             clip.Timing.ReturnDuration = 0.7;
             _project.ScreenMotions.Add(clip);
             _selectedDecoration = clip.Id; _selectedClip = _selectedZoom = null;
+            ApplyTrackFlags(TrackFlags | 2);
             Commit();
         }));
         add.Children.Add(DecorationButton("＋摄像头运动", () =>
@@ -74,6 +76,7 @@ public partial class EditorWindow
             clip.Timing.ReturnDuration = 0.7;
             _project.CameraMotions.Add(clip);
             _selectedDecoration = clip.Id; _selectedClip = _selectedZoom = null;
+            ApplyTrackFlags(TrackFlags | 4);
             Commit();
         }));
         section.Children.Add(add);

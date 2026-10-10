@@ -128,6 +128,17 @@
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <TextBlock Text="时间线" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}" Margin="0,0,8,0"/>
                         <Slider x:Name="TimelineZoom" Width="110" Minimum="1" Maximum="6" Value="1" ValueChanged="TimelineZoom_Changed"/>
+                        <Button x:Name="TrackMenuButton" Content="轨道" Margin="8,0,0,0" VerticalAlignment="Center" Click="TrackMenu_Click">
+                            <Button.ContextMenu>
+                                <ContextMenu x:Name="TrackMenu" Opened="TrackMenu_Opened">
+                                    <MenuItem x:Name="TrackZoomItem" Header="缩放" IsCheckable="True" Click="TrackItem_Click"/>
+                                    <MenuItem x:Name="TrackScreenMotionItem" Header="屏幕运动" IsCheckable="True" Click="TrackItem_Click"/>
+                                    <MenuItem x:Name="TrackCameraMotionItem" Header="摄像头运动" IsCheckable="True" Click="TrackItem_Click"/>
+                                    <Separator/>
+                                    <MenuItem x:Name="TrackOverlayItem" Header="叠加（贴图/柔化）" IsCheckable="True" Click="TrackItem_Click"/>
+                                </ContextMenu>
+                            </Button.ContextMenu>
+                        </Button>
                     </StackPanel>
                 </Grid>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><local:TimelineControl x:Name="Timeline" Grid.Row="1"/></ScrollViewer>

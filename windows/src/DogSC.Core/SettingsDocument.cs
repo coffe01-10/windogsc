@@ -42,6 +42,8 @@ public sealed class AppSettings
     public string? FfmpegPath { get; set; }
     /// <summary>预览画质：low = 四分之一分辨率代理（流畅），full = 完整分辨率。</summary>
     public string PreviewQuality { get; set; } = "full";
+    /// <summary>时间线轨道显示位集（对齐 Mac EditorTimelineTrackVisibility）：1=缩放 2=屏幕运动 4=摄像头运动 8=叠加。默认只显示缩放轨，隐藏只是收起行。</summary>
+    public int TimelineTracks { get; set; } = 1;
     public List<ScenePreset> ScenePresets { get; set; } = [];
     public string? DefaultScenePresetId { get; set; }
     /// <summary>启动时自动检测 GitHub 上的新版本（只提示，不自动更新）。</summary>

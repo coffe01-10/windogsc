@@ -222,6 +222,7 @@ public partial class EditorWindow
                 {
                     if (draft.Style == "blur") draft.Timing.Transition = "none";
                     _project.Canvas.SoftRegions.Add(draft);
+                    ApplyTrackFlags(TrackFlags | 8);
                 }
                 _selectedDecoration = original?.Id ?? draft.Id;
                 _regionDrawingStyle = _regionRedrawId = null;

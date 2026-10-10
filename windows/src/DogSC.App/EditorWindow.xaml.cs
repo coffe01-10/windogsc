@@ -139,6 +139,7 @@ public partial class EditorWindow : Window
         Title = "DogSC — " + _project.Name;
         UpdateThemeButton();
         FillAspects();
+        Timeline.TrackFlags = SettingsStore.Current.TimelineTracks;
         Timeline.Project = _project;
         _player.Open(_project, directory);
         _player.SetGains(_project.MicrophoneGain, _project.SystemGain);
@@ -1629,6 +1630,47 @@ public partial class EditorWindow : Window
         {
             Timeline.Zoom = e.NewValue;
         }
+    }
+
+    /// <summary>轨道显示位集（对齐 Mac）：1=缩放 2=屏幕运动 4=摄像头运动 8=叠加。只收起行，不停用效果。</summary>
+    int TrackFlags => Timeline?.TrackFlags ?? SettingsStore.Current.TimelineTracks;
+
+    void ApplyTrackFlags(int flags)
+    {
+        if (Timeline is not null)
+        {
+            Timeline.TrackFlags = flags;
+            Timeline.InvalidateVisual();
+        }
+        SettingsStore.Current.TimelineTracks = flags;
+        SettingsStore.Save();
+    }
+
+    void TrackMenu_Click(object sender, RoutedEventArgs e)
+    {
+        TrackMenuButton.ContextMenu.IsOpen = true;
+    }
+
+    void TrackMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        var flags = TrackFlags;
+        TrackZoomItem.IsChecked = (flags & 1) != 0;
+        TrackScreenMotionItem.IsChecked = (flags & 2) != 0;
+        TrackCameraMotionItem.IsChecked = (flags & 4) != 0;
+        TrackOverlayItem.IsChecked = (flags & 8) != 0;
+        TrackZoomItem.Header = $"缩放 ({_project.Zooms.Count})";
+        TrackScreenMotionItem.Header = $"屏幕运动 ({_project.ScreenMotions.Count})";
+        TrackCameraMotionItem.Header = $"摄像头运动 ({_project.CameraMotions.Count})";
+        TrackOverlayItem.Header = $"叠加 ({_project.Canvas.Stickers.Count + _project.Canvas.SoftRegions.Count(x => x.Enabled)})";
+    }
+
+    void TrackItem_Click(object sender, RoutedEventArgs e)
+    {
+        var bit = ReferenceEquals(sender, TrackZoomItem) ? 1
+            : ReferenceEquals(sender, TrackScreenMotionItem) ? 2
+            : ReferenceEquals(sender, TrackCameraMotionItem) ? 4 : 8;
+        var flags = TrackFlags;
+        ApplyTrackFlags((flags & bit) != 0 ? flags & ~bit : flags | bit);
     }
 
     void Preview_SizeChanged(object sender, SizeChangedEventArgs e) => LayoutPreview();

@@ -91,6 +91,9 @@ public sealed class TimelineControl : FrameworkElement
         }
     }
 
+    /// <summary>轨道显示位集：1=缩放 2=屏幕运动 4=摄像头运动 8=叠加（贴图/柔化）。只收起行，不停用效果。</summary>
+    public int TrackFlags { get; set; } = 0xF;
+
     public double Zoom
     {
         get => _zoom;
@@ -487,11 +490,23 @@ public sealed class TimelineControl : FrameworkElement
         if (_project is null) yield break;
         // 屏幕 / 摄像头运动片段也铺进装饰轨（对齐 Mac 的运动轨道行）：
         // 窗口 = StartTime .. Duration + ReturnDuration。
-        var effects = _project.Canvas.Stickers.Select((x, i) => (x.Id, Title: $"贴图 {i + 1}", x.Timing))
-            .Concat(_project.Canvas.SoftRegions.Where(x => x.Enabled).Select((x, i) => (x.Id, Title: $"{(x.Style == "spotlight" ? "聚光" : "柔化")} {i + 1}", x.Timing)))
-            .Concat(_project.ScreenMotions.Select((x, i) => (x.Id, Title: $"屏幕运动 {i + 1}", Timing: MotionWindow(x.Timing))))
-            .Concat(_project.CameraMotions.Select((x, i) => (x.Id, Title: $"摄像头运动 {i + 1}", Timing: MotionWindow(x.Timing))))
-            .OrderBy(x => x.Timing.Duration <= 0 ? 0 : x.Timing.Start);
+        // TrackFlags（对齐 Mac 轨道显示位集）：1=缩放 2=屏幕运动 4=摄像头运动 8=叠加（贴图+柔化）。
+        var effects = Enumerable.Empty<(string Id, string Title, EffectWindow Timing)>();
+        if ((TrackFlags & 8) != 0)
+        {
+            effects = effects
+                .Concat(_project.Canvas.Stickers.Select((x, i) => (x.Id, Title: $"贴图 {i + 1}", x.Timing)))
+                .Concat(_project.Canvas.SoftRegions.Where(x => x.Enabled).Select((x, i) => (x.Id, Title: $"{(x.Style == "spotlight" ? "聚光" : "柔化")} {i + 1}", x.Timing)));
+        }
+        if ((TrackFlags & 2) != 0)
+        {
+            effects = effects.Concat(_project.ScreenMotions.Select((x, i) => (x.Id, Title: $"屏幕运动 {i + 1}", Timing: MotionWindow(x.Timing))));
+        }
+        if ((TrackFlags & 4) != 0)
+        {
+            effects = effects.Concat(_project.CameraMotions.Select((x, i) => (x.Id, Title: $"摄像头运动 {i + 1}", Timing: MotionWindow(x.Timing))));
+        }
+        effects = effects.OrderBy(x => x.Timing.Duration <= 0 ? 0 : x.Timing.Start);
         var ends = new List<double>();
         foreach (var effect in effects)
         {
@@ -642,7 +657,7 @@ public sealed class TimelineControl : FrameworkElement
 
     IEnumerable<ZoomSpan> VisualZooms()
     {
-        if (_project is null)
+        if (_project is null || (TrackFlags & 1) == 0)
         {
             yield break;
         }
