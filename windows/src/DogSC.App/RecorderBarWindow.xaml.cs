@@ -76,6 +76,11 @@ public partial class RecorderBarWindow : Window
                 }
                 args.Handled = true;
             }
+            else if (args.Key == Key.Enter && ListItems.Children.OfType<Button>().FirstOrDefault(b => b.IsKeyboardFocusWithin) is { } focused)
+            {
+                focused.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                args.Handled = true;
+            }
         };
         _hook = WndProc;
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/AppIconMaster.png"));
@@ -90,6 +95,8 @@ public partial class RecorderBarWindow : Window
         {
             _barLayoutReady = true;
             ApplyBarLayout(false);
+            if (!SettingsStore.Current.RecorderTourSeen)
+                Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() => ShowRecorderTour(0)));
         };
         if (!double.IsNaN(SettingsStore.Current.BarLeft))
         {
@@ -225,7 +232,7 @@ public partial class RecorderBarWindow : Window
         CollapseButton.ToolTip = _collapsed ? "展开工具条" : "收起工具条";
         System.Windows.Automation.AutomationProperties.SetName(CollapseButton, (string)CollapseButton.ToolTip);
 
-        var length = _collapsed ? recording ? 340d : 280d : recording ? VerticalBar ? 400d : 620d : 860d;
+        var length = _collapsed ? recording ? 380d : 280d : recording ? VerticalBar ? 440d : 620d : 860d;
         var designWidth = VerticalBar ? _collapsed ? 104d : 132d : length;
         var designHeight = VerticalBar ? length : _collapsed ? 88d : recording ? 100d : 124d;
         var work = WindowPlacement.WorkArea(this);
@@ -313,6 +320,7 @@ public partial class RecorderBarWindow : Window
         if (_session is null) return;
         var elapsed = TimeSpan.FromSeconds(_session.Elapsed);
         TimerLabel.Text = CompactTimer.Text = elapsed.ToString(elapsed.TotalHours >= 1 ? @"h\:mm\:ss" : @"mm\:ss");
+        PaintRecordingMicrophone();
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -502,6 +510,7 @@ public partial class RecorderBarWindow : Window
             ("导入 macOS 项目", "打开 Mac 版 .dogscproject 包", () => _ = ImportMacAsync()),
             ("打开项目", "打开 .dogscproject 文件夹", () => OpenProject()),
             ("备忘录", "不进入录制画面", () => MemoWindow.Toggle()),
+            ("使用引导", "逐步介绍录制条", () => ShowRecorderTour(0)),
             ("工具条大小", "70%–110% · Ctrl + 滚轮", () =>
             {
                 SizePopup.PlacementTarget = _collapsed ? CompactMenu : CollapseButton;
@@ -569,7 +578,27 @@ public partial class RecorderBarWindow : Window
         }
     }
 
-    void Marker_Click(object sender, RoutedEventArgs e) => _session?.Mark(null);
+    void Marker_Click(object sender, RoutedEventArgs e)
+    {
+        _session?.Mark(null);
+        MarkerCount.Text = (_session?.MarkerCount ?? 0).ToString();
+    }
+    void Memo_Click(object sender, RoutedEventArgs e) => MemoWindow.Toggle();
+    void RecordingMic_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session?.HasMicrophone != true) return;
+        _session.SetMicrophoneMuted(!_session.MicrophoneMuted); PaintRecordingMicrophone();
+    }
+    void PaintRecordingMicrophone()
+    {
+        foreach (var button in new[] { RecordingMicButton, CompactRecordingMic })
+        {
+            button.IsEnabled = _session?.HasMicrophone == true;
+            button.Opacity = _session?.MicrophoneMuted == true ? .45 : 1;
+            button.ToolTip = !button.IsEnabled ? "此轮录制未启用麦克风" : _session!.MicrophoneMuted ? "恢复麦克风" : "静音麦克风";
+            System.Windows.Automation.AutomationProperties.SetName(button, (string)button.ToolTip);
+        }
+    }
 
     async void Stop_Click(object sender, RoutedEventArgs e) => await StopAsync();
 
@@ -613,6 +642,8 @@ public partial class RecorderBarWindow : Window
             _paused = false;
             PaintPauseState();
             TimerLabel.Text = CompactTimer.Text = "00:00";
+            MarkerCount.Text = "0";
+            PaintRecordingMicrophone();
             RecordingLabel.Text = target.Label;
             ApplyBarLayout(true);
             ErrorText.Text = "";
@@ -876,6 +907,7 @@ public partial class RecorderBarWindow : Window
             if (wParam.ToInt32() == 1)
             {
                 _session.Mark(null);
+                MarkerCount.Text = _session.MarkerCount.ToString();
             }
             else if (wParam.ToInt32() == 2)
             {

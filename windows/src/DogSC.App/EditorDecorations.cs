@@ -1,4 +1,4 @@
-using DogSC.Core;
+﻿using DogSC.Core;
 
 namespace DogSC;
 
@@ -16,6 +16,7 @@ public partial class EditorWindow
         _player.Pause();
         _selectedDecoration = id; _selectedClip = null; _selectedZoom = null;
         _tool = MotionTimingOf(id) is not null ? "zoom" : "effects";
+        if (_project.ScreenMotions.Any(c => c.Id == id)) _motionMode = "screen3d";
         _expandedDetails.Add("贴图、柔化与聚光");
         if (rebuild) RebuildInspector();
         SyncSelection(); ApplyZoomVisual();
@@ -60,25 +61,16 @@ public partial class EditorWindow
         var selectedSticker = _project.Canvas.Stickers.Any(x => x.Id == _selectedDecoration);
         InspectorHeader(selectedSoft is null ? selectedSticker ? "贴图" : "效果" : selectedSoft.Style == "spotlight" ? "聚光" : "柔化",
             selectedSoft is null ? selectedSticker ? "所选图片" : "项目片段" : "所选区域");
-        var section = selectedSoft is null ? Disclosure("贴图、柔化与聚光") : Inspector;
-        var management = selectedSoft is null ? section : Disclosure("管理效果");
+        var section = selectedSoft is null && !selectedSticker ? Disclosure("贴图、柔化与聚光") : Inspector;
+        var management = selectedSoft is null && !selectedSticker ? section : Disclosure("管理效果");
+        var managementContainer = management.Parent as Expander;
+        if ((selectedSoft is not null || selectedSticker) && managementContainer is not null) Inspector.Children.Remove(managementContainer);
         var add = new WrapPanel();
         add.Children.Add(DecorationButton("＋贴图", AddSticker));
         foreach (var (title, style) in new[] { ("＋柔化", "blur"), ("＋聚光", "spotlight") })
             add.Children.Add(DecorationButton(title, () => BeginRegionDrawing(style)));
         // Mac 运动轨道：在播放头插入屏幕 / 摄像头运动片段。
-        add.Children.Add(DecorationButton("＋屏幕运动", () =>
-        {
-            Push();
-            var clip = new ScreenMotionClip();
-            clip.Timing.StartTime = Math.Clamp(_player.Time, 0, Math.Max(0, TimelineMath.Duration(_project) - .12));
-            clip.Timing.LeadInDuration = 0.7;
-            clip.Timing.ReturnDuration = 0.7;
-            _project.ScreenMotions.Add(clip);
-            _selectedDecoration = clip.Id; _selectedClip = _selectedZoom = null;
-            ApplyTrackFlags(TrackFlags | 2);
-            Commit();
-        }));
+        add.Children.Add(DecorationButton("＋屏幕运动", AddScreenMotion));
         add.Children.Add(DecorationButton("＋摄像头运动", () =>
         {
             Push();
@@ -150,25 +142,37 @@ public partial class EditorWindow
                     Push(); _project.Canvas.Stickers.RemoveAt(index); _project.Canvas.Stickers.Insert(target, sticker); Commit();
                 }));
         }
-        section.Children.Add(commands);
+        management.Children.Add(commands);
         void Control(string title, double min, double max, double value, Action<double> assign, bool refresh = false)
-        { section.Children.Add(Caption(title)); section.Children.Add(Slider(min, max, value, assign, refresh)); }
+        { section.Children.Add(ValueSlider(title, min, max, value, assign, title == "不透明度" || title == "宽度" ? Percent : title == "旋转角度" ? v => $"{v:0}°" : null)); }
         if (sticker is not null)
         {
-            section.Children.Add(Caption("拖动摆放 · 边角缩放 · 顶部手柄旋转"));
+            management.Children.Add(Caption("拖动摆放 · 边角缩放 · 顶部手柄旋转"));
+            var onlyBackground = new CheckBox { Content = "仅背景", IsChecked = sticker.HidesScreen && sticker.HidesCamera, Style = (Style)FindResource("SwitchCheckBox"), Margin = new Thickness(0, 6, 0, 6) };
+            onlyBackground.Click += (_, _) => { Push(); sticker.HidesScreen = sticker.HidesCamera = onlyBackground.IsChecked == true; Commit(); };
+            management.Children.Add(onlyBackground);
+            management.Children.Add(DecorationButton("适应画布", () =>
+            {
+                if (!_stickerImages.TryGetValue(sticker.Id, out var holder) || holder.Child is not Image image || image.Source is not BitmapSource bitmap) return;
+                Push(); sticker.X = sticker.Y = .5; sticker.Rotation = 0;
+                sticker.Width = Math.Min(1, PreviewCanvas.Height / PreviewCanvas.Width * bitmap.PixelWidth / bitmap.PixelHeight);
+                Commit();
+            }));
             var tips = Caption("Alt + 点击切换重叠图层；Tab 切图层。");
-            tips.ToolTip = "旋转时按住 Shift 吸附 15°；方向键移动 1 像素，Shift + 方向键移动 10 像素。"; section.Children.Add(tips);
-            BuildStickerNumbers(section, sticker);
+            tips.ToolTip = "旋转时按住 Shift 吸附 15°；方向键移动 1 像素，Shift + 方向键移动 10 像素。"; management.Children.Add(tips);
+            BuildStickerNumbers(management, sticker);
+            section.Children.Add(SectionTitle("贴图布局"));
+            section.Children.Add(PadHeading("位置", "⌖ 居中", () => { Push(); sticker.X = sticker.Y = .5; Commit(); }));
+            section.Children.Add(VectorPad("贴图位置", sticker.X, sticker.Y, (x, y) => { sticker.X = x; sticker.Y = y; }));
             Control("宽度", .02, 1, sticker.Width, x => sticker.Width = x);
             Control("旋转角度", -180, 180, sticker.Rotation, x => sticker.Rotation = x);
             Control("不透明度", 0, 1, sticker.Opacity, x => sticker.Opacity = x);
-            Control("水平位置", 0, 1, sticker.X, x => sticker.X = x);
-            Control("垂直位置", 0, 1, sticker.Y, x => sticker.Y = x);
 
-            var body = Disclosure("外观与动画");
+            section.Children.Add(SectionTitle("外观"));
+            var body = new StackPanel(); section.Children.Add(body);
             // Mac 贴纸外观：圆角 / 描边 / 投影。
             void DetailControl(string title, double min, double max, double value, Action<double> assign)
-            { body.Children.Add(Caption(title)); body.Children.Add(Slider(min, max, value, assign)); }
+            { body.Children.Add(ValueSlider(title, min, max, value, assign)); }
             DetailControl("圆角", 0, 120, sticker.CornerRadius, x => sticker.CornerRadius = x);
             DetailControl("描边宽度", 0, 40, sticker.BorderWidth, x => sticker.BorderWidth = x);
             var borderRow = new WrapPanel();
@@ -229,8 +233,10 @@ public partial class EditorWindow
         }
         if (soft is not null)
         {
+            section.Children.Add(SectionTitle("柔化效果"));
             section.Children.Add(Segments([("柔化", "blur"), ("聚光", "spotlight")], soft.Style,
                 key => { Push(); soft.Style = key; Commit(); }));
+            section.Children.Add(ValueSlider("强度", 0, 1, soft.Style == "spotlight" ? soft.Dimming : soft.Strength, v => { if (soft.Style == "spotlight") soft.Dimming = v; else soft.Strength = v; }, Percent));
             section.Children.Add(ValueSlider("圆角", 0, .5, soft.Corner, v => soft.Corner = v, Percent));
             section.Children.Add(Caption("过渡"));
             section.Children.Add(Segments([("无", "none"), ("线性", "linear"), ("平滑", "smooth")], soft.Timing.Transition,
@@ -238,12 +244,13 @@ public partial class EditorWindow
             commands.Children.Insert(0, DecorationButton("重画区域", () => BeginRegionDrawing(soft.Style, soft.Id)));
             var guidance = Caption("拖动移动 · 拖边角缩放 · 方向键微调");
             guidance.ToolTip = "方向键移动 1 像素，Shift + 方向键移动 10 像素。暂停时完整显示所选效果，播放时按时间线显示。";
-            section.Children.Add(guidance);
-            RegionValueControl(section, soft.Style == "spotlight" ? "外围压暗" : "柔化强度", 0, 1,
-                soft.Style == "spotlight" ? soft.Dimming : soft.Strength,
-                x => { if (soft.Style == "spotlight") soft.Dimming = x; else soft.Strength = x; });
-            BuildRegionNumbers(section, soft);
-            var details = Disclosure("区域外观与坐标");
+            management.Children.Add(guidance);
+            section.Children.Add(SectionTitle("位置与大小"));
+            section.Children.Add(PadHeading("位置", "⌖ 居中", () => { Push(); soft.X = .5 - soft.Width / 2; soft.Y = .5 - soft.Height / 2; Commit(); }));
+            section.Children.Add(VectorPad("选区位置", soft.X + soft.Width / 2, soft.Y + soft.Height / 2,
+                (x, y) => { soft.X = Math.Clamp(x - soft.Width / 2, 0, 1 - soft.Width); soft.Y = Math.Clamp(y - soft.Height / 2, 0, 1 - soft.Height); }));
+            BuildRegionNumbers(management, soft);
+            var details = management;
             var enabled = new CheckBox { Content = "启用效果", IsChecked = soft.Enabled, Style = (Style)FindResource("SwitchCheckBox"), Margin = new Thickness(0, 6, 0, 2) };
             enabled.Click += (_, _) => { Push(); soft.Enabled = enabled.IsChecked == true; Commit(); };
             details.Children.Add(enabled);
@@ -254,6 +261,7 @@ public partial class EditorWindow
             RegionValueControl(details, "圆角", 0, .5, soft.Corner, x => soft.Corner = x);
         }
         BuildEffectTiming("所选效果", sticker?.Timing ?? soft!.Timing);
+        if (managementContainer is not null && managementContainer.Parent is null) Inspector.Children.Add(managementContainer);
     }
 
     bool CopyDecoration()
@@ -380,8 +388,13 @@ public partial class EditorWindow
     void BuildMotionInspector(Panel section, ScreenMotionClip? screen, CameraMotionClip? camera)
     {
         if (screen is not null)
+        {
+            section.Children.Add(SectionTitle("运动类型"));
             section.Children.Add(Segments([("缩放", "zoom"), ("屏幕 3D", "screen3d")], "screen3d",
-                key => { if (key == "zoom") ConvertScreenMotionToZoom(screen); }));
+                SelectMotionMode));
+            BuildScreenPoseControls(section, screen);
+            section = Disclosure("动画时间");
+        }
         var timing = (screen?.Timing ?? camera!.Timing)!;
         section.Children.Add(Caption(screen is not null ? "屏幕运动片段 · 轨道可拖动、两端可拉长" : "摄像头运动片段 · 轨道可拖动、两端可拉长"));
         var commands = new WrapPanel();
@@ -423,21 +436,7 @@ public partial class EditorWindow
 
         if (screen is not null)
         {
-            section.Children.Add(Caption("目标构图（归一化）"));
-            Control("水平位置", 0, 1, screen.Target.X, x => screen.Target.X = x);
-            Control("垂直位置", 0, 1, screen.Target.Y, x => screen.Target.Y = x);
-            Control("缩放", .25, 4, screen.Target.Scale, x => screen.Target.Scale = x);
-            Control("旋转 Z", -90, 90, screen.Target.RotationZ, x => screen.Target.RotationZ = x);
-            Control("旋转 X", -89, 89, screen.Target.RotationX, x => screen.Target.RotationX = x);
-            Control("旋转 Y", -89, 89, screen.Target.RotationY, x => screen.Target.RotationY = x);
-            Control("透视", 0, 2, screen.Target.Perspective, x => screen.Target.Perspective = x);
-            section.Children.Add(Caption("聚焦锚点（%）"));
-            Control("锚点 X", 0, 1, screen.Target.AnchorX, x => screen.Target.AnchorX = x);
-            Control("锚点 Y", 0, 1, screen.Target.AnchorY, x => screen.Target.AnchorY = x);
-            var blur = new CheckBox { Content = "线性模糊（运动窗口内加高斯模糊）", IsChecked = screen.LinearBlur, Margin = new Thickness(0, 6, 0, 2) };
-            blur.Checked += (_, _) => { Push(); screen.LinearBlur = true; Commit(); };
-            blur.Unchecked += (_, _) => { Push(); screen.LinearBlur = false; Commit(); };
-            section.Children.Add(blur);
+            return;
         }
         else
         {

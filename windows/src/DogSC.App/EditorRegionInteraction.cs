@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using DogSC.Core;
 
@@ -29,14 +29,16 @@ public partial class EditorWindow
             foreach (var (name, style) in new[] { ("柔化", "blur"), ("聚光", "spotlight") })
             {
                 var button = DecorationButton(name, () => { Push(); region.Style = style; Commit(); });
-                ControlAppearance.SelectChip(button, region.Style == style); row.Children.Add(button);
+                button.Style = (Style)FindResource("SegmentButton"); button.FontSize = 11; button.Padding = new Thickness(7, 4, 7, 4); button.MinHeight = 24;
+                ControlAppearance.SelectSegment(button, region.Style == style); row.Children.Add(button);
             }
             void Control(string name, double value, Action<double> assign)
             {
-                var group = new StackPanel { Width = 84, Margin = new Thickness(6, 0, 4, 0) };
-                group.Children.Add(new TextBlock { Text = name, FontSize = 10 });
+                var group = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 0, 4, 0) };
+                group.Children.Add(new TextBlock { Text = name, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
                 var slider = Slider(0, 1, value, assign);
                 System.Windows.Automation.AutomationProperties.SetName(slider, "选区" + name);
+                slider.Width = 60; slider.VerticalAlignment = VerticalAlignment.Center; slider.Margin = new Thickness(0);
                 group.Children.Add(slider); row.Children.Add(group);
                 // Rebuild the toolbar after inspector changes so both controls agree.
                 slider.PreviewMouseLeftButtonUp += (_, _) => { _regionToolbarId = null; RebuildInspector(); };

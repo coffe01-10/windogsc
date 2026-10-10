@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using System.Windows.Media.Effects;
 using DogSC.Core;
@@ -41,6 +41,7 @@ public partial class EditorWindow : Window
         CursorBitmap.RenderTransform = _cursorRotation;
         InitializeRegionEditor();
         InitializeOverlayEditor();
+        InitializeCropEditor();
         _saveTimer.Tick += (_, _) => FlushPendingSave();
         Loaded += (_, _) =>
         {
@@ -52,7 +53,7 @@ public partial class EditorWindow : Window
             if (TourOverlay.Visibility == Visibility.Visible)
                 Dispatcher.BeginInvoke(() => Keyboard.Focus(TourNext), DispatcherPriority.ContextIdle);
         };
-        Closing += (_, _) => { CancelOverlayGesture(); CancelRegionEditing(); FlushPendingSave(); };
+        Closing += (_, _) => { FinishCropGesture(true); CancelOverlayGesture(); CancelRegionEditing(); FlushPendingSave(); };
         SetToolContent(ToolLayout, IconKind.CanvasPicture, "画面");
         SetToolContent(ToolZoom, IconKind.MotionViewfinder, "运镜");
         SetToolContent(ToolOpening, IconKind.OpeningStack, "开场");
@@ -60,10 +61,11 @@ public partial class EditorWindow : Window
         SetToolContent(ToolCamera, IconKind.Camera, "摄像头");
         SetToolContent(ToolAudio, IconKind.Speaker, "声音");
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/AppIconMaster.png"));
+        PaintTimelineView();
         FrameRect.Fill = new DrawingBrush { Drawing = _player.ScreenDrawing, Stretch = Stretch.Fill };
         CameraBubble.Fill = new DrawingBrush { Drawing = _player.CameraDrawing, Stretch = Stretch.Fill };
         CameraBubble.Stroke = Brushes.White;
-        foreach (var speed in new[] { 0.5, 0.75, 1d, 1.25, 1.5, 2d, 4, 8, 16, 32, 64, 100 })
+        foreach (var speed in new[] { 0.5, 0.75, 1d, 1.25, 1.5, 2d, 4, 8, 12, 20, 50, 100 })
         {
             SpeedBox.Items.Add(speed.ToString("0.##", CultureInfo.InvariantCulture) + "×");
         }
@@ -75,7 +77,7 @@ public partial class EditorWindow : Window
         Timeline.SeekFinished += (_, _) => _player.FlushScrub();
         Timeline.InteractionStarted += (_, _) => { if (_player.IsPlaying) _player.Pause(); };
         Timeline.ClipSelected += (_, id) => { _cameraSelected = false; CancelOverlayGesture(); CancelRegionEditing(); _selectedClip = id; _selectedZoom = null; _selectedDecoration = null; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
-        Timeline.ZoomSelected += (_, id) => { CancelOverlayGesture(); CancelRegionEditing(); _selectedZoom = id; _selectedClip = null; _selectedDecoration = null; _tool = "zoom"; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
+        Timeline.ZoomSelected += (_, id) => { CancelOverlayGesture(); CancelRegionEditing(); _motionMode = "zoom"; _selectedZoom = id; _selectedClip = null; _selectedDecoration = null; _tool = "zoom"; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
         Timeline.DecorationSelected += (_, id) => SelectDecoration(id);
         Timeline.ClipMenuAction += (_, e) => OnClipMenu(e.Id, e.Action);
         Timeline.MarkerDeleteRequested += (_, marker) => { Push(); _project.Markers.Remove(marker); Commit(); };
@@ -86,6 +88,11 @@ public partial class EditorWindow : Window
             {
                 Commit();
             }
+        };
+        Timeline.SpeedFinished += (_, change) =>
+        {
+            Push();
+            if (TimelineEdits.TrySetSpeed(_project, change.ClipId, change.Speed)) Commit(); else _undo.Pop();
         };
         Timeline.ZoomFinished += (_, move) =>
         {
@@ -150,7 +157,7 @@ public partial class EditorWindow : Window
     int _tourStep;
     static readonly (string Title, string Body)[] TourSteps =
     [
-        ("欢迎使用 DogSC", "在录制条选择显示器、窗口、区域或视频设备开始录制；停止后，在完成卡片中选择「打开编辑器」，继续调整画面、缩放和效果。"),
+        ("画面与效果", "左侧依次是画面、开场、运镜、光标、摄像头和声音。上方「＋」添加缩放、屏幕 3D、贴图、柔化或聚光；选中对应片段即可调整参数。"),
         ("时间线与效果", "下方时间线可切开片段、加缩放与屏幕/摄像头运动、贴贴图与柔化区域、打标记；「轨道」菜单可收起或显示各行。"),
         ("布局与导出", "右侧画面面板调整背景、外框与开场动画，预览上方切换画布比例；右上角导出成片，时间线右侧可切换预览画质。"),
     ];
@@ -171,6 +178,14 @@ public partial class EditorWindow : Window
         TourTitle.Text = title;
         TourBody.Text = body;
         TourStep.Text = $"{_tourStep + 1} / {TourSteps.Length}";
+        TourCard.HorizontalAlignment = _tourStep == 2 ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+        TourCard.VerticalAlignment = _tourStep == 1 ? VerticalAlignment.Bottom : VerticalAlignment.Top;
+        TourCard.Margin = _tourStep switch
+        {
+            0 => new Thickness(88, 90, 20, 20),
+            1 => new Thickness(90, 20, 20, Math.Min(230, ActualHeight * .35)),
+            _ => new Thickness(20, 78, 25, 20),
+        };
         TourPrev.IsEnabled = _tourStep > 0;
         TourNext.Content = _tourStep == TourSteps.Length - 1 ? "完成" : "下一步";
         TourOverlay.Visibility = Visibility.Visible;
@@ -226,6 +241,7 @@ public partial class EditorWindow : Window
         Timeline.TrackFlags = SettingsStore.Current.TimelineTracks;
         foreach (ComboBoxItem item in PreviewQualityBox.Items) item.IsSelected = (item.Tag as string) == SettingsStore.Current.PreviewQuality;
         Timeline.Project = _project;
+        UpdateTimelineLayout();
         _player.Open(_project, directory);
         _player.SetGains(_project.MicrophoneGain, _project.SystemGain);
         SyncSelection();
@@ -303,15 +319,17 @@ public partial class EditorWindow : Window
         _cursorPreviewTimer = null;
         Inspector.Children.Clear();
         PaintTools();
+        if (_cropEditing) { BuildCropInspector(); return; }
         if (_tool == "zoom")
         {
             var screen = _project.ScreenMotions.FirstOrDefault(c => c.Id == _selectedDecoration);
             var camera = _project.CameraMotions.FirstOrDefault(c => c.Id == _selectedDecoration);
             if (screen is not null || camera is not null)
             {
-                InspectorHeader(camera is null ? "运镜" : "摄像头", "所选片段");
+                InspectorHeader(camera is null ? "运镜" : "摄像头", camera is null ? "屏幕 3D 片段" : "所选片段");
                 BuildMotionInspector(Inspector, screen, camera);
             }
+            else if (_motionMode == "screen3d" && _selectedZoom is null) BuildScreenMotionCreation();
             else BuildZoomInspector();
         }
         else if (_tool == "effects")
@@ -620,7 +638,8 @@ public partial class EditorWindow : Window
 
             Commit();
         };
-        Inspector.Children.Add(auto);
+        var zoom = _project.Zooms.FirstOrDefault(item => item.Id == _selectedZoom);
+        if (zoom is null) Inspector.Children.Add(auto);
         var add = new Button { Content = "在播放头添加缩放", Style = (Style)FindResource("QuietButton"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
         add.Click += (_, _) =>
         {
@@ -636,10 +655,10 @@ public partial class EditorWindow : Window
             _selectedClip = null;
             Commit();
         };
-        Inspector.Children.Add(add);
-        var zoom = _project.Zooms.FirstOrDefault(item => item.Id == _selectedZoom);
+        if (zoom is null) Inspector.Children.Add(add);
         if (zoom is null)
         {
+            Inspector.Children.Add(Segments([("缩放", "zoom"), ("屏幕 3D", "screen3d")], "zoom", SelectMotionMode));
             Inspector.Children.Add(Caption("选中时间线上的一段缩放后，可以改倍数和焦点。"));
             return;
         }
@@ -690,65 +709,91 @@ public partial class EditorWindow : Window
 
     void BuildAudioInspector()
     {
-        Inspector.Children.Add(Heading("声音"));
-        Inspector.Children.Add(Caption("麦克风"));
-        Inspector.Children.Add(Slider(0, ProjectDocument.MaxGain, _project.MicrophoneGain, value =>
+        var clip = _project.Clips.FirstOrDefault(c => c.Id == _selectedClip);
+        CheckBox? inherit = null;
+        InspectorHeader("声音", clip is null ? "整个项目" : $"片段 {_project.Clips.IndexOf(clip) + 1}");
+        if (clip is not null)
         {
-            _project.MicrophoneGain = value;
-            _player.SetGains(_project.MicrophoneGain, _project.SystemGain);
-        }, refresh: true));
-        Inspector.Children.Add(Caption("系统声音"));
-        Inspector.Children.Add(Slider(0, ProjectDocument.MaxGain, _project.SystemGain, value =>
+            var placed = TimelineMath.Place(_project).First(p => p.Clip.Id == clip.Id);
+            Inspector.Children.Add(Caption($"{placed.Start:0.00} – {placed.End:0.00} 秒"));
+            Inspector.Children.Add(DecorationButton("前往此片段", () => _player.Seek(placed.Start, false)));
+            AddToggle(Inspector, "继承全局声音", clip.MicrophoneGain is null && clip.SystemGain is null && clip.MicrophoneEnabled is null && clip.SystemEnabled is null, on =>
+            {
+                clip.MicrophoneGain = on ? null : _project.MicrophoneGain;
+                clip.SystemGain = on ? null : _project.SystemGain;
+                clip.MicrophoneEnabled = on ? null : _project.MicrophoneEnabled;
+                clip.SystemEnabled = on ? null : _project.SystemEnabled;
+                RebuildInspector();
+            });
+            inherit = Inspector.Children.OfType<CheckBox>().LastOrDefault();
+        }
+        Inspector.Children.Add(SectionTitle(clip is null ? "项目声音" : "片段声音"));
+        var asset = clip is null ? null : _project.Asset(clip.AssetId);
+        if (clip is null ? _project.Assets.Any(a => a.SystemAudio is not null) : asset?.SystemAudio is not null)
+            AudioChannel("系统声音", false);
+        if (clip is null ? _project.Assets.Any(a => a.Microphone is not null) : asset?.Microphone is not null)
+            AudioChannel("麦克风", true);
+        void AudioChannel(string title, bool mic)
         {
-            _project.SystemGain = value;
-            _player.SetGains(_project.MicrophoneGain, _project.SystemGain);
-        }, refresh: true));
-        var recorded = _project.Assets.Any(asset => asset.Microphone is not null || asset.SystemAudio is not null);
-        Inspector.Children.Add(Caption(recorded ? "两条声音会在导出时混合。这里的音量只影响预览和导出。" : "这个项目没有单独的声音轨。"));
-        // 预览器的音量上限是 100%，超过的部分只在导出时生效，提前说明免得以为没生效。
-        if (_project.MicrophoneGain > 1 || _project.SystemGain > 1)
-        {
-            Inspector.Children.Add(Caption("预览最多播放到 100%；超过的部分以导出为准。"));
+            double Global() => mic ? _project.MicrophoneGain : _project.SystemGain;
+            double Gain() => (mic ? clip?.MicrophoneGain : clip?.SystemGain) ?? Global();
+            void Set(double value)
+            {
+                if (clip is null) { if (mic) _project.MicrophoneGain = value; else _project.SystemGain = value; }
+                else { if (mic) clip.MicrophoneGain = value; else clip.SystemGain = value; }
+                if (inherit is not null) inherit.IsChecked = false;
+            }
+            var enabled = (mic ? clip?.MicrophoneEnabled : clip?.SystemEnabled) ?? (mic ? _project.MicrophoneEnabled : _project.SystemEnabled);
+            var channel = new StackPanel();
+            var card = new Border { Child = channel, Padding = new Thickness(12), CornerRadius = new CornerRadius(12), Margin = new Thickness(0, 0, 0, 12), Background = (Brush)FindResource("SegmentWellBrush"), BorderBrush = (Brush)FindResource("LineBrush"), BorderThickness = new Thickness(.75) };
+            AddToggle(channel, title, enabled, on =>
+            {
+                if (clip is null) { if (mic) _project.MicrophoneEnabled = on; else _project.SystemEnabled = on; }
+                else { if (mic) clip.MicrophoneEnabled = on; else clip.SystemEnabled = on; }
+                RebuildInspector();
+            });
+            var toggle = channel.Children.OfType<CheckBox>().Last(); toggle.Content = IconLabel(mic ? IconKind.Mic : IconKind.Speaker, title);
+            channel.Children.Add(new TextBlock { Text = clip is null ? "录制应用与系统声音" : "继承全局设置，调整即可单独覆盖", FontSize = 11, Foreground = (Brush)FindResource("InkSecondaryBrush") });
+            channel.Children.Add(ValueSlider("音量", 0, ProjectDocument.MaxGain, Gain(), Set, Percent));
+            Inspector.Children.Add(card);
+            if (Gain() > 1) Inspector.Children.Add(Caption("超过 100% 的增益以导出为准。"));
         }
     }
 
     UIElement PositionPad()
     {
-        var canvas = new Canvas { Width = 200, Height = 120, Clip = new RectangleGeometry(new Rect(0, 0, 200, 120), 8, 8) };
-        canvas.SetResourceReference(Panel.BackgroundProperty, "ControlBrush");
-        var dot = new System.Windows.Shapes.Ellipse { Width = 14, Height = 14 };
-        dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "AccentBrush");
-        canvas.Children.Add(dot);
+        const double w = 180, h = 122;
+        var panel = new StackPanel();
+        panel.Children.Add(PadHeading("屏幕位置", "⌖ 居中", () => { Push(); _project.Canvas.CenterX = _project.Canvas.CenterY = .5; Commit(); }));
+        var row = new Grid { Margin = new Thickness(0, 8, 0, 2) };
+        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new());
+        var pad = new Canvas { Width = w, Height = h, Clip = new RectangleGeometry(new Rect(0, 0, w, h), 10, 10) };
+        System.Windows.Automation.AutomationProperties.SetName(pad, "屏幕位置");
+        pad.SetResourceReference(Panel.BackgroundProperty, "ControlBrush");
+        var line = (Brush)FindResource("LineBrush");
+        pad.Children.Add(new System.Windows.Shapes.Line { X1 = w / 2, X2 = w / 2, Y2 = h, Stroke = line, StrokeDashArray = [2, 3] });
+        pad.Children.Add(new System.Windows.Shapes.Line { Y1 = h / 2, Y2 = h / 2, X2 = w, Stroke = line, StrokeDashArray = [2, 3] });
+        var dot = new System.Windows.Shapes.Ellipse { Width = 14, Height = 14 }; dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "AccentBrush");
+        pad.Children.Add(dot); row.Children.Add(pad);
+        var vx = new TextBlock(); var vy = new TextBlock();
+        var values = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+        values.Children.Add(CoordinateValue("X", vx)); var ry = CoordinateValue("Y", vy); ry.Margin = new Thickness(0, 10, 0, 0); values.Children.Add(ry);
+        Grid.SetColumn(values, 1); row.Children.Add(values); panel.Children.Add(row);
         void Place()
         {
-            Canvas.SetLeft(dot, _project.Canvas.CenterX * (canvas.Width - 14));
-            Canvas.SetTop(dot, _project.Canvas.CenterY * (canvas.Height - 14));
+            Canvas.SetLeft(dot, _project.Canvas.CenterX * (w - 14)); Canvas.SetTop(dot, _project.Canvas.CenterY * (h - 14));
+            vx.Text = Percent(_project.Canvas.CenterX); vy.Text = Percent(_project.Canvas.CenterY);
         }
-
+        void Move(Point point)
+        {
+            _project.Canvas.CenterX = Math.Clamp((point.X - 7) / (w - 14), 0, 1);
+            _project.Canvas.CenterY = Math.Clamp((point.Y - 7) / (h - 14), 0, 1); Place(); Commit(rebuild: false);
+        }
         Place();
-        canvas.MouseLeftButtonDown += (_, args) =>
-        {
-            Push();
-            MovePad(canvas, args.GetPosition(canvas));
-            canvas.CaptureMouse();
-        };
-        canvas.MouseMove += (_, args) =>
-        {
-            if (args.LeftButton == MouseButtonState.Pressed)
-            {
-                MovePad(canvas, args.GetPosition(canvas));
-            }
-        };
-        canvas.MouseLeftButtonUp += (_, _) => canvas.ReleaseMouseCapture();
-        return canvas;
-
-        void MovePad(Canvas pad, Point point)
-        {
-            _project.Canvas.CenterX = Math.Clamp(point.X / pad.Width, 0, 1);
-            _project.Canvas.CenterY = Math.Clamp(point.Y / pad.Height, 0, 1);
-            Place();
-            Commit(rebuild: false);
-        }
+        pad.MouseLeftButtonDown += (_, e) => { Push(); pad.CaptureMouse(); Move(e.GetPosition(pad)); e.Handled = true; };
+        pad.MouseMove += (_, e) => { if (pad.IsMouseCaptured) Move(e.GetPosition(pad)); };
+        pad.MouseLeftButtonUp += (_, _) => { pad.ReleaseMouseCapture(); FlushPendingSave(); };
+        return panel;
     }
 
     WrapPanel CursorChipRow(IEnumerable<(string Name, string Id)> options, string selected, Action<string> apply)
@@ -840,12 +885,16 @@ public partial class EditorWindow : Window
             return;
         }
 
+        if (_cropEditing) { LayoutCropPreview(); return; }
+
         var (outputWidth, outputHeight) = CanvasLayout.OutputSize(_project.Width, _project.Height, _project.Canvas.Aspect, "source");
         var scale = Math.Min(PreviewSlot.ActualWidth / outputWidth, PreviewSlot.ActualHeight / outputHeight);
         var viewWidth = outputWidth * scale;
         var viewHeight = outputHeight * scale;
         PreviewCanvas.Width = viewWidth;
         PreviewCanvas.Height = viewHeight;
+        PreviewCanvas.Clip = new RectangleGeometry(new Rect(0, 0, viewWidth, viewHeight), 12, 12);
+        InspectorSurface.Height = viewHeight / _chromeScale;
         SceneCanvas.Width = viewWidth;
         SceneCanvas.Height = viewHeight;
         StageRect.Width = viewWidth;
@@ -873,6 +922,10 @@ public partial class EditorWindow : Window
         CursorLayer.Width = frameWidth;
         CursorLayer.Height = frameHeight;
         var radius = frame.Radius * frameScale;
+        var border = _project.Canvas.ScreenBorderWidth * Math.Min(outputWidth, outputHeight) / 1080d * frameScale;
+        ScreenBorder.Width = Math.Max(1, frameWidth - border); ScreenBorder.Height = Math.Max(1, frameHeight - border);
+        ScreenBorder.StrokeThickness = border;
+        ScreenBorder.RadiusX = ScreenBorder.RadiusY = Math.Max(0, radius - border / 2);
         ScreenTexture.Width = frameWidth;
         ScreenTexture.Height = frameHeight;
         ScreenTexture.Clip = new RectangleGeometry(new Rect(0, 0, frameWidth, frameHeight), radius, radius);
@@ -941,6 +994,7 @@ public partial class EditorWindow : Window
 
         _zoomTransform.ScaleX = _zoomTransform.ScaleY = scale;
         SourceEffects.RenderTransform = scale > 1.001 ? _zoomTransform : Transform.Identity;
+        UpdateLinearFocus();
         CursorLayer.RenderTransform = SourceEffects.RenderTransform;
         CursorLayer.RenderTransformOrigin = SourceEffects.RenderTransformOrigin;
 
@@ -1223,9 +1277,7 @@ public partial class EditorWindow : Window
         FrameHost.Opacity = _screenLayerOpacity * (1 - backdrop.ScreenSuppression);
         ShadowRect.Opacity = _shadowLayerOpacity * (1 - backdrop.ScreenSuppression)
             * OpeningMotion.Sample(_project, "screen", _player.Time, PreviewCanvas.Width, PreviewCanvas.Height).Opacity;
-        var motionBlur = _project.ScreenMotions.Any(c => c.LinearBlur
-            && _player.Time >= c.Timing.StartTime && _player.Time < c.Timing.EffectEndTime) ? 7 : 0;
-        _screenBackdropBlur.Radius = Math.Sqrt(backdrop.ScreenBlur * backdrop.ScreenBlur + motionBlur * motionBlur) * _pvFrameScale;
+        _screenBackdropBlur.Radius = backdrop.ScreenBlur * _pvFrameScale;
         FrameHost.Effect = _screenBackdropBlur.Radius > .01 ? _screenBackdropBlur : null;
         CameraBubble.Opacity = _cameraLayerOpacity * (1 - backdrop.CameraSuppression);
         _cameraBackdropBlur.Radius = backdrop.CameraBlur * _pvFrameScale;
@@ -1328,6 +1380,7 @@ public partial class EditorWindow : Window
         _saveTimer.Stop();
         _saveTimer.Start();
         Timeline.Project = _project;
+        UpdateTimelineLayout();
         _player.UpdateProject(_project);
         SyncSelection();
         if (rebuild)
@@ -1382,6 +1435,7 @@ public partial class EditorWindow : Window
 
     void Tool_Click(object sender, RoutedEventArgs e)
     {
+        if (_cropEditing) EndCrop();
         var tool = (string)((Button)sender).Tag;
         if (tool == _tool && !_cameraSelected) return;
         _cameraSelected = false;
@@ -1389,6 +1443,7 @@ public partial class EditorWindow : Window
         _tool = tool;
         if (tool == "effects") _player.Pause();
         RebuildInspector();
+        InspectorScroll.ScrollToTop();
         ApplyZoomVisual();
         Motion.Reveal(Inspector);
     }
@@ -1432,9 +1487,29 @@ public partial class EditorWindow : Window
 
     void Export_Click(object sender, RoutedEventArgs e)
     {
+        if (_cropEditing) EndCrop();
         FlushPendingSave();
-        new ExportWindow(_project, _directory) { Owner = this }.ShowDialog();
+        _player.Pause();
+        var preview = new RenderTargetBitmap(Math.Max(1, (int)PreviewCanvas.Width), Math.Max(1, (int)PreviewCanvas.Height), 96, 96, PixelFormats.Pbgra32);
+        var visual = new DrawingVisual();
+        using (var drawing = visual.RenderOpen())
+        {
+            var bounds = new Rect(0, 0, PreviewCanvas.Width, PreviewCanvas.Height);
+            // The centered PreviewCanvas carries its parent's layout offset.
+            // Render its zero-origin scene layers to avoid clipping the thumbnail.
+            foreach (var layer in new Visual[] { CanvasEffects, StickerLayers })
+                drawing.DrawRectangle(new VisualBrush(layer) { Stretch = Stretch.Fill, ViewboxUnits = BrushMappingMode.Absolute,
+                    Viewbox = bounds }, null, new Rect(0, 0, preview.PixelWidth, preview.PixelHeight));
+        }
+        preview.Render(visual); preview.Freeze();
+        ModalShade.Visibility = Visibility.Visible;
+        try { new ExportWindow(_project, _directory, preview) { Owner = this }.ShowDialog(); }
+        finally { ModalShade.Visibility = Visibility.Collapsed; }
     }
+
+    void ProjectFolder_Click(object sender, RoutedEventArgs e) => Process.Start(new ProcessStartInfo("explorer.exe", _directory) { UseShellExecute = true });
+
+    void Settings_Click(object sender, RoutedEventArgs e) => new SettingsWindow { Owner = this }.ShowDialog();
 
     void Theme_Click(object sender, RoutedEventArgs e)
     {
@@ -1645,6 +1720,25 @@ public partial class EditorWindow : Window
         Commit(rebuild: false);
     }
 
+    void TimelineView_Click(object sender, RoutedEventArgs e)
+    {
+        Timeline.ShowWaveform = Equals(((Button)sender).Tag, "waveform");
+        PaintTimelineView();
+    }
+
+    void PaintTimelineView()
+    {
+        ControlAppearance.SelectSegment(VideoViewButton, !Timeline.ShowWaveform);
+        ControlAppearance.SelectSegment(WaveformViewButton, Timeline.ShowWaveform);
+    }
+
+    void MarkersToggle_Click(object sender, RoutedEventArgs e) => Timeline.ShowMarkers = MarkersToggle.IsChecked == true;
+
+    void EditMenu_Click(object sender, RoutedEventArgs e)
+    {
+        var button = (Button)sender; button.ContextMenu.PlacementTarget = button; button.ContextMenu.IsOpen = true;
+    }
+
     void Play_Click(object sender, RoutedEventArgs e) { CancelOverlayGesture(); CancelRegionEditing(); RebuildInspector(); _player.Toggle(); }
 
     void SkipStart_Click(object sender, RoutedEventArgs e) => _player.Seek(0, play: false);
@@ -1667,6 +1761,7 @@ public partial class EditorWindow : Window
         if (Timeline is not null)
         {
             Timeline.TrackFlags = flags;
+            UpdateTimelineLayout();
             Timeline.InvalidateVisual();
         }
         SettingsStore.Current.TimelineTracks = flags;
@@ -1675,7 +1770,8 @@ public partial class EditorWindow : Window
 
     void TrackMenu_Click(object sender, RoutedEventArgs e)
     {
-        TrackMenuButton.ContextMenu.IsOpen = true;
+        TrackMenu.PlacementTarget = Timeline;
+        TrackMenu.IsOpen = true;
     }
 
     void TrackMenu_Opened(object sender, RoutedEventArgs e)
@@ -1822,6 +1918,11 @@ public partial class EditorWindow : Window
 
     void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (_cropEditing && e.Key == Key.Escape)
+        {
+            if (_cropDragging) FinishCropGesture(true); else CancelCrop();
+            e.Handled = true; return;
+        }
         if (TourOverlay.Visibility == Visibility.Visible)
         {
             if (e.Key == Key.Escape) EndTour();
@@ -1834,6 +1935,7 @@ public partial class EditorWindow : Window
             return;
         }
 
+        if (_cropEditing) return;
         var modifiers = Keyboard.Modifiers;
         if (OverlayKey(e.Key, modifiers)) { e.Handled = true; return; }
         if (RegionKey(e.Key, modifiers)) { e.Handled = true; return; }

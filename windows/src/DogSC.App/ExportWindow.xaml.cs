@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using DogSC.Core;
 
 namespace DogSC;
@@ -12,24 +12,27 @@ public partial class ExportWindow : Window
     string _resolution;
     int _fps;
     bool _running;
+    string? _completedOutput;
 
-    public ExportWindow(ProjectDocument project, string directory)
+    public ExportWindow(ProjectDocument project, string directory, ImageSource? preview = null)
     {
         _project = project;
         _directory = directory;
         _resolution = project.ExportResolution;
         _fps = project.ExportFps is 60 ? 60 : 30;
         InitializeComponent();
+        PreviewImage.Source = preview;
         ProjectName.Text = project.Name;
         FileName.Text = project.Name + "-" + _fps + "fps";
-        FolderButton.Content = SettingsStore.Current.ExportDirectory;
+        FolderPath.Text = SettingsStore.Current.ExportDirectory;
         foreach (var option in new[] { ("原始素材", "source"), ("1080p", "1080"), ("1440p", "1440"), ("4K", "2160") })
         {
             var button = new Button
             {
                 Content = option.Item1,
                 Tag = option.Item2,
-                Style = (Style)FindResource("ChipButton"),
+                Style = (Style)FindResource("SegmentButton"),
+                MinHeight = 38, Margin = new Thickness(0, 0, 8, 0),
             };
             button.Click += Resolution_Click;
             ResolutionRow.Children.Add(button);
@@ -37,6 +40,7 @@ public partial class ExportWindow : Window
 
         Paint();
         Closing += (_, _) => _cancel?.Cancel();
+        Loaded += (_, _) => WindowPlacement.KeepInWorkArea(this, center: true);
     }
 
     void Video_Click(object sender, RoutedEventArgs e)
@@ -70,12 +74,17 @@ public partial class ExportWindow : Window
         {
             SettingsStore.Current.ExportDirectory = dialog.FolderName;
             SettingsStore.Save();
-            FolderButton.Content = dialog.FolderName;
+            FolderPath.Text = dialog.FolderName;
         }
     }
 
     async void Export_Click(object sender, RoutedEventArgs e)
     {
+        if (_completedOutput is not null)
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + _completedOutput + "\"") { UseShellExecute = true });
+            return;
+        }
         if (_running)
         {
             return;
@@ -98,9 +107,11 @@ public partial class ExportWindow : Window
         ProjectFile.Save(_directory, _project);
         SettingsStore.Save();
         _running = true;
+        ExportSettings.IsEnabled = false;
         ExportButton.IsEnabled = false;
         _cancel = new CancellationTokenSource();
         var clock = Stopwatch.StartNew();
+        Bar.Visibility = Visibility.Visible;
         Status.Text = "正在导出…";
         try
         {
@@ -119,9 +130,11 @@ public partial class ExportWindow : Window
                 Resolution = _resolution,
                 Fps = _fps,
             }, output, _cancel.Token);
-            Status.Text = "已导出到 " + output;
+            _completedOutput = output;
+            Status.Text = "导出完成 · " + output;
             Bar.Value = 1;
-            Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + output + "\"") { UseShellExecute = true });
+            ExportButton.Content = "在文件夹中显示";
+            CancelButton.Content = "完成";
         }
         catch (OperationCanceledException)
         {
@@ -135,6 +148,7 @@ public partial class ExportWindow : Window
         finally
         {
             _running = false;
+            ExportSettings.IsEnabled = _completedOutput is null;
             ExportButton.IsEnabled = true;
             _cancel?.Dispose();
             _cancel = null;
@@ -152,8 +166,18 @@ public partial class ExportWindow : Window
         Close();
     }
 
+    void Header_Down(object sender, MouseButtonEventArgs e)
+    {
+        WindowPlacement.Drag(this, e);
+    }
+
     void Paint()
     {
+        VideoSettings.Visibility = VideoPreview.Visibility = _audioOnly ? Visibility.Collapsed : Visibility.Visible;
+        AudioPreview.Visibility = _audioOnly ? Visibility.Visible : Visibility.Collapsed;
+        Height = 635;
+        VideoMetadata.Visibility = _audioOnly ? Visibility.Collapsed : Visibility.Visible;
+        ExtensionLabel.Text = _audioOnly ? ".m4a" : ".mp4";
         PaintChoice(VideoChoice, !_audioOnly);
         PaintChoice(AudioChoice, _audioOnly);
         PaintChoice(Fps30, _fps == 30);
@@ -166,17 +190,28 @@ public partial class ExportWindow : Window
 
         var (width, height) = CanvasLayout.OutputSize(_project.Width, _project.Height, _project.Canvas.Aspect, _audioOnly ? "source" : _resolution);
         var duration = TimelineMath.Duration(_project);
+        FormatValue.Text = _audioOnly ? "M4A" : "MP4";
+        ResolutionValue.Text = width + " × " + height; FpsValue.Text = _fps + " fps";
+        DurationValue.Text = TimeSpan.FromSeconds(duration).ToString(@"m\:ss\.ff");
         var bytes = CanvasLayout.EstimateBytes(width, height, _fps, duration, _audioOnly);
         Estimate.Text = "预计大小 · 约 " + (bytes / 1024d / 1024d).ToString("0.0") + " MB";
         Summary.Text = _audioOnly
             ? "M4A · " + duration.ToString("0.00") + " 秒"
             : "MP4 · " + width + " × " + height + " · " + _fps + " fps · " + duration.ToString("0.00") + " 秒";
-        ExportButton.Content = _audioOnly ? "开始导出音频" : "开始导出视频";
-        FolderButton.Content = SettingsStore.Current.ExportDirectory;
+        var exportLabel = new StackPanel { Orientation = Orientation.Horizontal };
+        exportLabel.Children.Add(new Icon { Kind = IconKind.Share, Width = 16, Height = 16, Margin = new Thickness(0, 0, 8, 0) });
+        var exportText = new TextBlock { Text = _audioOnly ? "导出音频" : "导出视频" };
+        exportText.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding("Foreground")
+            { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(Button), 1) });
+        exportLabel.Children.Add(exportText);
+        ExportButton.Content = exportLabel;
+        FolderPath.Text = SettingsStore.Current.ExportDirectory;
     }
 
     void PaintChoice(Button button, bool selected)
     {
-        ControlAppearance.SelectChip(button, selected);
+        ControlAppearance.SelectSegment(button, selected);
+        if (button.Content is string title) button.Content = title.TrimEnd(' ', '✓') + (selected ? " ✓" : "");
+        if (!selected) button.SetResourceReference(Button.BackgroundProperty, "SegmentWellBrush");
     }
 }

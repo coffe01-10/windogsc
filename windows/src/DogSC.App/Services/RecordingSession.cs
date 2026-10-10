@@ -58,6 +58,14 @@ public sealed class RecordingSession : IAsyncDisposable
     }
 
     public bool IsRunning => _clock.IsRunning;
+    public int MarkerCount => _takes.Sum(t => t.Marks.Count) + (_current?.Marks.Count ?? 0);
+    public bool HasMicrophone => _microphone is not null;
+    public bool MicrophoneMuted { get; private set; }
+    public void SetMicrophoneMuted(bool muted)
+    {
+        MicrophoneMuted = muted;
+        if (_microphone is not null) _microphone.Muted = muted;
+    }
 
     public double Elapsed =>
         _takes.Sum(take => take.Duration) + (_clock.IsRunning ? _clock.Elapsed.TotalSeconds : 0);
@@ -260,6 +268,7 @@ public sealed class RecordingSession : IAsyncDisposable
             {
                 _microphone = new WavRecorder();
                 _microphone.StartMicrophone(_options.MicrophoneId, take.MicrophonePath);
+                _microphone.Muted = MicrophoneMuted;
             }
             catch (Exception ex)
             {

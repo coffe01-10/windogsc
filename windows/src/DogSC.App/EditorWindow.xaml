@@ -5,34 +5,37 @@
         Title="DogSC" Width="1440" Height="920" MinWidth="960" MinHeight="600" UseLayoutRounding="True"
         Background="{DynamicResource BgBrush}" FontFamily="{DynamicResource FontRegular}"
         PreviewKeyDown="Window_PreviewKeyDown">
-    <Grid>
+    <Grid x:Name="WorkspaceRoot" SizeChanged="Workspace_SizeChanged">
         <Grid.RowDefinitions>
-            <RowDefinition Height="56"/>
+            <RowDefinition x:Name="HeaderRow" Height="56"/>
             <RowDefinition Height="*" MinHeight="140"/>
-            <RowDefinition Height="10"/>
-            <RowDefinition Height="304" MinHeight="294"/>
+            <RowDefinition Height="8"/>
+            <RowDefinition x:Name="TimelineRow" Height="228" MinHeight="170"/>
         </Grid.RowDefinitions>
         <Grid Grid.Row="0" Margin="16,0">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <Image Source="pack://application:,,,/Assets/AppIconMaster.png" Width="22" Height="22" Margin="0,0,8,0"/>
-                <TextBox x:Name="NameBox" MinWidth="180" BorderThickness="0" Background="Transparent" FontFamily="{DynamicResource FontMedium}" FontSize="15" LostFocus="Name_LostFocus"/>
+                <Button Style="{StaticResource QuietButton}" Padding="8" Width="38" Height="36" Click="ProjectFolder_Click" ToolTip="打开项目文件夹"><local:Icon Kind="Folder" Width="20" Height="20"/></Button>
+                <Button Style="{StaticResource QuietButton}" Padding="0" Width="12" Height="36" Margin="0,0,10,0" Click="ProjectFolder_Click" ToolTip="项目文件夹"><local:Icon Kind="ChevronDown" Width="9" Height="9"/></Button>
+                <TextBox x:Name="NameBox" MinWidth="180" BorderThickness="0" Background="Transparent" FontFamily="{DynamicResource FontMedium}" FontSize="14" LostFocus="Name_LostFocus"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button Content="保存场景" Style="{StaticResource QuietButton}" Click="SaveScene_Click" Margin="0,0,8,0"/>
                 <Button x:Name="UndoButton" ToolTip="撤销（Ctrl+Z）" AutomationProperties.Name="撤销" Style="{StaticResource IconButton}" Click="Undo_Click"><local:Icon Kind="Undo"/></Button>
                 <Button x:Name="RedoButton" ToolTip="重做（Ctrl+Y）" AutomationProperties.Name="重做" Style="{StaticResource IconButton}" Click="Redo_Click"><local:Icon Kind="Redo"/></Button>
-                <Button Content="导出" Style="{StaticResource PrimaryButton}" Click="Export_Click" Margin="8,0"/>
+                <Button Style="{StaticResource QuietButton}" Click="Export_Click" Margin="8,0" BorderThickness="0.75" BorderBrush="{DynamicResource LineBrush}"><StackPanel Orientation="Horizontal"><local:Icon Kind="Share" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="导出" VerticalAlignment="Center"/></StackPanel></Button>
+                <Button ToolTip="设置" AutomationProperties.Name="设置" Style="{StaticResource IconButton}" Click="Settings_Click"><local:Icon Kind="Settings" Width="19" Height="19"/></Button>
                 <Button x:Name="ThemeButton" ToolTip="切换主题" AutomationProperties.Name="切换主题" Style="{StaticResource IconButton}" Click="Theme_Click"><local:Icon x:Name="ThemeIcon" Kind="Moon"/></Button>
             </StackPanel>
         </Grid>
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" Background="{DynamicResource WorkspaceBrush}">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="88"/>
+                <ColumnDefinition Width="92"/>
                 <ColumnDefinition Width="*" MinWidth="260"/>
-                <ColumnDefinition Width="6"/>
-                <ColumnDefinition Width="320" MinWidth="260" MaxWidth="480"/>
+                <ColumnDefinition Width="4"/>
+                <ColumnDefinition x:Name="InspectorColumn" Width="330" MinWidth="292" MaxWidth="480"/>
             </Grid.ColumnDefinitions>
             <Grid x:Name="ToolRailHost" Grid.Column="0" SizeChanged="ToolRail_SizeChanged">
-                <Border Width="72" Padding="7.25" Margin="8,12" VerticalAlignment="Center" CornerRadius="16"
+                <Border x:Name="ToolRailSurface" Width="72" Padding="8" Margin="18,12,2,12" VerticalAlignment="Center" CornerRadius="20"
                         MaxHeight="{Binding ActualHeight, ElementName=ToolRailHost}"
                         Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75">
                     <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
@@ -47,13 +50,22 @@
                     </ScrollViewer>
                 </Border>
             </Grid>
-            <Grid Grid.Column="1" Margin="8,0,8,8">
+            <Grid Grid.Column="1" Margin="8,0,8,0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
-                <WrapPanel x:Name="AspectRow" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,8,0,8"/>
+                <Border x:Name="MonitorToolbarSurface" Grid.Row="0" HorizontalAlignment="Center" Margin="0,8,0,8" CornerRadius="12" Padding="4"
+                        Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75">
+                    <WrapPanel x:Name="AspectRow" Orientation="Horizontal"/>
+                </Border>
                 <Grid x:Name="PreviewSlot" Grid.Row="1" SizeChanged="Preview_SizeChanged">
+                    <Grid x:Name="CropWorkspace" Visibility="Collapsed">
+                        <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Rectangle x:Name="CropSource"/>
+                            <local:RegionEditSurface x:Name="CropEditor"/>
+                        </Grid>
+                    </Grid>
                     <Canvas ClipToBounds="True" x:Name="PreviewCanvas" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Grid x:Name="CanvasEffects">
                         <Canvas x:Name="SceneCanvas">
@@ -71,7 +83,10 @@
                         </Rectangle>
                         <Canvas x:Name="FrameHost" Background="Transparent" ClipToBounds="True" Cursor="SizeAll" MouseLeftButtonDown="Frame_Down" MouseMove="Frame_Move" MouseLeftButtonUp="Frame_Up">
                           <Grid x:Name="ScreenTexture">
-                            <Grid x:Name="SourceEffects"><Rectangle x:Name="FrameRect"/></Grid>
+                            <Grid x:Name="SourceViewport" ClipToBounds="True"><Grid x:Name="SourceEffects"><Rectangle x:Name="FrameRect"/></Grid></Grid>
+                            <Rectangle x:Name="LinearFocusOverlay" IsHitTestVisible="False" Visibility="Collapsed">
+                                <Rectangle.Effect><BlurEffect x:Name="LinearFocusBlur"/></Rectangle.Effect>
+                            </Rectangle>
                             <Canvas x:Name="CursorLayer" IsHitTestVisible="False" ClipToBounds="True">
                                 <Ellipse x:Name="ClickRing" Visibility="Collapsed" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" Fill="Transparent"/>
                                 <Path x:Name="CursorShape" Data="M0,0 L0,17 L4.5,13 L7,19 L9.4,18 L7,12.4 L12,12 Z" Fill="White" Stroke="Black" StrokeThickness="1" Visibility="Collapsed"/>
@@ -79,6 +94,7 @@
                                 <Image x:Name="CursorBitmap" Visibility="Collapsed"/>
                                 <Image x:Name="ClickBitmap" Visibility="Collapsed"/>
                             </Canvas>
+                            <Rectangle x:Name="ScreenBorder" Stroke="White" IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                           </Grid>
                           <Image x:Name="FrameChrome" IsHitTestVisible="False"/>
                           <Viewport3D x:Name="ScreenPerspective" Visibility="Collapsed" IsHitTestVisible="False"/>
@@ -94,77 +110,88 @@
                     </Canvas>
                 </Grid>
             </Grid>
-            <GridSplitter Grid.Column="2" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="{DynamicResource LineBrush}" ToolTip="拖动调整属性面板宽度" AutomationProperties.Name="属性面板宽度"/>
-            <Border Grid.Column="3" Margin="8,12,16,12" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="16" Padding="16">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <GridSplitter Grid.Column="2" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="Transparent" ToolTip="拖动调整属性面板宽度" AutomationProperties.Name="属性面板宽度"/>
+            <Grid Grid.Column="3" Margin="8,0,16,0">
+                <Grid.RowDefinitions><RowDefinition x:Name="InspectorToolbarRow" Height="52"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <Border x:Name="InspectorSurface" Grid.Row="1" VerticalAlignment="Center" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75" CornerRadius="20" Padding="20">
+                <ScrollViewer x:Name="InspectorScroll" VerticalScrollBarVisibility="Auto">
                     <StackPanel x:Name="Inspector"/>
                 </ScrollViewer>
-            </Border>
+                </Border>
+            </Grid>
         </Grid>
-        <GridSplitter Grid.Row="2" Height="10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Background="Transparent" Cursor="SizeNS" ToolTip="拖动调整时间线高度" AutomationProperties.Name="时间线高度">
+        <GridSplitter Grid.Row="2" Height="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Background="Transparent" Cursor="SizeNS" DragCompleted="TimelineSplitter_DragCompleted" ToolTip="拖动调整时间线高度" AutomationProperties.Name="时间线高度">
             <GridSplitter.Template>
                 <ControlTemplate TargetType="GridSplitter">
                     <Grid Background="{TemplateBinding Background}">
-                        <Border Height="2" Background="{DynamicResource LineBrush}" VerticalAlignment="Center"/>
-                        <Border Width="48" Height="4" CornerRadius="2" Background="{DynamicResource InkSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        <Border Width="40" Height="2" CornerRadius="1" Background="{DynamicResource LineBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                     </Grid>
                 </ControlTemplate>
             </GridSplitter.Template>
         </GridSplitter>
-        <Border Grid.Row="3" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
-            <Grid Margin="12,8,12,8">
+        <Border x:Name="TimelineSurface" Grid.Row="3" Margin="10,0,10,10" CornerRadius="20" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75">
+            <Grid Margin="0,4,0,8">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="78"/>
+                    <RowDefinition Height="44"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="38"/>
-                        <RowDefinition Height="40"/>
-                    </Grid.RowDefinitions>
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button Content="分割" ToolTip="在播放头分割（S）" Style="{StaticResource QuietButton}" Click="Split_Click"/>
-                        <Button Content="删除" ToolTip="删除所选片段（Delete）" Style="{StaticResource QuietButton}" Click="Delete_Click"/>
-                        <Button x:Name="RestoreButton" Content="还原" ToolTip="还原所选片段附近被剪掉的源素材" Style="{StaticResource QuietButton}" Click="Restore_Click"/>
-                        <Button Content="标记" ToolTip="在播放头添加标记（M）" Style="{StaticResource QuietButton}" Click="Marker_Click"/>
-                        <ComboBox x:Name="SpeedBox" Width="88" Margin="8,0,0,0" VerticalAlignment="Center" SelectionChanged="Speed_Changed"/>
-                        <Rectangle Width="1" Height="20" Fill="{DynamicResource LineBrush}" Margin="8,0" VerticalAlignment="Center"/>
-                        <Button Content="复制效果" ToolTip="复制所选缩放或素材效果（Ctrl+C）" Style="{StaticResource QuietButton}" Click="CopyEffect_Click"/>
-                        <Button Content="粘贴效果" ToolTip="粘贴缩放副本，或向所选素材粘贴效果（Ctrl+V）" Style="{StaticResource QuietButton}" Click="PasteEffect_Click"/>
-                        <Button Content="只粘属性" ToolTip="保留所选片段的位置和时长（Ctrl+Shift+V）" Style="{StaticResource QuietButton}" Click="PasteAttributes_Click"/>
+                <Grid x:Name="TimelineToolbar" Margin="12,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button ToolTip="分割（S）" AutomationProperties.Name="分割" Style="{StaticResource IconButton}" Click="Split_Click"><local:Icon Kind="Scissors"/></Button>
+                        <Button ToolTip="删除（Delete）" AutomationProperties.Name="删除" Style="{StaticResource IconButton}" Click="Delete_Click"><local:Icon Kind="Trash"/></Button>
+                        <Button x:Name="RestoreButton" ToolTip="还原剪掉的素材" AutomationProperties.Name="还原" Style="{StaticResource IconButton}" Click="Restore_Click"><local:Icon Kind="Undo"/></Button>
+                        <Border Background="{DynamicResource SegmentWellBrush}" CornerRadius="10" Padding="3" Margin="8,0,0,0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="VideoViewButton" Content="视频" Style="{StaticResource TimelineChip}" Click="TimelineView_Click" Tag="video"/>
+                                <Button x:Name="WaveformViewButton" Content="波形" Style="{StaticResource TimelineChip}" Click="TimelineView_Click" Tag="waveform"/>
+                            </StackPanel>
+                        </Border>
+                        <CheckBox x:Name="MarkersToggle" Content="标记" Style="{StaticResource ToolbarToggle}" IsChecked="True" VerticalAlignment="Center" Margin="8,0" Click="MarkersToggle_Click"/>
+                        <Button Style="{StaticResource IconButton}" ToolTip="更多编辑操作" Click="EditMenu_Click">
+                            <local:Icon Kind="Menu"/>
+                            <Button.ContextMenu><ContextMenu>
+                                <MenuItem Header="添加标记（M）" Click="Marker_Click"/>
+                                <MenuItem Header="复制效果（Ctrl+C）" Click="CopyEffect_Click"/>
+                                <MenuItem Header="粘贴效果（Ctrl+V）" Click="PasteEffect_Click"/>
+                                <MenuItem Header="只粘属性（Ctrl+Shift+V）" Click="PasteAttributes_Click"/>
+                            </ContextMenu></Button.ContextMenu>
+                        </Button>
+                        <ComboBox x:Name="SpeedBox" Visibility="Collapsed" SelectionChanged="Speed_Changed"/>
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
-                        <Button ToolTip="回到开头" AutomationProperties.Name="回到开头" Style="{StaticResource IconButton}" Click="SkipStart_Click"><local:Icon Kind="SkipStart"/></Button>
-                        <Button x:Name="PlayButton" ToolTip="播放（Space）" AutomationProperties.Name="播放" Style="{StaticResource IconButton}" Click="Play_Click"><local:Icon x:Name="PlayIcon" Kind="Play"/></Button>
-                        <Button ToolTip="跳到结尾" AutomationProperties.Name="跳到结尾" Style="{StaticResource IconButton}" Click="SkipEnd_Click"><local:Icon Kind="SkipEnd"/></Button>
-                        <TextBlock x:Name="TimeLabel" VerticalAlignment="Center" Margin="8,0,0,0" MaxWidth="650" TextTrimming="CharacterEllipsis" FontFamily="{DynamicResource FontMedium}"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <CheckBox x:Name="SnapToggle" Content="吸附" IsChecked="True" VerticalAlignment="Center" Margin="0,0,10,0" Checked="SnapToggle_Changed" Unchecked="SnapToggle_Changed" ToolTip="拖动时按刻度与片段边缘吸附"/>
-                        <ComboBox x:Name="PreviewQualityBox" Width="114" VerticalAlignment="Center" Margin="0,0,10,0" SelectionChanged="PreviewQuality_Changed" ToolTip="预览画质">
-                            <ComboBoxItem Content="清晰预览" Tag="low"/>
-                            <ComboBoxItem Content="完整分辨率" Tag="full"/>
+                    <Canvas Grid.Column="1" Width="138" Height="40" VerticalAlignment="Center">
+                      <StackPanel Orientation="Horizontal" Canvas.Top="3">
+                        <Button ToolTip="回到开头" AutomationProperties.Name="回到开头" Style="{StaticResource PlaybackButton}" Click="SkipStart_Click"><local:Icon Kind="SkipStart" Width="20" Height="20"/></Button>
+                        <Button x:Name="PlayButton" ToolTip="播放（Space）" AutomationProperties.Name="播放" Style="{StaticResource PlaybackButton}" Click="Play_Click"><local:Icon x:Name="PlayIcon" Kind="Play" Width="20" Height="20"/></Button>
+                        <Button ToolTip="跳到结尾" AutomationProperties.Name="跳到结尾" Style="{StaticResource PlaybackButton}" Click="SkipEnd_Click"><local:Icon Kind="SkipEnd" Width="20" Height="20"/></Button>
+                      </StackPanel>
+                        <TextBlock x:Name="TimeLabel" VerticalAlignment="Center" Canvas.Left="148" Canvas.Top="14" Width="146" TextTrimming="CharacterEllipsis" FontSize="11" FontFamily="{DynamicResource FontMedium}"/>
+                    </Canvas>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <CheckBox x:Name="SnapToggle" Content="吸附" Style="{StaticResource ToolbarToggle}" IsChecked="True" VerticalAlignment="Center" Margin="0,0,8,0" Checked="SnapToggle_Changed" Unchecked="SnapToggle_Changed" ToolTip="拖动时按刻度与片段边缘吸附"/>
+                        <ComboBox x:Name="PreviewQualityBox" Visibility="Collapsed" Width="106" VerticalAlignment="Center" Margin="0,0,8,0" SelectionChanged="PreviewQuality_Changed" ToolTip="预览画质">
+                            <ComboBoxItem Content="流畅预览" Tag="low"/><ComboBoxItem Content="完整分辨率" Tag="full"/>
                         </ComboBox>
-                        <TextBlock Text="时间线" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}" Margin="0,0,8,0"/>
-                        <Slider x:Name="TimelineZoom" Width="110" Minimum="1" Maximum="6" Value="1" ValueChanged="TimelineZoom_Changed"/>
-                        <Button x:Name="TrackMenuButton" Content="轨道" Margin="8,0,0,0" VerticalAlignment="Center" Click="TrackMenu_Click">
-                            <Button.ContextMenu>
-                                <ContextMenu x:Name="TrackMenu" Opened="TrackMenu_Opened">
-                                    <MenuItem x:Name="TrackZoomItem" Header="缩放" IsCheckable="True" Click="TrackItem_Click"/>
-                                    <MenuItem x:Name="TrackScreenMotionItem" Header="屏幕运动" IsCheckable="True" Click="TrackItem_Click"/>
-                                    <MenuItem x:Name="TrackCameraMotionItem" Header="摄像头运动" IsCheckable="True" Click="TrackItem_Click"/>
-                                    <Separator/>
-                                    <MenuItem x:Name="TrackOverlayItem" Header="叠加（贴图/柔化）" IsCheckable="True" Click="TrackItem_Click"/>
-                                </ContextMenu>
-                            </Button.ContextMenu>
+                        <Button Content="预览" Style="{StaticResource QuietButton}" Padding="6,4" FontSize="11" VerticalAlignment="Center" Click="PreviewMenu_Click" Margin="0,0,8,0"/>
+                        <TextBlock Text="−" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <Slider x:Name="TimelineZoom" Width="70" Minimum="1" Maximum="6" Value="1" ValueChanged="TimelineZoom_Changed"/>
+                        <TextBlock Text="＋" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                        <Button x:Name="TrackMenuButton" Content="轨道" Visibility="Collapsed" Margin="8,0,0,0" VerticalAlignment="Center" Click="TrackMenu_Click">
+                            <Button.ContextMenu><ContextMenu x:Name="TrackMenu" Opened="TrackMenu_Opened">
+                                <MenuItem x:Name="TrackZoomItem" Header="缩放" IsCheckable="True" Click="TrackItem_Click"/>
+                                <MenuItem x:Name="TrackScreenMotionItem" Header="屏幕运动" IsCheckable="True" Click="TrackItem_Click"/>
+                                <MenuItem x:Name="TrackCameraMotionItem" Header="摄像头运动" IsCheckable="True" Click="TrackItem_Click"/>
+                                <Separator/><MenuItem x:Name="TrackOverlayItem" Header="叠加（贴图/柔化）" IsCheckable="True" Click="TrackItem_Click"/>
+                            </ContextMenu></Button.ContextMenu>
                         </Button>
                     </StackPanel>
                 </Grid>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><local:TimelineControl x:Name="Timeline" Grid.Row="1"/></ScrollViewer>
             </Grid>
         </Border>
+        <Border x:Name="ModalShade" Grid.Row="0" Grid.RowSpan="4" Panel.ZIndex="98" Background="#55000000" Visibility="Collapsed"/>
         <Grid x:Name="TourOverlay" Grid.Row="0" Grid.RowSpan="4" Panel.ZIndex="99" Visibility="Collapsed" Background="#66000000" KeyboardNavigation.TabNavigation="Cycle">
-            <Border Width="380" Padding="24" CornerRadius="14" Background="{DynamicResource PanelBrush}"
+            <Border x:Name="TourCard" Width="380" Padding="24" CornerRadius="14" Background="{DynamicResource PanelBrush}"
                     BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
                     HorizontalAlignment="Center" VerticalAlignment="Center">
                 <StackPanel>

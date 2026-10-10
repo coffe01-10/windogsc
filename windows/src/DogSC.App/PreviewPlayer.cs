@@ -80,7 +80,7 @@ public sealed class PreviewPlayer : IDisposable
         _syncState = sync;
         _cameraAdvance = project.Camera.TimingAdvance;
         _project = project;
-        SetGains(project.MicrophoneGain, project.SystemGain);
+        ApplyClipGains();
         if (changed)
         {
             _timeline = timeline;
@@ -157,6 +157,7 @@ public sealed class PreviewPlayer : IDisposable
         var wasPlaying = IsPlaying;
         Time = timeline;
         _clipId = hit.Value.Clip.Clip.Id;
+        ApplyClipGains();
         _wantPlay = play;
         _holdUntil = DateTime.UtcNow.AddMilliseconds(180);
         _pendingPosition = TimeSpan.FromSeconds(Math.Max(0, hit.Value.SourceTime));
@@ -203,6 +204,14 @@ public sealed class PreviewPlayer : IDisposable
     {
         _microphone.Volume = Math.Clamp(microphone, 0, 1);
         _system.Volume = Math.Clamp(system, 0, 1);
+    }
+
+    void ApplyClipGains()
+    {
+        if (_project is null) return;
+        var clip = _project.Clips.FirstOrDefault(c => c.Id == _clipId);
+        SetGains((clip?.MicrophoneEnabled ?? _project.MicrophoneEnabled) ? clip?.MicrophoneGain ?? _project.MicrophoneGain : 0,
+            (clip?.SystemEnabled ?? _project.SystemEnabled) ? clip?.SystemGain ?? _project.SystemGain : 0);
     }
 
     public void Dispose()

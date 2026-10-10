@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using DogSC.Core;
@@ -10,18 +10,23 @@ public partial class EditorWindow
 {
     string _canvasTab = "background", _backgroundTab = "wallpaper";
     string _zoomTransitionPhase = "enter";
+    string _motionMode = "zoom";
     DispatcherTimer? _cursorPreviewTimer;
     readonly List<(FrameworkElement Image, TranslateTransform Offset)> _patternLayers = [];
     (string? Wallpaper, double Width, double Height, double Scale, double Opacity)? _patternPreviewKey;
 
     void InspectorHeader(string title, string scope)
     {
-        var row = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
-        var tag = new Border { CornerRadius = new CornerRadius(5), Padding = new Thickness(5, 2, 5, 2),
-            Margin = new Thickness(8, 0, 0, 0), Child = new TextBlock { Text = scope, FontSize = 10 } };
-        tag.SetResourceReference(Border.BackgroundProperty, "ControlBrush");
-        DockPanel.SetDock(tag, Dock.Right); row.Children.Add(tag); row.Children.Add(Heading(title));
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
+        var heading = Heading(title); heading.Margin = new Thickness(0); heading.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(heading);
+        var tag = new Border { CornerRadius = new CornerRadius(11), Padding = new Thickness(7, 3, 7, 3),
+            Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock { Text = scope, FontSize = 11, Foreground = (Brush)FindResource("InkSecondaryBrush") } };
+        tag.SetResourceReference(Border.BackgroundProperty, "ValueWellBrush"); row.Children.Add(tag);
         Inspector.Children.Add(row);
+        var divider = new Border { Height = .75, Margin = new Thickness(-20, 0, -20, 12) };
+        divider.SetResourceReference(Border.BackgroundProperty, "LineBrush"); Inspector.Children.Add(divider);
     }
 
     static StackPanel IconLabel(IconKind kind, string title)
@@ -29,8 +34,8 @@ public partial class EditorWindow
         var content = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         content.Children.Add(new Icon { Kind = kind, Width = 14, Height = 14 });
         var label = new TextBlock { Text = title, Margin = new Thickness(4, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-        label.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding(nameof(Button.Foreground))
-            { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(Button), 1) });
+        label.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding(nameof(Control.Foreground))
+            { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(Control), 1) });
         content.Children.Add(label);
         return content;
     }
@@ -40,8 +45,9 @@ public partial class EditorWindow
         var grid = new System.Windows.Controls.Primitives.UniformGrid { Rows = 1 };
         foreach (var (title, key) in options)
         {
-            var button = new Button { Content = title, Padding = new Thickness(5, 6, 5, 6), FontSize = 11,
-                Style = (Style)FindResource("ChipButton"), Margin = new Thickness(1) };
+            var button = new Button { Content = title, Style = (Style)FindResource("SegmentButton") };
+            if (key is "converge" or "sideSlide" or "light3D" or "smooth" or "clear" or "gentle") button.Content = IconLabel(key switch { "converge" => IconKind.Converge, "sideSlide" => IconKind.SideSlide, "light3D" => IconKind.Cube, "smooth" => IconKind.Cube, "clear" => IconKind.Sun, _ => IconKind.Plus }, title);
+            if (key is "zoom" or "screen3d") button.Content = IconLabel(key == "zoom" ? IconKind.MotionViewfinder : IconKind.Cube, title);
             if (icons)
                 button.Content = IconLabel(key switch
                 {
@@ -50,12 +56,12 @@ public partial class EditorWindow
                     "motion" => IconKind.WaveformRectangle, _ => IconKind.PhotoPlus,
                 }, title);
             System.Windows.Automation.AutomationProperties.SetName(button, title);
-            ControlAppearance.SelectChip(button, selected == key);
+            ControlAppearance.SelectSegment(button, selected == key);
             button.Click += (_, _) => choose(key);
             grid.Children.Add(button);
         }
-        var border = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(2), Child = grid };
-        border.SetResourceReference(Border.BackgroundProperty, "ControlBrush");
+        var border = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(3), Child = grid, BorderThickness = new Thickness(.75) };
+        border.SetResourceReference(Border.BackgroundProperty, "SegmentWellBrush"); border.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
         return border;
     }
 
@@ -63,11 +69,12 @@ public partial class EditorWindow
         Func<double, string>? format = null)
     {
         format ??= v => v.ToString("0.##", CultureInfo.InvariantCulture);
-        var panel = new StackPanel { Margin = new Thickness(0, 12, 0, 3) };
-        var label = new TextBlock { Text = format(value), HorizontalAlignment = HorizontalAlignment.Right, FontSize = 11 };
-        label.SetResourceReference(TextBlock.ForegroundProperty, "InkSecondaryBrush");
-        var row = new DockPanel(); DockPanel.SetDock(label, Dock.Right); row.Children.Add(label);
-        row.Children.Add(new TextBlock { Text = title, FontSize = 12 }); panel.Children.Add(row);
+        var panel = new StackPanel { Margin = new Thickness(0, 18, 0, 3) };
+        var label = new TextBlock { Text = format(value), FontSize = 12, FontFamily = (FontFamily)FindResource("FontMedium"), TextAlignment = TextAlignment.Center };
+        var pill = new Border { CornerRadius = new CornerRadius(16), MinWidth = 48, Padding = new Thickness(10, 5, 10, 5), Child = label };
+        pill.SetResourceReference(Border.BackgroundProperty, "ValueWellBrush");
+        var row = new DockPanel { Margin = new Thickness(0, 0, 0, 4) }; DockPanel.SetDock(pill, Dock.Right); row.Children.Add(pill);
+        row.Children.Add(new TextBlock { Text = title, FontSize = 13, VerticalAlignment = VerticalAlignment.Center }); panel.Children.Add(row);
         var slider = Slider(min, max, value, v => { set(v); label.Text = format(v); });
         System.Windows.Automation.AutomationProperties.SetName(slider, title);
         panel.Children.Add(slider); return panel;
@@ -80,9 +87,9 @@ public partial class EditorWindow
     void BuildCanvasInspector()
     {
         if (_cameraSelected) { BuildCameraInspector(); return; }
-        InspectorHeader("画布", "整个项目");
+        InspectorHeader(_canvasTab == "background" ? "画布" : "屏幕", _canvasTab == "background" ? "整个项目" : "基础布局");
         Inspector.Children.Add(Segments([("背景", "background"), ("布局", "layout"), ("外框", "frame")], _canvasTab,
-            key => { _canvasTab = key; RebuildInspector(); }, icons: true));
+            key => { _canvasTab = key; RebuildInspector(); InspectorScroll.ScrollToTop(); }, icons: true));
         switch (_canvasTab)
         {
             case "background": BuildBackgroundInspector(); break;
@@ -94,10 +101,10 @@ public partial class EditorWindow
     void BuildBackgroundInspector()
     {
         var canvas = _project.Canvas;
-        Inspector.Children.Add(Caption("背景来源"));
+        Inspector.Children.Add(SectionTitle("背景来源"));
         Inspector.Children.Add(Segments([("壁纸", "wallpaper"), ("网格", "grid"), ("动态", "motion"), ("自定义", "custom")],
-            _backgroundTab, key => { _backgroundTab = key; RebuildInspector(); }, icons: true));
-        var tiles = new WrapPanel { Margin = new Thickness(0, 10, 0, 4) };
+            _backgroundTab, key => { _backgroundTab = key; RebuildInspector(); InspectorScroll.ScrollToTop(); }, icons: true));
+        var tiles = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Margin = new Thickness(-4, 10, -4, 4) };
         if (_backgroundTab is "grid" or "motion")
         {
             var options = _backgroundTab == "grid"
@@ -139,7 +146,7 @@ public partial class EditorWindow
             ColorEntry(Inspector, "背景颜色", canvas.Background, v => { canvas.Background = v; canvas.Wallpaper = null; });
             Inspector.Children.Add(ValueSlider("背景模糊", 0, 1, canvas.WallpaperBlur, v => canvas.WallpaperBlur = v, Percent));
         }
-        if (canvas.Wallpaper is not null)
+        if (canvas.Wallpaper is not null && _backgroundTab is "wallpaper" or "custom")
             Inspector.Children.Add(DecorationButton("清除背景素材", () => { Push(); canvas.Wallpaper = null; Commit(); }));
     }
 
@@ -151,15 +158,16 @@ public partial class EditorWindow
 
     void BackgroundTile(Panel tiles, string name, string key, ImageSource source)
     {
-        var grid = new Grid { Width = 72, Height = 72 };
+        var grid = new Grid { Height = 104, ClipToBounds = true };
         grid.Children.Add(new Image { Source = source, Stretch = Stretch.UniformToFill });
         var label = new Border { VerticalAlignment = VerticalAlignment.Bottom, Background = new SolidColorBrush(Color.FromArgb(170, 30, 30, 30)),
-            Padding = new Thickness(3), Child = new TextBlock { Text = name, Foreground = Brushes.White, FontSize = 9, TextWrapping = TextWrapping.Wrap } };
-        grid.Children.Add(label); grid.Clip = new RectangleGeometry(new Rect(0, 0, 72, 72), 7, 7);
-        var button = new Button { Content = grid, Padding = new Thickness(2), Margin = new Thickness(0, 0, 5, 6),
-            Style = (Style)FindResource("ChipButton"), ToolTip = name };
+            HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(15), Margin = new Thickness(5),
+            Padding = new Thickness(6, 4, 6, 4), Child = new TextBlock { Text = name, Foreground = Brushes.White, FontSize = 10, TextWrapping = TextWrapping.Wrap } };
+        grid.Children.Add(label);
+        grid.SizeChanged += (_, _) => grid.Clip = new RectangleGeometry(new Rect(0, 0, grid.ActualWidth, grid.ActualHeight), 10, 10);
+        var button = new Button { Content = grid, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(0), Margin = new Thickness(4),
+            Style = (Style)FindResource("QuietButton"), ToolTip = name, BorderBrush = (Brush)FindResource("LineBrush"), BorderThickness = new Thickness(.75) };
         System.Windows.Automation.AutomationProperties.SetName(button, name);
-        ControlAppearance.SelectChip(button, _project.Canvas.Wallpaper == key);
         button.Click += (_, _) => { Push(); _project.Canvas.Wallpaper = key; Commit(); };
         tiles.Children.Add(button);
     }
@@ -191,16 +199,15 @@ public partial class EditorWindow
     void BuildCanvasLayoutControls()
     {
         var canvas = _project.Canvas;
-        Inspector.Children.Add(Caption("画布间距"));
+        Inspector.Children.Add(SectionTitle("画布间距"));
         Inspector.Children.Add(ValueSlider("边距", 0, 180, canvas.Padding, v => canvas.Padding = v));
-        Inspector.Children.Add(Caption("位置与大小"));
+        Inspector.Children.Add(SectionTitle("位置与大小"));
         Inspector.Children.Add(PositionPad());
-        Inspector.Children.Add(ValueSlider("水平位置", 0, 1, canvas.CenterX, v => canvas.CenterX = v, Percent));
-        Inspector.Children.Add(ValueSlider("垂直位置", 0, 1, canvas.CenterY, v => canvas.CenterY = v, Percent));
         Inspector.Children.Add(ValueSlider("内容缩放", .25, 2.5, canvas.Scale, v => canvas.Scale = v, Times));
-        Inspector.Children.Add(DecorationButton("重置位置与大小", () => { Push(); canvas.CenterX = canvas.CenterY = .5; canvas.Scale = 1; Commit(); }));
-        Inspector.Children.Add(Caption("圆角与阴影"));
+        Inspector.Children.Add(PadHeading("可直接在预览中拖动", "重置位置与大小", () => { Push(); canvas.CenterX = canvas.CenterY = .5; canvas.Scale = 1; Commit(); }));
+        Inspector.Children.Add(SectionTitle("圆角、描边与阴影"));
         Inspector.Children.Add(ValueSlider("屏幕圆角", 0, 90, canvas.Corner, v => canvas.Corner = v));
+        Inspector.Children.Add(ValueSlider("外侧描边", 0, 40, canvas.ScreenBorderWidth, v => canvas.ScreenBorderWidth = v));
         Inspector.Children.Add(ValueSlider("阴影", 0, 100, canvas.Shadow, v => canvas.Shadow = v));
         Inspector.Children.Add(ValueSlider("左右倾斜", -40, 40, canvas.TiltY, v => canvas.TiltY = v, v => v.ToString("0") + "°"));
         Inspector.Children.Add(ValueSlider("上下倾斜", -40, 40, canvas.TiltX, v => canvas.TiltX = v, v => v.ToString("0") + "°"));
@@ -211,14 +218,40 @@ public partial class EditorWindow
     void BuildFrameInspector()
     {
         var canvas = _project.Canvas;
-        Inspector.Children.Add(Caption("屏幕外框"));
-        Inspector.Children.Add(CursorChipRow(new[] { ("无", "none"), ("浅色窗口", "windowLight"), ("深色窗口", "windowDark"),
-            ("浅色浏览器", "browserLight"), ("深色浏览器", "browserDark"), ("手机", "phone"), ("平板", "tablet") },
-            canvas.ScreenFrame, v => canvas.ScreenFrame = v));
+        Inspector.Children.Add(new TextBlock { Text = "选择外框样式，圆角、描边和阴影可在布局中调整。", FontSize = 11, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)FindResource("InkSecondaryBrush"), Margin = new Thickness(0, 12, 0, 4) });
+        Inspector.Children.Add(SectionTitle("外框"));
+        var choices = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Margin = new Thickness(0, 4, 0, 8) };
+        foreach (var (title, style) in new[] { ("无", "none"), ("浅色窗口", "windowLight"), ("深色窗口", "windowDark"),
+            ("浅色浏览器", "browserLight"), ("深色浏览器", "browserDark"), ("设备", "phone") })
+        {
+            var tile = new StackPanel();
+            var preview = new Canvas { Width = 80, Height = 80, ClipToBounds = true };
+            preview.SetResourceReference(Panel.BackgroundProperty, "ControlBrush");
+            var settings = new CanvasSettings { ScreenFrame = style };
+            var frame = new FramePlacement(12, 30, 136, 98, 10, 0, 0, 0);
+            preview.LayoutTransform = new ScaleTransform(.5, .5); preview.Width = 160; preview.Height = 160;
+            var image = new Rectangle { Width = frame.Width, Height = frame.Height, RadiusX = 6, RadiusY = 6,
+                Fill = new DrawingBrush(_player.ScreenDrawing) { Stretch = Stretch.UniformToFill } };
+            Canvas.SetLeft(image, frame.X); Canvas.SetTop(image, frame.Y); preview.Children.Add(image);
+            if (ChromeGeometry.Resolve(settings, frame, 160, 160) is { } spec)
+                preview.Children.Add(new Image { Width = 160, Height = 160, Source = ChromeArt.Preview(spec, 160, 160) });
+            var thumbnail = new Border { Child = preview, CornerRadius = new CornerRadius(12), Padding = new Thickness(5), Background = (Brush)FindResource("SegmentWellBrush"), BorderThickness = new Thickness(.75), BorderBrush = (Brush)FindResource("LineBrush") };
+            var selected = canvas.ScreenFrame == style || style == "phone" && canvas.ScreenFrame == "tablet";
+            if (selected) thumbnail.BorderBrush = (Brush)FindResource("InkBrush");
+            tile.Children.Add(thumbnail); tile.Children.Add(new TextBlock { Text = title, FontSize = 10, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 5, 0, 0) });
+            var button = new Button { Content = tile, Padding = new Thickness(0), BorderThickness = new Thickness(0), Margin = new Thickness(3, 3, 3, 8), Style = (Style)FindResource("QuietButton") };
+            System.Windows.Automation.AutomationProperties.SetName(button, title);
+            button.Click += (_, _) => { Push(); canvas.ScreenFrame = style; Commit(); }; choices.Children.Add(button);
+        }
+        Inspector.Children.Add(choices);
+        Inspector.Children.Add(PadHeading("", "⟳ 重置样式", () => { Push(); canvas.ScreenFrame = "none"; canvas.ScreenFrameScale = canvas.ScreenFrameToolbarScale = 1; canvas.ScreenFrameTitle = canvas.ScreenFrameAddress = ""; Commit(); }));
+        if (canvas.ScreenFrame is "phone" or "tablet")
+            Inspector.Children.Add(Segments([("手机", "phone"), ("平板", "tablet")], canvas.ScreenFrame,
+                key => { Push(); canvas.ScreenFrame = key; Commit(); }));
         if (canvas.ScreenFrame == "none") return;
+        TextEntry("窗口标题", canvas.ScreenFrameTitle, v => canvas.ScreenFrameTitle = v);
         Inspector.Children.Add(ValueSlider("外框缩放", .6, 1.6, canvas.ScreenFrameScale, v => canvas.ScreenFrameScale = v, Times));
         Inspector.Children.Add(ValueSlider("顶栏缩放", .65, 1.6, canvas.ScreenFrameToolbarScale, v => canvas.ScreenFrameToolbarScale = v, Times));
-        TextEntry("窗口标题", canvas.ScreenFrameTitle, v => canvas.ScreenFrameTitle = v);
         if (canvas.ScreenFrame.StartsWith("browser")) TextEntry("浏览器地址", canvas.ScreenFrameAddress, v => canvas.ScreenFrameAddress = v);
     }
 
@@ -235,16 +268,20 @@ public partial class EditorWindow
         InspectorHeader("开场", "整个项目");
         var canvas = _project.Canvas;
         AddToggle(Inspector, "全局开场", canvas.Opening != "none", on => { canvas.Opening = on ? "light3D" : "none"; RebuildInspector(); });
+        var openingToggle = Inspector.Children.OfType<CheckBox>().Last(); openingToggle.Content = IconLabel(IconKind.OpeningStack, "全局开场");
+        openingToggle.FontFamily = (FontFamily)FindResource("FontSemi");
         if (canvas.Opening == "none") return;
         Inspector.Children.Add(Caption("让画面中的元素按顺序进入"));
+        Inspector.Children.Add(Caption("开场样式"));
         Inspector.Children.Add(Segments([("聚拢", "converge"), ("侧滑", "sideSlide"), ("轻 3D", "light3D")], canvas.Opening,
             key => { Push(); canvas.Opening = key; Commit(); }));
         Inspector.Children.Add(Caption("动效节奏"));
         Inspector.Children.Add(Segments([("平滑", "smooth"), ("干脆", "clear"), ("轻柔", "gentle")], canvas.OpeningTiming,
             key => { Push(); canvas.OpeningTiming = key; Commit(); }));
+        Inspector.Children.Add(new TextBlock { Text = canvas.OpeningTiming switch { "clear" => "进入与结束更利落，适合节奏紧凑的片段。", "gentle" => "柔和地加速与减速，适合舒缓的片段。", _ => "均衡的加速与减速，适合大多数元素。" }, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), Foreground = (Brush)FindResource("InkSecondaryBrush") });
         Inspector.Children.Add(ValueSlider("总时长", .4, 8, canvas.OpeningDuration, v => canvas.OpeningDuration = v, Seconds));
         Inspector.Children.Add(ValueSlider("元素间隔", 0, 1.2, canvas.OpeningInterval, v => canvas.OpeningInterval = v, Seconds));
-        var elements = Disclosure("参与元素与顺序");
+        var elements = Disclosure("参与元素与顺序", () => $"{canvas.OpeningIncluded.Count} 个参与元素");
         foreach (var (element, index) in canvas.OpeningOrder.Select((v, i) => (v, i)))
         {
             var row = new DockPanel();
@@ -273,20 +310,29 @@ public partial class EditorWindow
         Inspector.Children.Add(Segments([("系统", "pointer"), ("触点", "dot"), ("隐藏", "hidden")], fx.Mode,
             key => { Push(); fx.Mode = key; fx.Asset = key switch { "dot" => "system.touch-dot", "hidden" => "system.hidden", _ => "auto" }; Commit(); }));
         Inspector.Children.Add(ValueSlider("大小", .5, 4, fx.Size, v => fx.Size = v, Times));
-        AddToggle(Inspector, "静止时隐藏", fx.IdleHide, v => fx.IdleHide = v);
-        Inspector.Children.Add(ValueSlider("隐藏延迟", .1, 10, fx.IdleDelay, v => fx.IdleDelay = v, Seconds));
-        var timing = Disclosure("时间校准"); AddTimingControls(timing, () => fx.TimingAdvance, v => fx.TimingAdvance = v, 1);
+        AddToggle(Inspector, "静止时隐藏", fx.IdleHide, v => { fx.IdleHide = v; RebuildInspector(); });
+        if (fx.IdleHide) Inspector.Children.Add(ValueSlider("隐藏延迟", .1, 10, fx.IdleDelay, v => fx.IdleDelay = v, Seconds));
+        var timing = Disclosure("时间校准", () => $"{fx.TimingAdvance * 1000:+0;-0;0} ms"); AddTimingControls(timing, () => fx.TimingAdvance, v => fx.TimingAdvance = v, 1);
         Inspector.Children.Add(Caption("点击反馈"));
-        Inspector.Children.Add(Segments([("涟漪", "ripple"), ("光晕", "glow"), ("双环", "pulse"), ("微闪", "flash"), ("无", "none")],
+        Inspector.Children.Add(ClickEffectSegments([("涟漪", "ripple"), ("光晕", "glow"), ("双环", "pulse"), ("微闪", "flash"), ("无", "none")],
             CursorCatalog.ResolveClick(fx), key => { Push(); fx.ClickStyle = key; fx.ClickRipple = key != "none"; Commit(); }));
-        Inspector.Children.Add(Caption("颜色"));
-        var colors = new WrapPanel();
+        var colorRow = new DockPanel { Margin = new Thickness(0, 14, 0, 0) };
+        var colors = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
+        DockPanel.SetDock(colors, Dock.Right); colorRow.Children.Add(colors);
+        colorRow.Children.Add(new TextBlock { Text = "颜色", FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
+        var resetColor = new Button { Content = new Icon { Kind = IconKind.Undo, Width = 12, Height = 12 }, Width = 19, Height = 19, Padding = new Thickness(0), Margin = new Thickness(0, 0, 8, 0), ToolTip = "重置点击颜色" };
+        resetColor.Click += (_, _) => { Push(); fx.ClickColor = new CursorFx().ClickColor; Commit(); };
+        colors.Children.Add(resetColor);
         foreach (var color in new[] { "#7C5CFC", "#19C3EE", "#36A87E", "#F3BC48", "#E56060", "#FFFFFF" })
         {
-            var button = new Button { Background = Brush(color), Width = 23, Height = 23, Padding = new Thickness(0), Margin = new Thickness(0, 0, 7, 3), ToolTip = color };
+            var button = new Button { Background = Brush(color), Width = 19, Height = 19, Padding = new Thickness(0), Margin = new Thickness(0, 0, 8, 0), ToolTip = color };
             button.Click += (_, _) => { Push(); fx.ClickColor = color; Commit(); }; colors.Children.Add(button);
         }
-        Inspector.Children.Add(colors); ColorEntry(Inspector, "点击颜色", fx.ClickColor, v => fx.ClickColor = v);
+        var customColor = new Button { Content = new Icon { Kind = IconKind.Plus, Width = 10, Height = 10 }, Width = 19, Height = 19, Padding = new Thickness(0), ToolTip = "自定义点击颜色" };
+        var colorPopup = new System.Windows.Controls.Primitives.Popup { PlacementTarget = customColor, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom, StaysOpen = false, AllowsTransparency = true };
+        var colorBody = new StackPanel(); ColorEntry(colorBody, "点击颜色", fx.ClickColor, v => fx.ClickColor = v);
+        colorPopup.Child = new Border { Child = colorBody, Background = (Brush)FindResource("CardBrush"), Padding = new Thickness(12), CornerRadius = new CornerRadius(10) };
+        customColor.Click += (_, _) => colorPopup.IsOpen = true; colors.Children.Add(customColor); Inspector.Children.Add(colorRow);
         Inspector.Children.Add(ValueSlider("不透明度", 0, 1, fx.ClickOpacity, v => fx.ClickOpacity = v, Percent));
         Inspector.Children.Add(ValueSlider("范围", .5, 4, fx.ClickScale, v => fx.ClickScale = v, Times));
         Inspector.Children.Add(Caption("运动平滑"));
@@ -322,6 +368,9 @@ public partial class EditorWindow
             click.Opacity = progress < 1 ? 1 : 0;
         }
         Paint();
+        var replay = new Button { Content = new Icon { Kind = IconKind.Redo, Width = 12, Height = 12 }, Width = 23, Height = 23, Padding = new Thickness(0), Margin = new Thickness(5), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, ToolTip = "重播效果预览" };
+        replay.Click += (_, _) => { clock.Restart(); Paint(); };
+        preview.Children.Add(replay);
         _cursorPreviewTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(40) };
         _cursorPreviewTimer.Tick += (_, _) => Paint();
         var timer = _cursorPreviewTimer;
@@ -333,24 +382,36 @@ public partial class EditorWindow
         Inspector.Children.Add(Segments([("自动跟随", "automatic"), ("手动定位", "manual")], zoom.Origin,
             key => { Push(); if (key == "manual") MakeZoomManual(zoom); else zoom.Origin = key; Commit(); }));
         var pose = zoom.Origin == "automatic" ? _cursorTimeline!.Motion.TargetAt(zoom, _player.Time) : new ZoomPose(zoom.Scale, zoom.FocusX, zoom.FocusY);
-        var pad = new Canvas { Width = 240, Height = 135, Clip = new RectangleGeometry(new Rect(0, 0, 240, 135), 8, 8), Margin = new Thickness(0, 12, 0, 4) };
-        pad.Children.Add(new Rectangle { Width = 240, Height = 135, Fill = new DrawingBrush(_player.ScreenDrawing) { Stretch = Stretch.UniformToFill } });
-        var marker = new Ellipse { Width = 16, Height = 16, Fill = Brushes.White, Stroke = Brushes.Black, StrokeThickness = 2 };
-        pad.Children.Add(marker); Canvas.SetLeft(marker, pose.X * 224); Canvas.SetTop(marker, pose.Y * 119);
-        void Move(Point p)
+        const double pw = 320, ph = 180;
+        var pad = new Canvas { Width = pw, Height = ph, Clip = new RectangleGeometry(new Rect(0, 0, pw, ph), 10, 10) };
+        pad.Children.Add(new Rectangle { Width = pw, Height = ph, Fill = new DrawingBrush(_player.ScreenDrawing) { Stretch = Stretch.UniformToFill } });
+        var marker = new Ellipse { Width = 18, Height = 18, Fill = Brushes.White, Stroke = Brushes.Black, StrokeThickness = 1.5 };
+        pad.Children.Add(marker);
+        var vx = new TextBlock { Text = Percent(pose.X) }; var vy = new TextBlock { Text = Percent(pose.Y) };
+        void Paint(double x, double y) { Canvas.SetLeft(marker, x * pw - 9); Canvas.SetTop(marker, y * ph - 9); vx.Text = Percent(x); vy.Text = Percent(y); }
+        var x = Slider(0, 1, pose.X, v => { MakeZoomManual(zoom); zoom.FocusX = v; }, refresh: true);
+        var y = Slider(0, 1, pose.Y, v => { MakeZoomManual(zoom); zoom.FocusY = v; }, refresh: true);
+        x.ValueChanged += (_, _) => Paint(x.Value, y.Value); y.ValueChanged += (_, _) => Paint(x.Value, y.Value);
+        _zoomFocusSliders = (x, y); Paint(pose.X, pose.Y);
+        void Move(Point point)
         {
-            MakeZoomManual(zoom); zoom.FocusX = Math.Clamp(p.X / 240, 0, 1); zoom.FocusY = Math.Clamp(p.Y / 135, 0, 1);
-            Canvas.SetLeft(marker, zoom.FocusX * 224); Canvas.SetTop(marker, zoom.FocusY * 119); Commit(rebuild: false);
+            MakeZoomManual(zoom); zoom.FocusX = Math.Clamp(point.X / pw, 0, 1); zoom.FocusY = Math.Clamp(point.Y / ph, 0, 1);
+            Paint(zoom.FocusX, zoom.FocusY); Commit(rebuild: false);
         }
         pad.MouseLeftButtonDown += (_, e) => { Push(); pad.CaptureMouse(); Move(e.GetPosition(pad)); e.Handled = true; };
         pad.MouseMove += (_, e) => { if (pad.IsMouseCaptured) Move(e.GetPosition(pad)); };
         pad.MouseLeftButtonUp += (_, _) => { pad.ReleaseMouseCapture(); FlushPendingSave(); RebuildInspector(); };
-        Inspector.Children.Add(pad);
-        var x = Slider(0, 1, pose.X, v => { MakeZoomManual(zoom); zoom.FocusX = v; }, refresh: true);
-        var y = Slider(0, 1, pose.Y, v => { MakeZoomManual(zoom); zoom.FocusY = v; }, refresh: true);
-        _zoomFocusSliders = (x, y); Inspector.Children.Add(Caption("X / Y 焦点")); Inspector.Children.Add(x); Inspector.Children.Add(y);
-        Inspector.Children.Add(Caption("运动类型"));
-        Inspector.Children.Add(Segments([("缩放", "zoom"), ("屏幕 3D", "screen3d")], "zoom", key => { if (key == "screen3d") ConvertZoomToScreenMotion(zoom); }));
+        Inspector.Children.Add(new Viewbox { Child = pad, Stretch = Stretch.Uniform, Margin = new Thickness(0, 12, 0, 4) });
+        var coordinates = new DockPanel { Margin = new Thickness(0, 4, 0, 4) };
+        var center = DecorationButton("⌖", () => { Push(); MakeZoomManual(zoom); zoom.FocusX = zoom.FocusY = .5; Commit(); });
+        center.Padding = new Thickness(7, 3, 7, 3); center.ToolTip = "焦点回到中心";
+        System.Windows.Automation.AutomationProperties.SetName(center, "焦点回到中心");
+        DockPanel.SetDock(center, Dock.Right); coordinates.Children.Add(center);
+        var values = new System.Windows.Controls.Primitives.UniformGrid { Rows = 1 }; values.Children.Add(CoordinateValue("X", vx)); values.Children.Add(CoordinateValue("Y", vy)); coordinates.Children.Add(values);
+        Inspector.Children.Add(coordinates);
+        if (zoom.Origin == "automatic") Inspector.Children.Add(new TextBlock { Text = "录制光标位置 · 拖动焦点即可切换为手动定位", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = (Brush)FindResource("InkSecondaryBrush"), Margin = new Thickness(0, 6, 0, 2) });
+        Inspector.Children.Add(SectionTitle("运动类型"));
+        Inspector.Children.Add(Segments([("缩放", "zoom"), ("屏幕 3D", "screen3d")], "zoom", SelectMotionMode));
         Inspector.Children.Add(ValueSlider("缩放倍数", 1, 4, zoom.Scale, v => zoom.Scale = v, Times));
         Inspector.Children.Add(DecorationButton("将倍数应用到所有缩放", () => { Push(); foreach (var z in _project.Zooms) z.Scale = zoom.Scale; Commit(); }));
         Inspector.Children.Add(Caption("过渡"));
@@ -364,15 +425,6 @@ public partial class EditorWindow
                 Inspector.Children.Add(ValueSlider("片段总时长", .12, Math.Max(.12, TimelineMath.Duration(_project) - zoom.Start), zoom.Duration,
                     v => { if (!TimelineEdits.TryMoveZoom(_project, zoom.Id, zoom.Start, v)) TimeLabel.Text = "时长与另一段缩放重叠。"; }, Seconds)); break;
         }
-    }
-
-    void ConvertZoomToScreenMotion(ZoomSpan zoom)
-    {
-        Push(); var clip = new ScreenMotionClip { Target = new ScreenMotionState { Scale = zoom.Scale, X = zoom.FocusX, Y = zoom.FocusY } };
-        clip.Timing.StartTime = zoom.Start; clip.Timing.Duration = zoom.Duration;
-        clip.Timing.LeadInDuration = zoom.EnterDuration ?? .4; clip.Timing.ReturnDuration = zoom.ExitDuration ?? .4;
-        _project.Zooms.Remove(zoom); _project.ScreenMotions.Add(clip); _selectedZoom = null; _selectedDecoration = clip.Id;
-        _tool = "zoom"; ApplyTrackFlags(TrackFlags | 2); Commit();
     }
 
     void UpdateProceduralBackground(double width, double height)
@@ -518,21 +570,17 @@ public partial class EditorWindow
         CameraBubble.RenderTransform = new MatrixTransform(cameraMatrix); CameraBubble.Opacity *= camera.Opacity;
     }
 
-    void ConvertScreenMotionToZoom(ScreenMotionClip screen)
-    {
-        var time = screen.Timing;
-        var zoom = new ZoomSpan { Start = time.StartTime, Duration = time.Duration, Scale = Math.Clamp(screen.Target.Scale, 1, 4),
-            FocusX = screen.Target.X, FocusY = screen.Target.Y, Origin = "manual", EnterDuration = time.LeadInDuration, ExitDuration = time.ReturnDuration };
-        if (_project.Zooms.Any(z => zoom.Start < z.Start + z.Duration && z.Start < zoom.Start + zoom.Duration))
-        { TimeLabel.Text = "该时段已有缩放，请先移开重叠片段。"; return; }
-        Push(); _project.ScreenMotions.Remove(screen); _project.Zooms.Add(zoom);
-        _selectedDecoration = null; _selectedZoom = zoom.Id; _tool = "zoom"; Commit();
-    }
-
     void BuildMonitorToolbar()
     {
         AspectRow.Children.Clear();
-        var ratio = new ComboBox { Width = 78, Margin = new Thickness(0, 0, 6, 0) };
+        if (_cropEditing)
+        {
+            AspectRow.Children.Add(DecorationButton("重置裁切", () => { Push(); _project.Canvas.Crop = new(); Commit(); }));
+            AspectRow.Children.Add(DecorationButton("取消", CancelCrop));
+            AspectRow.Children.Add(DecorationButton("完成", EndCrop));
+            return;
+        }
+        var ratio = new ComboBox { Width = 78, Margin = new Thickness(0, 0, 4, 0), FontSize = 12, Padding = new Thickness(6, 3, 6, 3), BorderThickness = new Thickness(0), Background = Brushes.Transparent };
         foreach (var (title, key) in new[] { ("适应", "source"), ("16:9", "16:9"), ("4:3", "4:3"), ("1:1", "1:1"),
             ("9:16", "9:16"), ("3:4", "3:4"), ("2.39:1", "2.39:1"), ("1:2.39", "1:2.39") })
             ratio.Items.Add(new ComboBoxItem { Content = title, Tag = key });
@@ -541,7 +589,7 @@ public partial class EditorWindow
         ratio.SelectedItem = ratio.Items.Cast<ComboBoxItem>().First(i => Equals(i.Tag, _project.Canvas.Aspect));
         ratio.SelectionChanged += (_, _) => { if (ratio.SelectedItem is not ComboBoxItem i || Equals(i.Tag, _project.Canvas.Aspect)) return; Push(); _project.Canvas.Aspect = (string)i.Tag; Commit(); };
         System.Windows.Automation.AutomationProperties.SetName(ratio, "画布比例"); AspectRow.Children.Add(ratio);
-        var crop = DecorationButton("裁切", () => { _tool = "layout"; _canvasTab = "layout"; _expandedDetails.Add("裁切与自定义比例"); RebuildInspector(); });
+        var crop = DecorationButton("裁切", BeginCrop);
         crop.Content = IconLabel(IconKind.Crop, "裁切");
         System.Windows.Automation.AutomationProperties.SetName(crop, "裁切");
         crop.Tag = "crop"; AspectRow.Children.Add(crop);
@@ -550,8 +598,8 @@ public partial class EditorWindow
         System.Windows.Automation.AutomationProperties.SetName(add, "添加效果");
         var menu = new ContextMenu();
         void Add(string title, Action action) { var item = new MenuItem { Header = title }; item.Click += (_, _) => action(); menu.Items.Add(item); }
-        Add("缩放", () => { Push(); var z = TimelineEdits.AddZoom(_project, _player.Time); if (z is null) { _undo.Pop(); return; } _selectedZoom = z.Id; _selectedDecoration = null; _tool = "zoom"; Commit(); });
-        Add("屏幕 3D", () => { Push(); var clip = new ScreenMotionClip(); clip.Timing.StartTime = _player.Time; _project.ScreenMotions.Add(clip); _selectedDecoration = clip.Id; _selectedZoom = null; _tool = "zoom"; ApplyTrackFlags(TrackFlags | 2); Commit(); });
+        Add("缩放", () => { Push(); var z = TimelineEdits.AddZoom(_project, _player.Time); if (z is null) { _undo.Pop(); return; } _selectedZoom = z.Id; _selectedDecoration = null; _tool = _motionMode = "zoom"; Commit(); });
+        Add("屏幕 3D", AddScreenMotion);
         Add("柔化区域", () => BeginRegionDrawing("blur")); Add("聚光区域", () => BeginRegionDrawing("spotlight"));
         Add("贴图…", AddSticker);
         add.ContextMenu = menu; add.Click += (_, _) => { menu.PlacementTarget = add; menu.IsOpen = true; }; AspectRow.Children.Add(add);
@@ -568,6 +616,8 @@ public partial class EditorWindow
             quality.Items.Add(item);
         }
         quality.Opened += (_, _) => { foreach (MenuItem item in quality.Items) item.IsChecked = Equals(item.Tag, SettingsStore.Current.PreviewQuality); };
+        foreach (var button in AspectRow.Children.OfType<Button>()) { button.Style = (Style)FindResource("QuietButton"); button.FontSize = 12; button.Padding = new Thickness(8, 5, 8, 5); button.Margin = new Thickness(0); }
+        options.Style = (Style)FindResource("QuietButton"); options.Padding = new Thickness(8, 5, 8, 5); options.Margin = new Thickness(0);
         options.ContextMenu = quality; options.Click += (_, _) => { quality.PlacementTarget = options; quality.IsOpen = true; }; AspectRow.Children.Add(options);
     }
 }

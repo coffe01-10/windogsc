@@ -438,6 +438,10 @@ public static class TimelineEdits
             SourceStart = cut,
             SourceEnd = clip.SourceEnd,
             Speed = clip.Speed,
+            MicrophoneGain = clip.MicrophoneGain,
+            SystemGain = clip.SystemGain,
+            MicrophoneEnabled = clip.MicrophoneEnabled,
+            SystemEnabled = clip.SystemEnabled,
         };
         clip.SourceEnd = cut;
         var index = project.Clips.FindIndex(item => item.Id == clip.Id);
@@ -618,6 +622,24 @@ public static class TimelineEdits
         }
         project.Zooms.Sort((a, b) => a.Start.CompareTo(b.Start));
         return project.Zooms.Count(z => z.Origin == "automatic");
+    }
+
+    // Existing clips are selected rather than covered by a second, neutral 3D target.
+    // A new clip is returned detached so the editor can capture undo before inserting it.
+    public static ScreenMotionClip? PrepareScreenMotion(ProjectDocument project, double time, double transition = .7)
+    {
+        var existing = project.ScreenMotions.LastOrDefault(c => time >= c.Timing.StartTime && time < c.Timing.EndTime);
+        if (existing is not null) return existing;
+        time = Math.Max(0, time);
+        var end = Math.Min(time + 1, TimelineMath.Duration(project));
+        foreach (var next in project.ScreenMotions.Where(c => c.Timing.StartTime > time))
+            end = Math.Min(end, next.Timing.StartTime);
+        if (end - time < .12) return null;
+        return new ScreenMotionClip
+        {
+            Timing = new() { StartTime = time, Duration = end - time,
+                LeadInDuration = Math.Min(transition, end - time), ReturnDuration = transition },
+        };
     }
 
     public static ZoomSpan? AddZoom(ProjectDocument project, double time)

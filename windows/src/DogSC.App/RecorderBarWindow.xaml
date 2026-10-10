@@ -114,8 +114,11 @@
                         <StackPanel Orientation="Horizontal">
                             <local:Icon Kind="Flag" Width="18" Height="18" VerticalAlignment="Center" Margin="0,0,6,0"/>
                             <TextBlock Text="标记" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="MarkerCount" Text="0" VerticalAlignment="Center" Margin="6,0,0,0"/>
                         </StackPanel>
                     </Button>
+                    <Button DockPanel.Dock="Right" Height="36" VerticalAlignment="Center" Style="{StaticResource IconButton}" Click="Memo_Click" ToolTip="备忘录" AutomationProperties.Name="备忘录"><local:Icon Kind="Window"/></Button>
+                    <Button x:Name="RecordingMicButton" DockPanel.Dock="Right" Height="36" VerticalAlignment="Center" Style="{StaticResource IconButton}" Click="RecordingMic_Click" ToolTip="静音麦克风" AutomationProperties.Name="静音麦克风"><local:Icon Kind="Mic"/></Button>
                 </DockPanel>
                 <StackPanel x:Name="CompactPanel" Orientation="Horizontal" VerticalAlignment="Center" Visibility="Collapsed">
                     <Button x:Name="CompactRecord" Height="36" Padding="14,8" Style="{StaticResource PrimaryButton}" ToolTip="选择显示器并开始录制" AutomationProperties.Name="开始录制" Click="Display_Click">
@@ -125,6 +128,8 @@
                         </StackPanel>
                     </Button>
                     <StackPanel x:Name="CompactRecording" Orientation="Horizontal" Visibility="Collapsed">
+                        <Button Style="{StaticResource IconButton}" Width="32" Height="36" Padding="7" ToolTip="备忘录" AutomationProperties.Name="备忘录" Click="Memo_Click"><local:Icon Kind="Window" Width="18" Height="18"/></Button>
+                        <Button x:Name="CompactRecordingMic" Style="{StaticResource IconButton}" Width="32" Height="36" Padding="7" ToolTip="静音麦克风" AutomationProperties.Name="静音麦克风" Click="RecordingMic_Click"><local:Icon Kind="Mic" Width="18" Height="18"/></Button>
                         <Ellipse Width="8" Height="8" Fill="{DynamicResource RecordBrush}" Margin="2,0,6,0" VerticalAlignment="Center"/>
                         <TextBlock x:Name="CompactTimer" Text="00:00" MinWidth="56" FontSize="16" VerticalAlignment="Center" FontFamily="{DynamicResource FontMedium}"/>
                         <Button x:Name="CompactPause" Style="{StaticResource IconButton}" Width="32" Height="36" Padding="7" ToolTip="暂停录制" AutomationProperties.Name="暂停录制" Click="Pause_Click"><local:Icon x:Name="CompactPauseIcon" Kind="Pause" Width="18" Height="18"/></Button>
