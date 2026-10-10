@@ -177,8 +177,6 @@ public partial class ExportWindow : Window
 
     void PaintChoice(Button button, bool selected)
     {
-        button.SetResourceReference(BackgroundProperty, selected ? "SelectionBrush" : "ControlBrush");
-        button.SetResourceReference(ForegroundProperty, "InkBrush");
-        button.SetResourceReference(BorderBrushProperty, selected ? "InkSecondaryBrush" : "ControlBorderBrush");
+        ControlAppearance.SelectChip(button, selected);
     }
 }

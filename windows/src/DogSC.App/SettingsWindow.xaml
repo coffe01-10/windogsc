@@ -9,6 +9,7 @@
             <Setter Property="Foreground" Value="{DynamicResource InkSecondaryBrush}"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Padding" Value="14,9"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource ControlFocus}"/>
             <Setter Property="HeaderTemplate">
                 <Setter.Value>
                     <DataTemplate>

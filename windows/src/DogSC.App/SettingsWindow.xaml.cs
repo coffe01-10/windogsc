@@ -13,9 +13,7 @@ public partial class SettingsWindow : Window
 
     void Chip(Button b, bool on)
     {
-        b.SetResourceReference(BackgroundProperty, on ? "SelectionBrush" : "ControlBrush");
-        b.SetResourceReference(ForegroundProperty, "InkBrush");
-        b.SetResourceReference(BorderBrushProperty, on ? "InkSecondaryBrush" : "ControlBorderBrush");
+        ControlAppearance.SelectChip(b, on);
     }
 
     void Paint()

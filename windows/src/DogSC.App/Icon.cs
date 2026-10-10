@@ -30,6 +30,7 @@ public enum IconKind
     ChevronRight,
     ChevronUp,
     ChevronDown,
+    ArrowUp,
 }
 
 public sealed class Icon : FrameworkElement
@@ -132,6 +133,7 @@ public sealed class Icon : FrameworkElement
         IconKind.ChevronRight => "M9.5,6 L15.5,12 L9.5,18",
         IconKind.ChevronUp => "M6,14.5 L12,8.5 L18,14.5",
         IconKind.ChevronDown => "M6,9.5 L12,15.5 L18,9.5",
+        IconKind.ArrowUp => "M12,20 V4 M5,11 L12,4 L19,11",
         _ => "M4,4 H20 V20 H4 Z",
     };
 }

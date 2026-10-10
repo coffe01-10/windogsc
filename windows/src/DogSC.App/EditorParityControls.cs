@@ -159,13 +159,24 @@ public partial class EditorWindow
         var colors = new WrapPanel();
         foreach (var hex in new[] { "#292929", "#FFFFFF", "#36A87E", "#E56060", "#528AE8", "#F3BC48" })
         {
-            var swatch = new Button { Width = 28, Height = 28, Background = Brush(hex), ToolTip = hex, Margin = new Thickness(0, 4, 8, 4) };
-            swatch.Click += (_, _) => { Push(); fx.ClickColor = hex; Commit(rebuild: false); };
+            var swatch = new Button { Width = 28, Height = 28, Background = Brush(hex), ToolTip = hex, Tag = hex, Padding = new Thickness(0), Margin = new Thickness(0, 4, 8, 4) };
+            swatch.Click += (_, _) => { Push(); fx.ClickColor = hex; PaintColors(); Commit(rebuild: false); };
             colors.Children.Add(swatch);
         }
+        PaintColors();
         panel.Children.Add(colors);
         AddTimingControls(panel, () => fx.TimingAdvance, value => fx.TimingAdvance = value, 1);
         panel.Children.Add(Caption("正值让光标和点击提前，负值延后，不改变移动速度。"));
+
+        void PaintColors()
+        {
+            foreach (var swatch in colors.Children.OfType<Button>())
+            {
+                var selected = string.Equals((string)swatch.Tag, fx.ClickColor, StringComparison.OrdinalIgnoreCase);
+                swatch.BorderThickness = new Thickness(selected ? 2 : 1);
+                swatch.SetResourceReference(Control.BorderBrushProperty, selected ? "InkBrush" : "ControlBorderBrush");
+            }
+        }
     }
 
     void BuildCameraDetails()

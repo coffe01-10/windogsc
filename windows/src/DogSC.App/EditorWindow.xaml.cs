@@ -246,9 +246,7 @@ public partial class EditorWindow : Window
         foreach (var button in AspectRow.Children.OfType<Button>())
         {
             var selected = (string)button.Tag == _project.Canvas.Aspect;
-            button.SetResourceReference(BackgroundProperty, selected ? "SelectionBrush" : "ControlBrush");
-            button.SetResourceReference(ForegroundProperty, "InkBrush");
-            button.SetResourceReference(BorderBrushProperty, selected ? "InkSecondaryBrush" : "ControlBorderBrush");
+            ControlAppearance.SelectChip(button, selected);
         }
 
         PaintTools();
@@ -349,6 +347,7 @@ public partial class EditorWindow : Window
                 Style = (Style)FindResource("ChipButton"),
                 Margin = new Thickness(0, 0, 4, 0),
             };
+            ControlAppearance.SelectChip(chip, _project.Canvas.Intro == key);
             chip.Click += (_, _) =>
             {
                 Push();
@@ -366,8 +365,7 @@ public partial class EditorWindow : Window
         foreach (var (name, key) in new[] { ("关", "none"), ("滑动", "slide"), ("侧滑", "sideslide"), ("上浮", "lift") })
         {
             var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 0) };
-            chip.Background = (Brush)FindResource(_project.Canvas.Opening == key ? "AccentBrush" : "WellBrush");
-            chip.Foreground = _project.Canvas.Opening == key ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
+            ControlAppearance.SelectChip(chip, _project.Canvas.Opening == key);
             chip.Click += (_, _) => { Push(); _project.Canvas.Opening = (string)chip.Tag; Commit(); };
             openStyles.Children.Add(chip);
         }
@@ -376,8 +374,7 @@ public partial class EditorWindow : Window
         foreach (var (name, key) in new[] { ("平滑", "smooth"), ("干脆", "clear"), ("轻柔", "gentle") })
         {
             var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 4, 4, 0) };
-            chip.Background = (Brush)FindResource(_project.Canvas.OpeningTiming == key ? "AccentBrush" : "WellBrush");
-            chip.Foreground = _project.Canvas.OpeningTiming == key ? (Brush)FindResource("OnAccentBrush") : (Brush)FindResource("InkBrush");
+            ControlAppearance.SelectChip(chip, _project.Canvas.OpeningTiming == key);
             chip.Click += (_, _) => { Push(); _project.Canvas.OpeningTiming = (string)chip.Tag; Commit(); };
             openTiming.Children.Add(chip);
         }
@@ -444,9 +441,13 @@ public partial class EditorWindow : Window
                 Height = 28,
                 Margin = new Thickness(0, 0, 8, 8),
                 Background = Brush(color),
-                BorderThickness = new Thickness(1),
+                Padding = new Thickness(0),
+                ToolTip = color,
                 Tag = color,
             };
+            var selected = string.Equals(_project.Canvas.Background, color, StringComparison.OrdinalIgnoreCase);
+            swatch.BorderThickness = new Thickness(selected ? 2 : 1);
+            swatch.SetResourceReference(Control.BorderBrushProperty, selected ? "InkBrush" : "ControlBorderBrush");
             swatch.Click += (_, _) =>
             {
                 Push();
@@ -495,8 +496,7 @@ public partial class EditorWindow : Window
         {
             var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 0) };
             chip.Click += (_, _) => { Push(); _project.Camera.Shape = (string)chip.Tag; Commit(); };
-            chip.Background = (Brush)FindResource(key == _project.Camera.Shape ? "AccentBrush" : "WellBrush");
-            chip.Foreground = (Brush)FindResource(key == _project.Camera.Shape ? "OnAccentBrush" : "InkBrush");
+            ControlAppearance.SelectChip(chip, key == _project.Camera.Shape);
             shapes.Children.Add(chip);
         }
 
@@ -511,11 +511,15 @@ public partial class EditorWindow : Window
 
         Inspector.Children.Add(Caption("位置预设"));
         var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Width = 108, HorizontalAlignment = HorizontalAlignment.Left };
-        foreach (var (cx, cy, glyph, label) in new[] { (.12, .15, "↖", "左上"), (.5, .15, "↑", "上方居中"), (.88, .15, "↗", "右上"),
-            (.12, .5, "←", "左侧居中"), (.5, .5, "•", "居中"), (.88, .5, "→", "右侧居中"),
-            (.12, .85, "↙", "左下"), (.5, .85, "↓", "下方居中"), (.88, .85, "↘", "右下") })
+        foreach (var (cx, cy, angle, label) in new[] { (.12, .15, -45d, "左上"), (.5, .15, 0d, "上方居中"), (.88, .15, 45d, "右上"),
+            (.12, .5, -90d, "左侧居中"), (.5, .5, 0d, "居中"), (.88, .5, 90d, "右侧居中"),
+            (.12, .85, -135d, "左下"), (.5, .85, 180d, "下方居中"), (.88, .85, 135d, "右下") })
         {
-            var cell = new Button { Content = glyph, ToolTip = label, Padding = new Thickness(0), Width = 30, Height = 30, Tag = (cx, cy), Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
+            var center = cx == .5 && cy == .5;
+            var symbol = new Icon { Kind = center ? IconKind.Record : IconKind.ArrowUp, Width = center ? 9 : 17, Height = center ? 9 : 17,
+                RenderTransformOrigin = new Point(.5, .5), RenderTransform = new RotateTransform(angle) };
+            var cell = new Button { Content = symbol, ToolTip = label, Padding = new Thickness(0), Width = 30, Height = 30, Tag = (cx, cy), Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
+            ControlAppearance.SelectChip(cell, Math.Abs(cx - _project.Camera.CenterX) < .001 && Math.Abs(cy - _project.Camera.CenterY) < .001);
             System.Windows.Automation.AutomationProperties.SetName(cell, "摄像头位置：" + label);
             cell.Click += (_, _) =>
             {
@@ -535,8 +539,7 @@ public partial class EditorWindow : Window
         {
             var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 0) };
             chip.Click += (_, _) => { Push(); _project.Camera.Entry = (string)chip.Tag; Commit(); };
-            chip.Background = (Brush)FindResource(key == _project.Camera.Entry ? "AccentBrush" : "WellBrush");
-            chip.Foreground = (Brush)FindResource(key == _project.Camera.Entry ? "OnAccentBrush" : "InkBrush");
+            ControlAppearance.SelectChip(chip, key == _project.Camera.Entry);
             entries.Children.Add(chip);
         }
 
@@ -811,9 +814,8 @@ public partial class EditorWindow : Window
         foreach (var (label, curve) in new[] { ("弹簧", "spring"), ("平滑", "smooth"), ("线性", "linear"),
             ("二次", "quadratic"), ("三次", "cubic"), ("自定义", "custom") })
         {
-            var button = new Button { Content = label, Style = (Style)FindResource("QuietButton"), Margin = new Thickness(0, 4, 6, 4),
-                Background = zoom.Easing == curve ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("WellBrush"),
-                Foreground = (Brush)FindResource(zoom.Easing == curve ? "OnAccentBrush" : "InkBrush") };
+            var button = new Button { Content = label, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 4, 6, 4) };
+            ControlAppearance.SelectChip(button, zoom.Easing == curve);
             button.Click += (_, _) => { Push(); zoom.Easing = curve; Commit(); };
             curves.Children.Add(button);
         }
@@ -876,8 +878,10 @@ public partial class EditorWindow : Window
 
     UIElement PositionPad()
     {
-        var canvas = new Canvas { Width = 200, Height = 120, Background = (Brush)FindResource("WellBrush") };
-        var dot = new System.Windows.Shapes.Ellipse { Width = 14, Height = 14, Fill = (Brush)FindResource("AccentBrush") };
+        var canvas = new Canvas { Width = 200, Height = 120, Clip = new RectangleGeometry(new Rect(0, 0, 200, 120), 8, 8) };
+        canvas.SetResourceReference(Panel.BackgroundProperty, "ControlBrush");
+        var dot = new System.Windows.Shapes.Ellipse { Width = 14, Height = 14 };
+        dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "AccentBrush");
         canvas.Children.Add(dot);
         void Place()
         {
@@ -923,9 +927,7 @@ public partial class EditorWindow : Window
                 Style = (Style)FindResource("ChipButton"),
                 Margin = new Thickness(0, 0, 4, 4),
             };
-            chip.SetResourceReference(BackgroundProperty, id == selected ? "SelectionBrush" : "ControlBrush");
-            chip.SetResourceReference(ForegroundProperty, "InkBrush");
-            chip.SetResourceReference(BorderBrushProperty, id == selected ? "InkSecondaryBrush" : "ControlBorderBrush");
+            ControlAppearance.SelectChip(chip, id == selected);
             chip.Click += (_, _) =>
             {
                 Push();

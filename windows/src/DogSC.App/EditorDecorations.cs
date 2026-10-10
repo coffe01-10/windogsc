@@ -167,8 +167,7 @@ public partial class EditorWindow
                     Content = name, Tag = hex, Margin = new Thickness(0, 0, 4, 4), Padding = new Thickness(8, 2, 8, 2),
                     Style = (Style)FindResource("ChipButton"),
                 };
-                if (string.Equals(sticker.BorderColor, hex, StringComparison.OrdinalIgnoreCase))
-                    swatch.Background = (Brush)FindResource("AccentBrush");
+                ControlAppearance.SelectChip(swatch, string.Equals(sticker.BorderColor, hex, StringComparison.OrdinalIgnoreCase));
                 swatch.Click += (_, _) => { Push(); sticker.BorderColor = hex; Commit(); };
                 borderRow.Children.Add(swatch);
             }
@@ -190,8 +189,7 @@ public partial class EditorWindow
                         Style = (Style)FindResource("ChipButton"),
                     };
                     var selected = string.Equals(current ?? "", value ?? "", StringComparison.OrdinalIgnoreCase);
-                    chip.Background = (Brush)FindResource(selected ? "AccentBrush" : "WellBrush");
-                    chip.Foreground = (Brush)FindResource(selected ? "OnAccentBrush" : "InkBrush");
+                    ControlAppearance.SelectChip(chip, selected);
                     chip.Click += (_, _) => { Push(); assign(value); Commit(); };
                     row.Children.Add(chip);
                 }
@@ -333,8 +331,7 @@ public partial class EditorWindow
         foreach (var (name, key) in new[] { ("线性", "linear"), ("二次", "quadratic"), ("三次", "cubic"), ("五次", "quintic"), ("弹簧", "spring") })
         {
             var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
-            chip.Background = (Brush)FindResource(timing.Easing == key ? "AccentBrush" : "WellBrush");
-            chip.Foreground = (Brush)FindResource(timing.Easing == key ? "OnAccentBrush" : "InkBrush");
+            ControlAppearance.SelectChip(chip, timing.Easing == key);
             chip.Click += (_, _) => { Push(); timing.Easing = key; Commit(); };
             easings.Children.Add(chip);
         }
@@ -365,8 +362,7 @@ public partial class EditorWindow
             foreach (var (name, key) in new[] { ("方形", "square"), ("圆形", "circle"), ("横向", "horizontal"), ("竖向", "vertical"), ("原比例", "original"), ("全屏", "fullscreen") })
             {
                 var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
-                chip.Background = (Brush)FindResource(camera!.Target.Layout == key ? "AccentBrush" : "WellBrush");
-                chip.Foreground = (Brush)FindResource(camera!.Target.Layout == key ? "OnAccentBrush" : "InkBrush");
+                ControlAppearance.SelectChip(chip, camera!.Target.Layout == key);
                 chip.Click += (_, _) => { Push(); camera.Target.Layout = key; Commit(); };
                 layouts.Children.Add(chip);
             }
