@@ -28,7 +28,7 @@ public partial class EditorWindow : Window
     readonly RegionPreview _canvasRegions = new();
     readonly Dictionary<string, Image> _stickerImages = [];
     CursorTimeline? _cursorTimeline;
-    (string Mode, double Size)? _cursorBitmapKey;
+    (string Asset, int Height, double Rotation)? _cursorBitmapKey;
 
     public EditorWindow()
     {
@@ -272,51 +272,43 @@ public partial class EditorWindow : Window
         }
 
         Inspector.Children.Add(intros);
-        Inspector.Children.Add(Caption("光标"));
-        var cursorRow = new StackPanel { Orientation = Orientation.Horizontal };
-        foreach (var (name, key) in new[] { ("箭头", "pointer"), ("圆点", "dot"), ("隐藏", "hidden") })
-        {
-            var chip = new Button
+        var cursor = _project.Canvas.Cursor;
+        Inspector.Children.Add(Caption("光标样式"));
+        Inspector.Children.Add(CursorChipRow(
+            CursorCatalog.Assets.Select(a => (a.Name, a.Id)),
+            CursorCatalog.ResolveAsset(cursor),
+            id =>
             {
-                Content = name,
-                Tag = key,
-                Style = (Style)FindResource("ChipButton"),
-                Margin = new Thickness(0, 0, 4, 0),
-            };
-            chip.Click += (_, _) =>
+                cursor.Asset = id;
+                cursor.Mode = id switch { "system.touch-dot" => "dot", "system.hidden" => "hidden", _ => "pointer" };
+            }));
+        Inspector.Children.Add(Caption("运动平滑"));
+        Inspector.Children.Add(CursorChipRow(
+            CursorCatalog.Motions.Select(m => (m.Name, m.Id)),
+            cursor.Motion,
+            id => cursor.Motion = id));
+        Inspector.Children.Add(Caption("运动倾斜强度"));
+        Inspector.Children.Add(Slider(0, 4, cursor.MotionTilt, value => cursor.MotionTilt = value));
+        Inspector.Children.Add(Caption("点击效果"));
+        Inspector.Children.Add(CursorChipRow(
+            CursorCatalog.ClickStyles.Select(s => (s.Name, s.Id)),
+            CursorCatalog.ResolveClick(cursor),
+            id =>
             {
-                Push();
-                _project.Canvas.Cursor.Mode = (string)chip.Tag;
-                Commit();
-            };
-            cursorRow.Children.Add(chip);
-        }
-
-        Inspector.Children.Add(cursorRow);
-        var ripple = new CheckBox
-        {
-            Content = "点击反馈圈",
-            IsChecked = _project.Canvas.Cursor.ClickRipple,
-            Foreground = (Brush)FindResource("InkBrush"),
-            Margin = new Thickness(0, 6, 0, 0),
-        };
-        ripple.Click += (_, _) =>
-        {
-            Push();
-            _project.Canvas.Cursor.ClickRipple = ripple.IsChecked == true;
-            Commit();
-        };
-        Inspector.Children.Add(ripple);
+                cursor.ClickStyle = id;
+                cursor.ClickRipple = id != "none";
+            }));
         var idle = new CheckBox
         {
             Content = "静止不动时隐藏光标",
-            IsChecked = _project.Canvas.Cursor.IdleHide,
+            IsChecked = cursor.IdleHide,
             Foreground = (Brush)FindResource("InkBrush"),
+            Margin = new Thickness(0, 6, 0, 0),
         };
         idle.Click += (_, _) =>
         {
             Push();
-            _project.Canvas.Cursor.IdleHide = idle.IsChecked == true;
+            cursor.IdleHide = idle.IsChecked == true;
             Commit();
         };
         Inspector.Children.Add(idle);
@@ -530,8 +522,9 @@ public partial class EditorWindow : Window
         Inspector.Children.Add(MotionSlider("进入时长", 0, 5, zoom.EnterDuration ?? .4, value => zoom.EnterDuration = value, " 秒"));
         Inspector.Children.Add(MotionSlider("退出时长", 0, 5, zoom.ExitDuration ?? .4, value => zoom.ExitDuration = value, " 秒"));
         Inspector.Children.Add(Caption("片段不足以容纳两段过渡时，按比例缩短；相邻镜头直接衔接。"));
-        var curves = new StackPanel { Orientation = Orientation.Horizontal };
-        foreach (var (label, curve) in new[] { ("弹簧", "spring"), ("平滑", "smooth"), ("线性", "linear") })
+        var curves = new WrapPanel();
+        foreach (var (label, curve) in new[] { ("弹簧", "spring"), ("平滑", "smooth"), ("线性", "linear"),
+            ("二次", "quadratic"), ("三次", "cubic"), ("自定义", "custom") })
         {
             var button = new Button { Content = label, Style = (Style)FindResource("QuietButton"), Margin = new Thickness(0, 4, 6, 4),
                 Background = zoom.Easing == curve ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("WellBrush"),
@@ -546,6 +539,14 @@ public partial class EditorWindow : Window
             spring.Children.Add(MotionSlider("质量", .1, 10, zoom.SpringMass, value => zoom.SpringMass = value));
             spring.Children.Add(MotionSlider("刚度", 10, 500, zoom.SpringStiffness, value => zoom.SpringStiffness = value));
             spring.Children.Add(MotionSlider("阻尼", 1, 100, zoom.SpringDamping, value => zoom.SpringDamping = value));
+        }
+        if (zoom.Easing == "custom")
+        {
+            var bezier = Disclosure("自定义贝塞尔");
+            bezier.Children.Add(MotionSlider("X1", 0, 1, zoom.CurveX1, value => zoom.CurveX1 = value));
+            bezier.Children.Add(MotionSlider("Y1", -2, 2, zoom.CurveY1, value => zoom.CurveY1 = value));
+            bezier.Children.Add(MotionSlider("X2", 0, 1, zoom.CurveX2, value => zoom.CurveX2 = value));
+            bezier.Children.Add(MotionSlider("Y2", -2, 2, zoom.CurveY2, value => zoom.CurveY2 = value));
         }
         Inspector.Children.Add(Caption("在「缩放」工具下点击画面，也会把焦点放到点击的位置。"));
     }
@@ -623,6 +624,31 @@ public partial class EditorWindow : Window
             Place();
             Commit(rebuild: false);
         }
+    }
+
+    WrapPanel CursorChipRow(IEnumerable<(string Name, string Id)> options, string selected, Action<string> apply)
+    {
+        var row = new WrapPanel();
+        foreach (var (name, id) in options)
+        {
+            var chip = new Button
+            {
+                Content = name,
+                Tag = id,
+                Style = (Style)FindResource("ChipButton"),
+                Margin = new Thickness(0, 0, 4, 4),
+                Background = (Brush)FindResource(id == selected ? "AccentBrush" : "WellBrush"),
+                Foreground = (Brush)FindResource(id == selected ? "OnAccentBrush" : "InkBrush"),
+            };
+            chip.Click += (_, _) =>
+            {
+                Push();
+                apply(id);
+                Commit();
+            };
+            row.Children.Add(chip);
+        }
+        return row;
     }
 
     Slider Slider(double min, double max, double value, Action<double> apply, bool refresh = false)
@@ -948,28 +974,37 @@ public partial class EditorWindow : Window
         var crop = _project.Canvas.Crop;
         var source = CanvasLayout.Crop(_project.Width, _project.Height, crop);
         var displayScale = FrameHost.ActualWidth / source.Width;
-        var size = Math.Max(8, (int)Math.Round(18 * fx.Size));
-        var dot = fx.Mode == "dot";
-        if (_cursorBitmapKey != (fx.Mode, fx.Size))
+        var shortEdge = Math.Min(source.Width, source.Height);
+        var h = Math.Max(8, (int)Math.Round(44 * fx.Size * shortEdge / 1080));
+        var assetId = sample.Asset ?? CursorCatalog.ResolveAsset(fx);
+        var sprite = CursorArt.Render(assetId, h) ?? CursorArt.Render("system.arrow", h);
+        CursorSprite? rotated = null;
+        if (sprite is not null)
         {
-            CursorBitmap.Source = BitmapSource.Create(size, dot ? size : size * 3 / 2, 96, 96, PixelFormats.Bgra32,
-                null, MaskImage.CreateCursor(size, dot), size * 4);
-            _cursorBitmapKey = (fx.Mode, fx.Size);
+            rotated = Math.Abs(sample.Rotation) > 0.002 ? CursorArt.Rotate(sprite, sample.Rotation) : sprite;
         }
-        CursorBitmap.Visibility = sample.Pointer is null ? Visibility.Collapsed : Visibility.Visible;
-        if (sample.Pointer is { } point)
+        if (rotated is not null && _cursorBitmapKey != (assetId, h, sample.Rotation))
         {
-            CursorBitmap.Width = size * displayScale;
-            CursorBitmap.Height = (dot ? size : size * 3 / 2) * displayScale;
-            Canvas.SetLeft(CursorBitmap, (point.X - crop.X) / crop.Width * FrameHost.ActualWidth - (dot ? CursorBitmap.Width / 2 : 0));
-            Canvas.SetTop(CursorBitmap, (point.Y - crop.Y) / crop.Height * FrameHost.ActualHeight - (dot ? CursorBitmap.Height / 2 : 0));
+            CursorBitmap.Source = BitmapSource.Create(rotated.Width, rotated.Height, 96, 96,
+                PixelFormats.Bgra32, null, rotated.Bgra, rotated.Width * 4);
+            _cursorBitmapKey = (assetId, h, sample.Rotation);
+        }
+        CursorBitmap.Visibility = rotated is null || sample.Pointer is null ? Visibility.Collapsed : Visibility.Visible;
+        if (sample.Pointer is { } point && rotated is { } r)
+        {
+            CursorBitmap.Width = r.Width * displayScale;
+            CursorBitmap.Height = r.Height * displayScale;
+            Canvas.SetLeft(CursorBitmap, (point.X - crop.X) / crop.Width * FrameHost.ActualWidth - r.HotspotX * displayScale);
+            Canvas.SetTop(CursorBitmap, (point.Y - crop.Y) / crop.Height * FrameHost.ActualHeight - r.HotspotY * displayScale);
         }
         ClickBitmap.Visibility = sample.Click is null ? Visibility.Collapsed : Visibility.Visible;
         if (sample.Click is { } click)
         {
-            var ringSize = CanvasLayout.Even((int)Math.Ceiling(44 * fx.ClickScale + 4));
+            var clickH = h * 1.45 * fx.ClickScale;
+            var ringSize = CanvasLayout.Even((int)Math.Ceiling(CursorCatalog.ClickFootprint(sample.ClickStyle, clickH) + 8));
             ClickBitmap.Source = BitmapSource.Create(ringSize, ringSize, 96, 96, PixelFormats.Bgra32,
-                null, MaskImage.CreateClickFrame(ringSize, sample.Progress, fx), ringSize * 4);
+                null, CursorCatalog.RenderClick(ringSize, sample.ClickStyle, sample.Progress,
+                    CursorCatalog.ParseColor(fx.ClickColor), fx.ClickOpacity, clickH), ringSize * 4);
             ClickBitmap.Width = ClickBitmap.Height = ringSize * displayScale;
             Canvas.SetLeft(ClickBitmap, (click.X - crop.X) / crop.Width * FrameHost.ActualWidth - ClickBitmap.Width / 2);
             Canvas.SetTop(ClickBitmap, (click.Y - crop.Y) / crop.Height * FrameHost.ActualHeight - ClickBitmap.Height / 2);

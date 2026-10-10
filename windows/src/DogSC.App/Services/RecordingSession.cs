@@ -322,9 +322,10 @@ public sealed class RecordingSession : IAsyncDisposable
         var click = down && !take.ButtonWasDown;
         take.ButtonWasDown = down;
         var last = take.Cursor.LastOrDefault();
+        var cursor = Native.CursorAssetId();
         // 位置没变且没点击就不重复存，省点体积。
         if (!click && last is not null &&
-            Math.Abs(last.X - nx) < 0.004 && Math.Abs(last.Y - ny) < 0.004)
+            Math.Abs(last.X - nx) < 0.004 && Math.Abs(last.Y - ny) < 0.004 && last.Cursor == cursor)
         {
             return;
         }
@@ -335,6 +336,7 @@ public sealed class RecordingSession : IAsyncDisposable
             X = nx,
             Y = ny,
             Click = click,
+            Cursor = cursor,
         });
     }
 

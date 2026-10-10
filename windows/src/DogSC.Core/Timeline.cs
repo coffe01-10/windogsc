@@ -349,6 +349,7 @@ public static class TimelineEdits
         FocusY = source.FocusY,
         Origin = source.Origin, Easing = source.Easing, EnterDuration = source.EnterDuration, ExitDuration = source.ExitDuration,
         SpringMass = source.SpringMass, SpringStiffness = source.SpringStiffness, SpringDamping = source.SpringDamping,
+        CurveX1 = source.CurveX1, CurveY1 = source.CurveY1, CurveX2 = source.CurveX2, CurveY2 = source.CurveY2,
     };
 
     /// <summary>完整复制缩放段；只吸附同轨边缘，不覆盖已有段或截短副本。</summary>
@@ -395,6 +396,8 @@ public static class TimelineEdits
         target.EnterDuration = source.EnterDuration;
         target.ExitDuration = source.ExitDuration;
         target.SpringMass = source.SpringMass; target.SpringStiffness = source.SpringStiffness; target.SpringDamping = source.SpringDamping;
+        target.CurveX1 = source.CurveX1; target.CurveY1 = source.CurveY1;
+        target.CurveX2 = source.CurveX2; target.CurveY2 = source.CurveY2;
         return true;
     }
 

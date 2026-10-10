@@ -1,6 +1,12 @@
 namespace DogSC.Core;
 
-public readonly record struct CursorFrame((double X, double Y)? Pointer, (double X, double Y)? Click, double Progress);
+public readonly record struct CursorFrame(
+    (double X, double Y)? Pointer,
+    (double X, double Y)? Click,
+    double Progress,
+    string? Asset = null,
+    double Rotation = 0,
+    string ClickStyle = "ripple");
 
 /// <summary>预览和导出共同使用的源时钟采样器；轨迹保留全部点，随机定位使用二分查找。</summary>
 public sealed class CursorTimeline
@@ -9,57 +15,96 @@ public sealed class CursorTimeline
     public ZoomMotion Motion { get; }
     readonly IReadOnlyList<PlacedClip> _clips;
     readonly (double Time, double X, double Y)[] _clicks;
+    readonly PointerTrack.Track?[] _tracks;
 
     public CursorTimeline(ProjectDocument project)
     {
         _project = project;
         Motion = new ZoomMotion(project);
         _clips = TimelineMath.Place(project);
-        var advance = project.Canvas.Cursor.TimingAdvance;
+        var fx = project.Canvas.Cursor;
+        var advance = fx.TimingAdvance;
         _clicks = _clips.SelectMany(clip => clip.Asset.Cursor
             .Where(p => p.Click && p.Time - advance >= clip.Clip.SourceStart && p.Time - advance < clip.Clip.SourceEnd)
             .Select(p => (Time: clip.Start + (p.Time - advance - clip.Clip.SourceStart) / clip.Clip.Speed, p.X, p.Y)))
             .OrderBy(p => p.Time).ToArray();
+        // Shared source tracks keep interpolation and spring state across cuts.
+        var tracks = new Dictionary<MediaAsset, PointerTrack.Track?>();
+        _tracks = _clips.Select(clip =>
+        {
+            if (tracks.TryGetValue(clip.Asset, out var cached)) return cached;
+            var knots = clip.Asset.Cursor
+                .Select(p => (Eff: p.Time - advance, Point: p))
+                .OrderBy(p => p.Eff)
+                .Select(p => new PointerTrack.Knot(p.Eff,
+                    Math.Clamp(p.Point.X, 0, 1), Math.Clamp(p.Point.Y, 0, 1), p.Point.Click, p.Point.Cursor))
+                .ToArray();
+            var track = knots.Length == 0 ? null : new PointerTrack.Track(knots, fx.Motion);
+            tracks[clip.Asset] = track;
+            return track;
+        }).ToArray();
     }
 
     public CursorFrame At(double time)
     {
         var fx = _project.Canvas.Cursor;
-        if (fx.Mode == "hidden") return default;
-        var clip = _clips.FirstOrDefault(clip => time >= clip.Start && time < clip.End);
+        var asset = CursorCatalog.ResolveAsset(fx);
+        if (asset == "system.hidden") return default;
         (double X, double Y)? pointer = null;
-        if (clip is not null && clip.Asset.Cursor.Count > 0)
+        string? resolved = asset;
+        double rotation = 0;
+        for (var i = 0; i < _clips.Count; i++)
         {
-            var source = clip.Clip.SourceStart + (time - clip.Start) * clip.Clip.Speed + fx.TimingAdvance;
-            var points = clip.Asset.Cursor;
-            var low = 0;
-            var high = points.Count;
-            while (low < high)
-            {
-                var mid = (low + high) / 2;
-                if (points[mid].Time <= source) low = mid + 1; else high = mid;
-            }
-            var before = points[Math.Max(0, low - 1)];
-            var after = points[Math.Min(points.Count - 1, low)];
-            var gap = after.Time - before.Time;
-            var distance = Math.Sqrt(Math.Pow(after.X - before.X, 2) + Math.Pow(after.Y - before.Y, 2));
-            var continuous = gap <= 0.12 || gap <= 0.5 && distance <= 0.03;
-            var ratio = continuous && gap > 0 ? Math.Clamp((source - before.Time) / gap, 0, 1) : 0;
-            if (!fx.IdleHide || (source - before.Time) / clip.Clip.Speed <= fx.IdleDelay)
-                pointer = (before.X + (after.X - before.X) * ratio, before.Y + (after.Y - before.Y) * ratio);
+            var clip = _clips[i];
+            var track = _tracks[i];
+            if (track is null || time < clip.Start || time >= clip.End) continue;
+            var source = clip.Clip.SourceStart + (time - clip.Start) * clip.Clip.Speed;
+            var knots = track.Knots;
+            // 静止隐藏：source 时刻距最近一个轨迹点的空闲时长超过 IdleDelay。
+            var idx = UpperBound(knots, source);
+            var before = knots[idx - 1];
+            var idleFor = Math.Max(0, source - before.Time);
+            if (fx.IdleHide && idleFor / clip.Clip.Speed > fx.IdleDelay) break;
+            var pos = track.AnchoredPositionAt(source);
+            pointer = (pos.X, pos.Y);
+            resolved = asset == "system.automatic"
+                ? CursorCatalog.NormalizeRecorded(before.Cursor)
+                : asset;
+            rotation = track.RotationAt(source, fx.MotionTilt);
+            break;
         }
-        if (!fx.ClickRipple || _clicks.Length == 0) return new(pointer, null, 0);
-        var a = 0;
-        var b = _clicks.Length;
-        while (a < b)
+        var clickStyle = CursorCatalog.ResolveClick(fx);
+        if (clickStyle == "none" || _clicks.Length == 0)
+            return new(pointer, null, 0, resolved, rotation, clickStyle);
+        var click = LastClickBefore(time);
+        if (click is null) return new(pointer, null, 0, resolved, rotation, clickStyle);
+        var progress = (time - click.Value.Time) / CursorCatalog.ClickDuration(clickStyle);
+        return new(pointer, progress < 1 ? (click.Value.X, click.Value.Y) : null, progress,
+            resolved, rotation, clickStyle);
+    }
+
+    (double Time, double X, double Y)? LastClickBefore(double time)
+    {
+        var lo = 0;
+        var hi = _clicks.Length;
+        while (lo < hi)
         {
-            var mid = (a + b) / 2;
-            if (_clicks[mid].Time <= time) a = mid + 1; else b = mid;
+            var mid = (lo + hi) / 2;
+            if (_clicks[mid].Time <= time) lo = mid + 1; else hi = mid;
         }
-        if (a == 0) return new(pointer, null, 0);
-        var click = _clicks[a - 1];
-        var progress = (time - click.Time) / CursorTrack.ClickDuration;
-        return new(pointer, progress < 1 ? (click.X, click.Y) : null, progress);
+        return lo == 0 ? null : _clicks[lo - 1];
+    }
+
+    static int UpperBound(PointerTrack.Knot[] knots, double source)
+    {
+        var lo = 0;
+        var hi = knots.Length;
+        while (lo < hi)
+        {
+            var mid = (lo + hi) / 2;
+            if (knots[mid].Time <= source) lo = mid + 1; else hi = mid;
+        }
+        return Math.Max(1, lo);
     }
 
     public (double X, double Y) InFrame((double X, double Y) point, double time)
