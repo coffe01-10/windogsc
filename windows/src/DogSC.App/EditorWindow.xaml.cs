@@ -83,10 +83,20 @@ public partial class EditorWindow : Window
         Timeline.DecorationFinished += (_, move) =>
         {
             var timing = DecorationTiming(move.ZoomId);
-            if (timing is null) return;
+            if (timing is not null)
+            {
+                Push();
+                timing.Start = move.Start;
+                timing.Duration = move.Duration;
+                Commit();
+                return;
+            }
+            // 屏幕 / 摄像头运动片段：轨道窗口含回落段，写回时减掉。
+            var motion = MotionTimingOf(move.ZoomId);
+            if (motion is null) return;
             Push();
-            timing.Start = move.Start;
-            timing.Duration = move.Duration;
+            motion.StartTime = Math.Max(0, move.Start);
+            motion.Duration = Math.Max(0.05, move.Duration - Math.Max(0, motion.ReturnDuration));
             Commit();
         };
         Timeline.ClipMoved += (_, move) =>
@@ -1264,7 +1274,7 @@ public partial class EditorWindow : Window
         var previousRegions = _project.Canvas.SoftRegions.Select(r => r.Id).Concat(_project.Canvas.Stickers.Select(r => r.Id)).ToHashSet();
         _project = JsonSerializer.Deserialize<ProjectDocument>(json, ProjectSchema.Json) ?? _project;
         ProjectFile.Normalize(_project);
-        _selectedDecoration = DecorationTiming(_selectedDecoration ?? "") is not null ? _selectedDecoration : null;
+        _selectedDecoration = DecorationTiming(_selectedDecoration ?? "") is not null || MotionTimingOf(_selectedDecoration ?? "") is not null ? _selectedDecoration : null;
         _selectedDecoration ??= _project.Canvas.SoftRegions.Select(r => r.Id).Concat(_project.Canvas.Stickers.Select(r => r.Id)).LastOrDefault(id => !previousRegions.Contains(id));
         _selectedZoom = _project.Zooms.FirstOrDefault(item => item.Id == _selectedZoom)?.Id;
         _selectedClip = _selectedDecoration is null && _selectedZoom is null

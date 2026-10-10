@@ -475,11 +475,22 @@ public sealed class TimelineControl : FrameworkElement
         return _project?.Zooms.FirstOrDefault(item => item.Id == id);
     }
 
+    static EffectWindow MotionWindow(TransitionTiming timing) => new()
+    {
+        Start = timing.StartTime,
+        Duration = timing.Duration > 0 ? timing.Duration + Math.Max(0, timing.ReturnDuration) : 0,
+        Fade = 0,
+    };
+
     IEnumerable<(string Id, string Title, EffectWindow Window, double Top)> Decorations()
     {
         if (_project is null) yield break;
+        // 屏幕 / 摄像头运动片段也铺进装饰轨（对齐 Mac 的运动轨道行）：
+        // 窗口 = StartTime .. Duration + ReturnDuration。
         var effects = _project.Canvas.Stickers.Select((x, i) => (x.Id, Title: $"贴图 {i + 1}", x.Timing))
             .Concat(_project.Canvas.SoftRegions.Where(x => x.Enabled).Select((x, i) => (x.Id, Title: $"{(x.Style == "spotlight" ? "聚光" : "柔化")} {i + 1}", x.Timing)))
+            .Concat(_project.ScreenMotions.Select((x, i) => (x.Id, Title: $"屏幕运动 {i + 1}", Timing: MotionWindow(x.Timing))))
+            .Concat(_project.CameraMotions.Select((x, i) => (x.Id, Title: $"摄像头运动 {i + 1}", Timing: MotionWindow(x.Timing))))
             .OrderBy(x => x.Timing.Duration <= 0 ? 0 : x.Timing.Start);
         var ends = new List<double>();
         foreach (var effect in effects)

@@ -549,45 +549,62 @@ public static class ExportGraph
                         src = "camf" + cam.Index;
                     }
 
-                    string oxExpr, oyExpr;
+                    var next = step == cameraSlices.Count - 1 ? "vfinal" : "cover" + step;
                     if (camTrack is not null)
                     {
-                        // 运动轨道：逐帧 scale(w,h) + geq 透明度 + overlay(x,y) 分段线性表达式。
-                        var window = MotionExport.SampleTrack(cam.Start, cam.End, fps, 64,
+                        // 运动轨道：ffmpeg 9.0.2 scale 不能逐帧改输出尺寸——改走
+                        // 15Hz 常量分段链（trim+scale+geq 透明度+定点 overlay），
+                        // 与屏幕运动的 perspective 分段同一逼近策略。
+                        var segCount = Math.Max(1, (int)Math.Ceiling((cam.End - cam.Start) * 15));
+                        var window = MotionExport.SampleTrack(cam.Start, cam.End, fps, segCount,
                             t => MotionExport.CameraPixels(
                                 camTrack.Sample(t, camBase, media.CameraAspect,
                                     (double)canvasWidth / canvasHeight), canvasWidth, canvasHeight));
-                        string Expr(Func<MotionExport.CameraFrame, double> pick, string fallback) =>
-                            MotionExport.Piecewise(window.Select(s => (s.Time, pick(s.Value))).ToList(),
-                                fallback, "t");
-                        var wE = Expr(f => Math.Max(2, f.W), "2");
-                        var hE = Expr(f => Math.Max(2, f.H), "2");
-                        oxExpr = "'" + Expr(f => f.X, "0") + "'";
-                        oyExpr = "'" + Expr(f => f.Y, "0") + "'";
-                        // geq 的时间变量是大写 T（overlay/enable 用小写 t）。
-                        var oE = MotionExport.Piecewise(
-                            window.Select(s => (s.Time, Math.Clamp(s.Value.Opacity, 0, 1))).ToList(),
-                            "1", "T");
-                        script.Append('[').Append(src).Append("]scale=w='").Append(wE)
-                            .Append("':h='").Append(hE).Append("':eval=frame,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*")
-                            .Append(oE).Append("'[camm").Append(cam.Index).AppendLine("]");
-                        src = "camm" + cam.Index;
+                        script.Append('[').Append(src).Append("]split=").Append(segCount);
+                        for (var i = 0; i < segCount; i++) script.Append("[cms").Append(cam.Index).Append('_').Append(i).Append(']');
+                        script.AppendLine();
+                        var segDuration = (cam.End - cam.Start) / segCount;
+                        for (var i = 0; i < segCount; i++)
+                        {
+                            var segStart = cam.Start + i * segDuration;
+                            var segEnd = i == segCount - 1 ? cam.End : segStart + segDuration;
+                            var frame = window[Math.Min(i, window.Count - 1)].Value;
+                            var label = "cmm" + cam.Index + "_" + i;
+                            script.Append("[cms").Append(cam.Index).Append('_').Append(i).Append(']');
+                            script.Append("trim=start=").Append(F(segStart)).Append(":end=").Append(F(segEnd))
+                                .Append(",setpts=PTS-STARTPTS+").Append(F(segStart)).Append("/TB,scale=")
+                                .Append(Math.Max(2, (int)Math.Round(frame.W))).Append(':')
+                                .Append(Math.Max(2, (int)Math.Round(frame.H))).Append(",format=rgba");
+                            var opacity = Math.Clamp(frame.Opacity, 0, 1);
+                            if (opacity < 0.999)
+                            {
+                                script.Append(",geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*")
+                                    .Append(F(opacity)).Append('\'');
+                            }
+                            script.Append('[').Append(label).AppendLine("]");
+                            var underLabel = i == 0 ? cameraUnder : "cmo" + cam.Index + "_" + (i - 1);
+                            var over = i == segCount - 1 ? next : "cmo" + cam.Index + "_" + i;
+                            script.Append('[').Append(underLabel).Append("][").Append(label)
+                                .Append("]overlay=").Append(F(frame.X)).Append(':').Append(F(frame.Y))
+                                .Append(":format=auto:eof_action=pass:repeatlast=0:enable='gte(t,")
+                                .Append(F(segStart)).Append(")*lt(t,").Append(F(segEnd)).Append(")'")
+                                .Append('[').Append(over).AppendLine("]");
+                        }
                     }
                     else
                     {
                         // rise：在入场窗口内 y 从下方滑到位。
-                        oxExpr = bubble.X.ToString();
-                        oyExpr = entry == "rise"
+                        var oxExpr = bubble.X.ToString();
+                        var oyExpr = entry == "rise"
                             ? F(bubble.Y) + "+(1-min((t-" + F(cam.Start) + ")/" + F(anim) + "\\,1))*" + F(bubble.Height * 0.4)
                             : bubble.Y.ToString();
+                        // 只在该片段的时间窗内叠加画中画，缺摄像头的片段保持背景画面。
+                        script.Append('[').Append(cameraUnder).Append("][").Append(src)
+                            .Append("]overlay=").Append(oxExpr).Append(':').Append(oyExpr)
+                            .Append(":format=auto:eval=frame:eof_action=pass:repeatlast=0:enable='gte(t,").Append(F(cam.Start))
+                            .Append(")*lt(t,").Append(F(cam.End)).Append(")'")
+                            .Append('[').Append(next).AppendLine("]");
                     }
-                    var next = step == cameraSlices.Count - 1 ? "vfinal" : "cover" + step;
-                    // 只在该片段的时间窗内叠加画中画，缺摄像头的片段保持背景画面。
-                    script.Append('[').Append(cameraUnder).Append("][").Append(src)
-                        .Append("]overlay=").Append(oxExpr).Append(':').Append(oyExpr)
-                        .Append(":format=auto:eval=frame:eof_action=pass:repeatlast=0:enable='gte(t,").Append(F(cam.Start))
-                        .Append(")*lt(t,").Append(F(cam.End)).Append(")'")
-                        .Append('[').Append(next).AppendLine("]");
                     cameraUnder = next;
                     step++;
                 }
