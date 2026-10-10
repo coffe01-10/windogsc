@@ -139,6 +139,10 @@ public sealed class CanvasSettings
     public string? Wallpaper { get; set; }
     /// <summary>壁纸模糊强度 0..1（垫在画面下做氛围虚化）。</summary>
     public double WallpaperBlur { get; set; } = 0.35;
+    /// <summary>程序生成背景密度（pattern/dynamicFlow），对齐 Mac patternScale 0.4..6。</summary>
+    public double PatternScale { get; set; } = 1;
+    /// <summary>程序生成背景强度，对齐 Mac patternOpacity 0..1。</summary>
+    public double PatternOpacity { get; set; } = 1;
     /// <summary>屏幕外框：none / windowLight / windowDark / browserLight / browserDark / phone / tablet（及 Mac 原名 devicePhone* / deviceTablet*）。</summary>
     public string ScreenFrame { get; set; } = "none";
     /// <summary>外框整体缩放 0.6..1.6。</summary>

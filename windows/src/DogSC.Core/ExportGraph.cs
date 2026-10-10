@@ -13,6 +13,8 @@ public sealed class ExportOptions
 /// <param name="Margin">烘焙图四边留边占内容宽的比例（对称留边，中心对齐）。</param>
 public sealed record ResolvedSticker(string Path, double Aspect, double Margin = 0);
 public sealed record RegionMask(int Index, int Width, int Height, SoftRegion Region);
+/// <summary>动态壁纸层输入：烘好的透明 PNG 按逐帧表达式位移叠加到背景上。</summary>
+public sealed record WallpaperLayerInput(int Index, string X, string Y);
 
 public sealed class ResolvedMedia
 {
@@ -57,6 +59,8 @@ public sealed class ExportPlan
     public int CursorOffsetY { get; init; }
     /// <summary>壁纸图片输入（-1 = 纯色背景）。</summary>
     public int WallpaperIndex { get; init; } = -1;
+    /// <summary>动态壁纸层（输入索引 + overlay 逐帧位移表达式），App 侧按序烘 PNG 回填路径。</summary>
+    public List<WallpaperLayerInput> WallpaperLayers { get; init; } = [];
     /// <summary>壁纸是视频（输入加 -stream_loop -1，不加 -framerate）。</summary>
     public bool WallpaperIsVideo { get; init; }
     /// <summary>屏幕外框 chrome PNG 输入（-1 = 无外框）。</summary>
@@ -197,6 +201,7 @@ public static class ExportGraph
         var stickerIndex = -1;
         var chromeIndex = -1;
         var wallpaperIndex = -1;
+        var wallpaperLayers = new List<WallpaperLayerInput>();
         var wallpaperIsVideo = false;
         var stickerRect = (0, 0, 0, 0);
         var softRect = (0, 0, 0, 0);
@@ -247,13 +252,19 @@ public static class ExportGraph
             }
 
             var under = "bg";
-            if (!string.IsNullOrWhiteSpace(media.Wallpaper) && File.Exists(media.Wallpaper))
+            var proceduralWallpaper = PatternLibrary.IsProcedural(media.Wallpaper);
+            var wallpaperBake = proceduralWallpaper
+                ? PatternLibrary.Resolve(media.Wallpaper, canvasWidth, canvasHeight,
+                    project.Canvas.PatternScale, project.Canvas.PatternOpacity)
+                : null;
+            if (!string.IsNullOrWhiteSpace(media.Wallpaper) && (proceduralWallpaper || File.Exists(media.Wallpaper)))
             {
                 // 壁纸：图片单帧循环或视频（输入侧 -stream_loop 循环）cover 铺满画布，可选高斯模糊。
+                // 程序生成背景（pattern:/flow:）用烘焙好的 PNG，路径由导出服务回填，不糊化。
                 wallpaperIndex = inputs.Count;
                 inputs.Add(media.Wallpaper);
-                wallpaperIsVideo = IsVideoPath(media.Wallpaper);
-                var blur = Math.Clamp(project.Canvas.WallpaperBlur, 0, 1);
+                wallpaperIsVideo = !proceduralWallpaper && IsVideoPath(media.Wallpaper);
+                var blur = proceduralWallpaper ? 0 : Math.Clamp(project.Canvas.WallpaperBlur, 0, 1);
                 script.Append('[').Append(wallpaperIndex).Append(":v]scale=")
                     .Append(canvasWidth).Append(':').Append(canvasHeight)
                     .Append(":force_original_aspect_ratio=increase,crop=")
@@ -270,7 +281,31 @@ public static class ExportGraph
                     script.Append(",gblur=sigma=").Append(F(6 + blur * 30));
                 }
 
-                script.AppendLine("[bg]");
+                var hasLayers = wallpaperBake is { Layers.Count: > 0 };
+                // 有动态层时基底先入 [bg0]，由层链合成出 [bg]——label 只能被引用一次，
+                // 直接产 [bg] 再让 overlay 消费会导致后续卡片垫层拿到未合成流。
+                script.Append('[').Append(hasLayers ? "bg0" : "bg").AppendLine("]");
+                if (wallpaperBake is { Layers.Count: > 0 })
+                {
+                    // 动态层：每层一个 PNG 输入 + overlay eval=frame 逐帧位移表达式。
+                    var previous = "bg0";
+                    for (var layerIndex = 0; layerIndex < wallpaperBake.Layers.Count; layerIndex++)
+                    {
+                        var layer = wallpaperBake.Layers[layerIndex];
+                        var inputIndex = inputs.Count;
+                        inputs.Add("wp-layer" + layerIndex);
+                        wallpaperLayers.Add(new WallpaperLayerInput(inputIndex, layer.X, layer.Y));
+                        var stream = "wpl" + layerIndex;
+                        var next = layerIndex == wallpaperBake.Layers.Count - 1 ? "bg" : "bgw" + layerIndex;
+                        script.Append('[').Append(inputIndex).Append(":v]format=rgba,loop=loop=-1:size=1:start=0,trim=duration=")
+                            .Append(F(Math.Max(duration, 0.1))).Append(",fps=").Append(fps)
+                            .Append('[').Append(stream).AppendLine("]");
+                        script.Append('[').Append(previous).Append("][").Append(stream)
+                            .Append("]overlay=x='").Append(layer.X).Append("':y='").Append(layer.Y)
+                            .Append("':format=auto:eval=frame[").Append(next).AppendLine("]");
+                        previous = next;
+                    }
+                }
             }
             else
             {
@@ -738,6 +773,7 @@ public static class ExportGraph
             CursorOffsetX = placement.X,
             CursorOffsetY = placement.Y,
             WallpaperIndex = wallpaperIndex,
+            WallpaperLayers = wallpaperLayers,
             WallpaperIsVideo = wallpaperIsVideo,
             ChromeIndex = chromeIndex,
             Chrome = chrome,

@@ -180,7 +180,7 @@ public static class MacProjectImporter
 
         project.Canvas.Corner = Num(c, "cornerRadius", 24);
         project.Canvas.Shadow = Num(c, "shadowStrength", 0.28) * 100;
-        // 背景：图片和视频走壁纸通道；pattern/dynamicFlow 为程序生成暂无对应。
+        // 背景：图片和视频走壁纸通道；pattern/dynamicFlow 透传给程序生成背景管线。
         var bg = Obj(c, "backgroundSource");
         var kind = bg is null ? null : Text(bg.Value, "kind");
         if (kind is "projectImage" or "systemImage" or "projectVideo" or "systemVideo")
@@ -191,10 +191,27 @@ public static class MacProjectImporter
                 project.Canvas.Wallpaper = rel;
             }
         }
+        else if (kind is "pattern" or "dynamicFlow")
+        {
+            var preset = Text(bg!.Value, kind == "pattern" ? "patternPreset" : "dynamicFlowPreset");
+            var id = preset is null ? null : PatternPresetId(preset, kind == "pattern");
+            if (id is not null)
+            {
+                project.Canvas.Wallpaper = (kind == "pattern" ? "pattern:" : "flow:") + id;
+            }
+            else if (preset is not null)
+            {
+                dropped.Add("canvas.backgroundSource." + (kind == "pattern" ? "patternPreset" : "dynamicFlowPreset") + "=" + preset);
+            }
+        }
         else if (kind is not null)
         {
-            dropped.Add("canvas.backgroundSource.kind=" + kind + "（Windows 只支持纯色 / 图片 / 视频壁纸）");
+            dropped.Add("canvas.backgroundSource.kind=" + kind + "（Windows 只支持纯色 / 图片 / 视频 / 程序生成壁纸）");
         }
+
+        // Mac 顶层的 patternScale/patternOpacity 与程序生成背景配套。
+        project.Canvas.PatternScale = Num(c, "patternScale", 1);
+        project.Canvas.PatternOpacity = Num(c, "patternOpacity", 1);
 
         // 屏幕外框：风格名直接透传（ChromeGeometry 识别 Mac 原名），标题 / 地址 / 缩放同取。
         if (Text(c, "screenFrame") is { } frame)
@@ -208,7 +225,7 @@ public static class MacProjectImporter
 
         // Windows 无对应概念的字段。
         foreach (var key in new[] { "borderWidth", "borderHex",
-                     "patternScale", "patternOpacity", "backgroundBlur", "insetOpacity" })
+                     "backgroundBlur", "insetOpacity" })
         {
             if (c.TryGetProperty(key, out _))
             {
@@ -505,6 +522,20 @@ public static class MacProjectImporter
         if (points.Count == 0 && seed is not null) points.Add(new CursorPoint { X = seed.X, Y = seed.Y });
         return points.OrderBy(point => point.Time).ToList();
     }
+
+    /// <summary>Mac 持久化的预设 rawValue 是中文名；映射回枚举 case id 供 PatternLibrary 使用。</summary>
+    static string? PatternPresetId(string rawValue, bool pattern) => (pattern, rawValue) switch
+    {
+        (true, "黑曜石网格") => "obsidianGrid",
+        (true, "工程白网格") => "engineeringWhiteGrid",
+        (true, "暗夜星阵") => "midnightDots",
+        (true, "建筑极简点") => "architecturalDots",
+        (true, "立体等角网") => "isometricMesh",
+        (false, "赛博微流网格") or (false, "旋转十字星阵") => "cyberDriftGrid",
+        (false, "星辉漫步点阵") => "starfieldDots",
+        (false, "极光流体星云") => "auroraFluid",
+        _ => null,
+    };
 
     static JsonElement? Obj(JsonElement e, params string[] path)
     {

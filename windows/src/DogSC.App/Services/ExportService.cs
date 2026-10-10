@@ -82,6 +82,23 @@ public sealed class ExportService
                     Path.Combine(temp, "chrome.png"));
             }
 
+            if (plan.WallpaperIndex >= 0 && PatternLibrary.IsProcedural(plan.Inputs[plan.WallpaperIndex]))
+            {
+                // pattern:/flow: 占位串解析成烘焙单：底层 PNG 回填壁纸输入，动态层回填各自输入。
+                var bake = PatternLibrary.Resolve(project.Canvas.Wallpaper, plan.Width, plan.Height,
+                    project.Canvas.PatternScale, project.Canvas.PatternOpacity);
+                if (bake is not null)
+                {
+                    var (bakedBase, bakedLayers) = await Task.Run(
+                        () => PatternArt.Bake(bake, plan.Width, plan.Height, Path.Combine(temp, "wp")), cancellation);
+                    plan.Inputs[plan.WallpaperIndex] = bakedBase;
+                    for (var layerIndex = 0; layerIndex < bakedLayers.Count; layerIndex++)
+                    {
+                        plan.Inputs[plan.WallpaperLayers[layerIndex].Index] = bakedLayers[layerIndex];
+                    }
+                }
+            }
+
             var graph = string.Join(";", plan.FilterScript.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
             var graphPath = Path.Combine(temp, "filters.txt");
             await File.WriteAllTextAsync(graphPath, graph, cancellation);
@@ -103,6 +120,7 @@ public sealed class ExportService
                 }
                 else if (index == plan.FrameMaskIndex || index == plan.ProjectionMaskIndex || index == plan.CameraMaskIndex || index == plan.FocusMaskIndex
                     || plan.RegionMasks.Any(mask => mask.Index == index) || index == plan.ChromeIndex
+                    || plan.WallpaperLayers.Any(layer => layer.Index == index)
                     || (index == plan.WallpaperIndex && !plan.WallpaperIsVideo) || plan.StickerIndices.Contains(index))
                 {
                     args.Add("-framerate");
@@ -197,7 +215,10 @@ public sealed class ExportService
             return File.Exists(absolute) ? absolute : null;
         }
 
-        string? wallpaper = Decoration(project.Canvas.Wallpaper);
+        // 程序生成背景（pattern:/flow:）是规格占位串不是文件，原样放行给导出图解析。
+        string? wallpaper = PatternLibrary.IsProcedural(project.Canvas.Wallpaper)
+            ? project.Canvas.Wallpaper
+            : Decoration(project.Canvas.Wallpaper);
         var stickers = new Dictionary<string, ResolvedSticker>();
         var (canvasW, canvasH) = CanvasLayout.OutputSize(project.Width, project.Height,
             project.Canvas.Aspect, options.Resolution);
