@@ -83,6 +83,105 @@ public static class ProjectFactory
     }
 
     /// <summary>
+    /// Mac 录制恢复：录制中断留在磁盘上的项目目录只有 media/ 没有 project.json，
+    /// 按 <token>.mp4 / <token>-camera.mp4 / <token>-mic.wav / <token>-system.wav
+    /// 命名归组，逐 take 探测时长后重建项目文件。返回恢复的目录数。
+    /// </summary>
+    public static async Task<int> RecoverPartialAsync(string ffprobe)
+    {
+        var root = SettingsStore.Current.ProjectsDirectory;
+        if (!Directory.Exists(root))
+        {
+            return 0;
+        }
+
+        var recovered = 0;
+        foreach (var directory in Directory.GetDirectories(root))
+        {
+            try
+            {
+                if (File.Exists(Path.Combine(directory, "project.json")))
+                {
+                    continue;
+                }
+
+                var media = Path.Combine(directory, "media");
+                if (!Directory.Exists(media))
+                {
+                    continue;
+                }
+
+                var takes = Directory.GetFiles(media, "*.mp4")
+                    .Select(Path.GetFileNameWithoutExtension)
+                    .Where(name => name is not null
+                        && !name.EndsWith("-camera", StringComparison.Ordinal)
+                        && !name.EndsWith("-mic", StringComparison.Ordinal)
+                        && !name.EndsWith("-system", StringComparison.Ordinal))
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray();
+                if (takes.Length == 0)
+                {
+                    continue;
+                }
+
+                var project = new ProjectDocument
+                {
+                    Name = Path.GetFileName(directory).Replace(".dogscproject", ""),
+                    SourceLabel = "恢复的录制",
+                };
+                foreach (var token in takes)
+                {
+                    var screen = Path.Combine(media, token + ".mp4");
+                    if (new FileInfo(screen).Length < 1024)
+                    {
+                        continue;
+                    }
+
+                    var info = await FfmpegTools.Probe(ffprobe, screen);
+                    if (info is null)
+                    {
+                        continue;
+                    }
+
+                    string? Companion(string suffix, params string[] extensions) => extensions
+                        .Select(ext => Path.Combine(media, token + suffix + ext))
+                        .FirstOrDefault(File.Exists) is { } found
+                        ? "media/" + Path.GetFileName(found) : null;
+                    var asset = new MediaAsset
+                    {
+                        Video = "media/" + token + ".mp4",
+                        Camera = Companion("-camera", ".mp4"),
+                        Microphone = Companion("-mic", ".wav", ".mp3", ".m4a"),
+                        SystemAudio = Companion("-system", ".wav", ".m4a", ".mp3"),
+                        Duration = Math.Max(info.Duration, 0.1),
+                        Width = info.Width,
+                        Height = info.Height,
+                    };
+                    project.Assets.Add(asset);
+                    project.Clips.Add(new ClipSegment { AssetId = asset.Id, SourceStart = 0, SourceEnd = asset.Duration });
+                }
+
+                if (project.Clips.Count == 0)
+                {
+                    continue;
+                }
+
+                project.Width = Math.Max(project.Assets[0].Width, 2);
+                project.Height = Math.Max(project.Assets[0].Height, 2);
+                ProjectFile.Save(directory, project);
+                SettingsStore.Remember(directory);
+                recovered++;
+            }
+            catch (Exception ex)
+            {
+                AppPaths.Log("录制恢复失败 " + directory + "：" + ex.Message);
+            }
+        }
+
+        return recovered;
+    }
+
+    /// <summary>
     /// 把一个 macOS .dogscproject 包转成 Windows 项目：读它的 project.json，
     /// 把 media 清单里引用的文件拷到新目录，字段映射走 MacProjectImporter。
     /// 对不上的字段记录在返回值的 DroppedFields 里。

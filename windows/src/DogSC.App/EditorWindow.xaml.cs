@@ -432,6 +432,45 @@ public partial class EditorWindow : Window
         }
 
         Inspector.Children.Add(entries);
+        Inspector.Children.Add(DecorationButton("替换摄像头素材", SwapCamera));
+    }
+
+    /// <summary>Mac「替换摄像头」：换一个摄像头源文件，保留片段、效果与偏移。</summary>
+    void SwapCamera()
+    {
+        var assetIds = _project.Clips.Select(item => item.AssetId).Distinct().ToArray();
+        if (assetIds.Length == 0)
+        {
+            return;
+        }
+
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "视频|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v|全部|*.*",
+            Title = "替换摄像头素材",
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var file = Path.Combine(_directory, "media", "camera-" + Guid.NewGuid().ToString("N") + Path.GetExtension(dialog.FileName));
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.Copy(dialog.FileName, file, overwrite: true);
+            Push();
+            var relative = "media/" + Path.GetFileName(file);
+            foreach (var assetId in assetIds)
+            {
+                MediaSwap.Replace(_project, assetId, MediaSwap.Track.Camera, relative);
+            }
+            Commit();
+        }
+        catch (Exception ex)
+        {
+            TimeLabel.Text = "替换失败：" + ex.Message;
+        }
     }
 
     /// <summary>选图后拷进项目 media/decor/ 并写入相对路径，保证项目可搬移。</summary>
