@@ -25,6 +25,28 @@ public static class Native
         }
     }
 
+    /// <summary>窗口穿透+不激活：鼠标事件直接落到下层窗口（触点圆点这类纯指示层用）。</summary>
+    public static void SetClickThrough(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        const int GwlExstyle = -20;
+        const long WsExTransparent = 0x20;
+        const long WsExNoactivate = 0x08000000;
+        const long WsExToolwindow = 0x80;
+        var style = GetWindowLongPtr(hwnd, GwlExstyle);
+        SetWindowLongPtr(hwnd, GwlExstyle, (IntPtr)(style.ToInt64() | WsExTransparent | WsExNoactivate | WsExToolwindow));
+    }
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    static extern IntPtr SetWindowLongPtr(IntPtr hwnd, int index, IntPtr value);
+
     public static IReadOnlyList<MonitorDesc> Monitors()
     {
         var list = new List<MonitorDesc>();

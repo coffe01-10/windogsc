@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DogSC.Core;
 
 namespace DogSC;
@@ -76,6 +77,7 @@ public sealed class RecordingSession : IAsyncDisposable
         }
 
         _current.Marks.Add((_clock.Elapsed.TotalSeconds, note));
+        SaveJournal();
     }
 
     public async Task PauseAsync()
@@ -162,7 +164,47 @@ public sealed class RecordingSession : IAsyncDisposable
 
         ScenePresets.ApplyDefault(project, _directory);
         ProjectFile.Save(_directory, project);
+        try
+        {
+            File.Delete(JournalPath());
+        }
+        catch
+        {
+            // Journal cleanup is best-effort; recovery ignores it once project.json exists.
+        }
+
         return project;
+    }
+
+    /// <summary>Mac 恢复日志：录制中实时写 media/ 旁的 journal.json，崩溃后恢复流程拿得到 take/assetId/标记。</summary>
+    string JournalPath() => Path.Combine(_directory, "journal.json");
+
+    void SaveJournal(Take? finished = null)
+    {
+        try
+        {
+            var takes = _takes.Concat(_current is null ? [] : [_current]).Concat(finished is null || _takes.Contains(finished) || _current == finished ? [] : [finished])
+                .Select(take => new JournalTake
+                {
+                    Token = take.Token,
+                    AssetId = take.AssetId,
+                    Duration = take == _current ? _clock.Elapsed.TotalSeconds : take.Duration,
+                    Marks = take.Marks.Select(m => new JournalMark { Time = m.Time, Note = m.Note }).ToList(),
+                }).ToList();
+            var journal = new RecoveryJournal
+            {
+                StartedUtc = DateTime.UtcNow,
+                TargetLabel = _target.Label,
+                Kind = _target.Kind.ToString(),
+                FrameRate = _options.FrameRate,
+                Takes = takes,
+            };
+            File.WriteAllText(JournalPath(), JsonSerializer.Serialize(journal));
+        }
+        catch
+        {
+            // 日志是恢复辅助，写失败不能影响录制。
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -288,6 +330,7 @@ public sealed class RecordingSession : IAsyncDisposable
         }
 
         _current = take;
+        SaveJournal();
         _clock.Restart();
         await Task.Delay(350);
         if (_video is { HasExited: true })
@@ -400,6 +443,7 @@ public sealed class RecordingSession : IAsyncDisposable
         take.Duration = _clock.Elapsed.TotalSeconds;
         _clock.Reset();
         await StopProcessesAsync(graceful: true);
+        SaveJournal(take);
         if (take.Duration >= 0.35 && File.Exists(take.VideoPath))
         {
             _takes.Add(take);
@@ -442,6 +486,61 @@ public sealed class RecordingSession : IAsyncDisposable
         _microphone = null;
         _system?.Stop();
         _system = null;
+    }
+
+    sealed class JournalMark
+    {
+        public double Time { get; set; }
+        public string? Note { get; set; }
+    }
+
+    sealed class JournalTake
+    {
+        public string Token { get; set; } = "";
+        public string AssetId { get; set; } = "";
+        public double Duration { get; set; }
+        public List<JournalMark> Marks { get; set; } = [];
+    }
+
+    sealed class RecoveryJournal
+    {
+        public DateTime StartedUtc { get; set; }
+        public string TargetLabel { get; set; } = "";
+        public string Kind { get; set; } = "";
+        public int FrameRate { get; set; }
+        public List<JournalTake> Takes { get; set; } = [];
+    }
+
+    public sealed class JournalTakeInfo
+    {
+        public string AssetId { get; set; } = "";
+        public List<(double Time, string? Note)> Marks { get; set; } = [];
+    }
+
+    /// <summary>恢复流程用：读目录里的 journal.json，返回 token → take 信息；没有或损坏返回空。</summary>
+    public static IReadOnlyDictionary<string, JournalTakeInfo> ReadJournal(string directory)
+    {
+        try
+        {
+            var path = Path.Combine(directory, "journal.json");
+            if (!File.Exists(path))
+            {
+                return new Dictionary<string, JournalTakeInfo>();
+            }
+
+            var journal = JsonSerializer.Deserialize<RecoveryJournal>(File.ReadAllText(path));
+            return journal?.Takes.ToDictionary(
+                take => take.Token,
+                take => new JournalTakeInfo
+                {
+                    AssetId = take.AssetId,
+                    Marks = take.Marks.Select(m => (m.Time, m.Note)).ToList(),
+                }) ?? new Dictionary<string, JournalTakeInfo>();
+        }
+        catch
+        {
+            return new Dictionary<string, JournalTakeInfo>();
+        }
     }
 
     sealed class Take(string token)

@@ -129,6 +129,7 @@ public static class ProjectFactory
                     Name = Path.GetFileName(directory).Replace(".dogscproject", ""),
                     SourceLabel = "恢复的录制",
                 };
+                var journal = RecordingSession.ReadJournal(directory);
                 foreach (var token in takes)
                 {
                     var screen = Path.Combine(media, token + ".mp4");
@@ -147,8 +148,10 @@ public static class ProjectFactory
                         .Select(ext => Path.Combine(media, token + suffix + ext))
                         .FirstOrDefault(File.Exists) is { } found
                         ? "media/" + Path.GetFileName(found) : null;
+                    journal.TryGetValue(token!, out var entry);
                     var asset = new MediaAsset
                     {
+                        Id = string.IsNullOrEmpty(entry?.AssetId) ? Guid.NewGuid().ToString("N") : entry!.AssetId,
                         Video = "media/" + token + ".mp4",
                         Camera = Companion("-camera", ".mp4"),
                         Microphone = Companion("-mic", ".wav", ".mp3", ".m4a"),
@@ -159,6 +162,21 @@ public static class ProjectFactory
                     };
                     project.Assets.Add(asset);
                     project.Clips.Add(new ClipSegment { AssetId = asset.Id, SourceStart = 0, SourceEnd = asset.Duration });
+                    if (entry is not null)
+                    {
+                        foreach (var mark in entry.Marks)
+                        {
+                            if (mark.Time <= asset.Duration)
+                            {
+                                project.Markers.Add(new SourceMarker
+                                {
+                                    AssetId = asset.Id,
+                                    SourceTime = mark.Time,
+                                    Note = mark.Note,
+                                });
+                            }
+                        }
+                    }
                 }
 
                 if (project.Clips.Count == 0)
