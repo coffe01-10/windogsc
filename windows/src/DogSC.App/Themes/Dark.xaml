@@ -12,6 +12,9 @@
     <SolidColorBrush x:Key="BgBrush" Color="#0B0C0D"/>
     <SolidColorBrush x:Key="PanelBrush" Color="#121315"/>
     <SolidColorBrush x:Key="CardBrush" Color="#1C1D1F"/>
+    <SolidColorBrush x:Key="GlassEdgeBrush" Color="#26FFFFFF"/>
+    <SolidColorBrush x:Key="SettingsSidebarBrush" Color="#202123"/>
+    <SolidColorBrush x:Key="SettingsCardBrush" Color="#252628"/>
     <SolidColorBrush x:Key="WellBrush" Color="#2A2C2F"/>
     <SolidColorBrush x:Key="InkBrush" Color="#E8E8E6"/>
     <SolidColorBrush x:Key="InkSecondaryBrush" Color="#B0B0AA"/>

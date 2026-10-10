@@ -7,8 +7,10 @@ public partial class EditorWindow
 {
     UIElement ClickEffectSegments(IEnumerable<(string Title, string Key)> choices, string selected, Action<string> choose)
     {
-        var row = new UniformGrid { Rows = 1 };
-        foreach (var (title, key) in choices)
+        var items = choices.ToArray(); var buttons = new List<Button>();
+        var groupKey = string.Join("|", items.Select(x => x.Key)); var selectedIndex = Array.FindIndex(items, x => x.Key == selected);
+        var previous = _segmentSelections.GetValueOrDefault(groupKey, selectedIndex); _segmentSelections[groupKey] = selectedIndex;
+        foreach (var (title, key) in items)
         {
             var content = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
             if (key is "none" or "flash")
@@ -22,8 +24,9 @@ public partial class EditorWindow
             content.Children.Add(new TextBlock { Text = title, FontSize = 11, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 4, 0, 0) });
             var button = new Button { Content = content, Height = 50, Style = (Style)FindResource("SegmentButton"), Padding = new Thickness(3) };
             System.Windows.Automation.AutomationProperties.SetName(button, "点击动画：" + title);
-            ControlAppearance.SelectSegment(button, selected == key); button.Click += (_, _) => choose(key); row.Children.Add(button);
+            ControlAppearance.SelectSegment(button, selected == key); button.Click += (_, _) => choose(key); buttons.Add(button);
         }
+        var row = new FluidSegments(buttons, selectedIndex, previous);
         return new Border { Child = row, CornerRadius = new CornerRadius(12), Padding = new Thickness(4), Background = (Brush)FindResource("SegmentWellBrush"),
             BorderThickness = new Thickness(.75), BorderBrush = (Brush)FindResource("LineBrush") };
     }

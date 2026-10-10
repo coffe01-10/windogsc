@@ -7,13 +7,15 @@ public partial class SettingsWindow : Window
     public SettingsWindow()
     {
         InitializeComponent();
+        BuildSettingsPages();
         Paint();
-        Loaded += (_, _) => WindowPlacement.KeepInWorkArea(this, center: true);
+        Loaded += (_, _) => { WindowPlacement.KeepInWorkArea(this, center: true); SelectSettingsSection("general", false); FluidMotion.Entrance(SettingsRoot); };
     }
 
     void Chip(Button b, bool on)
     {
-        ControlAppearance.SelectChip(b, on);
+        b.Background = Brushes.Transparent; b.BorderThickness = new Thickness(0);
+        b.SetResourceReference(ForegroundProperty, on ? "InkBrush" : "InkSecondaryBrush");
     }
 
     void Paint()
@@ -28,7 +30,8 @@ public partial class SettingsWindow : Window
         SysAudioDefaultBox.IsChecked = s.RecordSystemAudio;
         FfmpegLabel.Text = FfmpegTools.LocateFfmpeg() ?? "未找到";
         UpdateLabel.Text = "当前版本 " + AppVersion.Current;
-        ResetDone.Text = "";
+        ResetDone.Text = "恢复默认轨道显示、时间线缩放及面板大小。";
+        PaintSettingsChoices();
     }
 
     void Set(Action apply) { apply(); SettingsStore.Save(); Paint(); }

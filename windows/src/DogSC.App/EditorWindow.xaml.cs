@@ -274,8 +274,12 @@ public partial class EditorWindow : Window
         foreach (var button in new[] { ToolLayout, ToolOpening, ToolZoom, ToolCursor, ToolCamera, ToolAudio })
         {
             var selected = (string)button.Tag == selectedTool;
-            if (selected) button.SetResourceReference(BackgroundProperty, "RailSelectionBrush");
-            else button.Background = Brushes.Transparent;
+            button.Background = Brushes.Transparent;
+            if (selected)
+            {
+                if (button.IsLoaded) FluidMotion.Select(ToolRailSelection, button, ToolRailGrid);
+                else button.Loaded += (_, _) => { if ((string)button.Tag == _tool) FluidMotion.Select(ToolRailSelection, button, ToolRailGrid, false); };
+            }
             button.SetResourceReference(ForegroundProperty, selected ? "RailSelectionInkBrush" : "InkSecondaryBrush");
         }
     }
@@ -312,8 +316,13 @@ public partial class EditorWindow : Window
         ThemeButton.ToolTip = dark ? "切换到浅色主题" : "切换到深色主题";
     }
 
+    internal void SyncAppearance() { UpdateThemeButton(); RebuildInspector(); BuildMonitorToolbar(); }
+
     void RebuildInspector()
     {
+        var transition = FluidMotion.PrepareSwap(InspectorScroll, InspectorTransitionLayer);
+        try
+        {
         _regionToolbarId = null;
         _cursorPreviewTimer?.Stop();
         _cursorPreviewTimer = null;
@@ -347,6 +356,8 @@ public partial class EditorWindow : Window
         {
             BuildLayoutInspector();
         }
+        }
+        finally { transition(); }
     }
 
     void BuildLayoutInspector() => BuildCanvasInspector();
@@ -1445,7 +1456,6 @@ public partial class EditorWindow : Window
         RebuildInspector();
         InspectorScroll.ScrollToTop();
         ApplyZoomVisual();
-        Motion.Reveal(Inspector);
     }
 
     void Name_LostFocus(object sender, RoutedEventArgs e)

@@ -4,6 +4,26 @@ namespace DogSC;
 
 public partial class EditorWindow
 {
+    void SceneMenu_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = SceneMenuButton };
+        foreach (var preset in SettingsStore.Current.ScenePresets)
+        {
+            var item = new MenuItem { Header = preset.Name, IsCheckable = true, IsChecked = preset.Id == _selectedScenePreset };
+            item.Click += (_, _) => ApplyScenePreset(preset); menu.Items.Add(item);
+        }
+        if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+        var save = new MenuItem { Header = "保存为新场景…", Icon = new Icon { Kind = IconKind.Plus, Width = 16, Height = 16 } };
+        save.Click += (_, _) => ShowSaveScene(); menu.Items.Add(save); menu.IsOpen = true;
+    }
+
+    void ApplyScenePreset(ScenePreset preset)
+    {
+        var transition = FluidMotion.PrepareSwap(PreviewCanvas, PreviewTransitionLayer, 0);
+        Push(); ScenePresets.Apply(preset, _project, _directory); _selectedScenePreset = preset.Id;
+        SceneMenuLabel.Text = preset.Name; Commit(); transition();
+    }
+
     void SaveScene_Click(object sender, RoutedEventArgs e) => ShowSaveScene();
 
     void ShowSaveScene(ScenePreset? updating = null)
@@ -47,7 +67,7 @@ public partial class EditorWindow
                 else settings.ScenePresets.Add(preset);
                 if (useDefault.IsChecked == true) settings.DefaultScenePresetId = preset.Id;
                 else if (updating?.Id == settings.DefaultScenePresetId) settings.DefaultScenePresetId = null;
-                _selectedScenePreset = preset.Id; SettingsStore.Save(); dialog.Close(); RebuildInspector();
+                _selectedScenePreset = preset.Id; SceneMenuLabel.Text = preset.Name; SettingsStore.Save(); dialog.Close(); RebuildInspector();
             }
             catch (Exception ex) { status.Text = "预设未保存：" + ex.Message; }
         };

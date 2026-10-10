@@ -18,7 +18,8 @@
                 </StackPanel>
             </DockPanel>
         </Border>
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid Grid.Row="1" ClipToBounds="True">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <Grid x:Name="ExportSettings" Margin="28,26,28,28">
             <Grid.ColumnDefinitions><ColumnDefinition Width="1.06*"/><ColumnDefinition Width="0.75"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <StackPanel Margin="0,0,28,0">
@@ -37,7 +38,7 @@
                     </DockPanel>
                 </Button>
                 <TextBlock Text="导出内容" Margin="0,24,0,10" FontSize="13"/>
-                <UniformGrid Rows="1">
+                <UniformGrid x:Name="OutputChoicesRow" Rows="1">
                     <Button x:Name="VideoChoice" Content="视频" Style="{StaticResource SegmentButton}" MinHeight="38" Margin="0,0,5,0" Click="Video_Click"/>
                     <Button x:Name="AudioChoice" Content="仅音频" Style="{StaticResource SegmentButton}" MinHeight="38" Margin="5,0,0,0" Click="Audio_Click"/>
                 </UniformGrid>
@@ -45,7 +46,7 @@
                     <TextBlock Text="分辨率" Margin="0,24,0,10" FontSize="13"/>
                     <UniformGrid x:Name="ResolutionRow" Rows="1"/>
                     <TextBlock Text="帧率" Margin="0,24,0,10" FontSize="13"/>
-                    <UniformGrid Rows="1">
+                    <UniformGrid x:Name="FrameRateChoicesRow" Rows="1">
                         <Button x:Name="Fps30" Content="30 FPS" Style="{StaticResource SegmentButton}" MinHeight="38" Margin="0,0,5,0" Click="Fps_Click" Tag="30"/>
                         <Button x:Name="Fps60" Content="60 FPS" Style="{StaticResource SegmentButton}" MinHeight="38" Margin="5,0,0,0" Click="Fps_Click" Tag="60"/>
                     </UniformGrid>
@@ -72,6 +73,8 @@
             </StackPanel>
         </Grid>
         </ScrollViewer>
+        <Grid x:Name="ExportTransitionLayer" IsHitTestVisible="False" ClipToBounds="True" Margin="28,26,28,28"/>
+        </Grid>
         <Border Grid.Row="2" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0.75,0,0" Padding="28,20">
             <DockPanel>
                 <Button x:Name="ExportButton" DockPanel.Dock="Right" Content="导出视频" Style="{StaticResource PrimaryButton}" Click="Export_Click" Padding="20,10"/>

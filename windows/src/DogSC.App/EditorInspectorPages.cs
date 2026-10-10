@@ -11,6 +11,7 @@ public partial class EditorWindow
     string _canvasTab = "background", _backgroundTab = "wallpaper";
     string _zoomTransitionPhase = "enter";
     string _motionMode = "zoom";
+    readonly Dictionary<string, int> _segmentSelections = new();
     DispatcherTimer? _cursorPreviewTimer;
     readonly List<(FrameworkElement Image, TranslateTransform Offset)> _patternLayers = [];
     (string? Wallpaper, double Width, double Height, double Scale, double Opacity)? _patternPreviewKey;
@@ -42,8 +43,13 @@ public partial class EditorWindow
 
     UIElement Segments(IEnumerable<(string Title, string Key)> options, string selected, Action<string> choose, bool icons = false)
     {
-        var grid = new System.Windows.Controls.Primitives.UniformGrid { Rows = 1 };
-        foreach (var (title, key) in options)
+        var choices = options.ToArray();
+        var groupKey = string.Join("|", choices.Select(x => x.Key));
+        var selectedIndex = Array.FindIndex(choices, x => x.Key == selected);
+        var previous = _segmentSelections.GetValueOrDefault(groupKey, selectedIndex);
+        _segmentSelections[groupKey] = selectedIndex;
+        var buttons = new List<Button>();
+        foreach (var (title, key) in choices)
         {
             var button = new Button { Content = title, Style = (Style)FindResource("SegmentButton") };
             if (key is "converge" or "sideSlide" or "light3D" or "smooth" or "clear" or "gentle") button.Content = IconLabel(key switch { "converge" => IconKind.Converge, "sideSlide" => IconKind.SideSlide, "light3D" => IconKind.Cube, "smooth" => IconKind.Cube, "clear" => IconKind.Sun, _ => IconKind.Plus }, title);
@@ -58,8 +64,9 @@ public partial class EditorWindow
             System.Windows.Automation.AutomationProperties.SetName(button, title);
             ControlAppearance.SelectSegment(button, selected == key);
             button.Click += (_, _) => choose(key);
-            grid.Children.Add(button);
+            buttons.Add(button);
         }
+        var grid = new FluidSegments(buttons, selectedIndex, previous);
         var border = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(3), Child = grid, BorderThickness = new Thickness(.75) };
         border.SetResourceReference(Border.BackgroundProperty, "SegmentWellBrush"); border.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
         return border;
@@ -168,7 +175,7 @@ public partial class EditorWindow
         var button = new Button { Content = grid, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(0), Margin = new Thickness(4),
             Style = (Style)FindResource("QuietButton"), ToolTip = name, BorderBrush = (Brush)FindResource("LineBrush"), BorderThickness = new Thickness(.75) };
         System.Windows.Automation.AutomationProperties.SetName(button, name);
-        button.Click += (_, _) => { Push(); _project.Canvas.Wallpaper = key; Commit(); };
+        button.Click += (_, _) => { var transition = FluidMotion.PrepareSwap(PreviewCanvas, PreviewTransitionLayer, 0); Push(); _project.Canvas.Wallpaper = key; Commit(); transition(); };
         tiles.Children.Add(button);
     }
 

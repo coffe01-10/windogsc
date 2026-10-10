@@ -1,122 +1,36 @@
 <Window x:Class="DogSC.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="设置" Width="560" Height="560" WindowStartupLocation="CenterOwner"
-        Background="{DynamicResource BgBrush}" ResizeMode="NoResize"
-        FontFamily="{DynamicResource FontRegular}">
-    <Window.Resources>
-        <Style TargetType="TabItem">
-            <Setter Property="Foreground" Value="{DynamicResource InkSecondaryBrush}"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Padding" Value="14,9"/>
-            <Setter Property="FocusVisualStyle" Value="{StaticResource ControlFocus}"/>
-            <Setter Property="HeaderTemplate">
-                <Setter.Value>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}"/>
-                    </DataTemplate>
-                </Setter.Value>
-            </Setter>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TabItem">
-                        <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" CornerRadius="8">
-                            <ContentPresenter ContentSource="Header"/>
+        xmlns:local="clr-namespace:DogSC"
+        Title="DogSC 设置" Width="796" Height="679" MinHeight="520" WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource CardBrush}" ResizeMode="NoResize" UseLayoutRounding="True"
+        FontFamily="{DynamicResource FontRegular}" PreviewKeyDown="Settings_KeyDown">
+    <Grid x:Name="SettingsRoot">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="156"/><ColumnDefinition Width="0.75"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Border Background="{DynamicResource SettingsSidebarBrush}">
+            <Grid Margin="12,24,12,8">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <StackPanel>
+                    <TextBlock Text="设置" FontFamily="{DynamicResource FontSemi}" FontSize="13" Foreground="{DynamicResource InkSecondaryBrush}" Margin="12,0,12,19"/>
+                    <Grid x:Name="NavigationGrid">
+                        <Border x:Name="NavigationSelection" CornerRadius="10" HorizontalAlignment="Left" VerticalAlignment="Top" Background="{DynamicResource SelectionBrush}" IsHitTestVisible="False">
+                            <Border.RenderTransform><TranslateTransform/></Border.RenderTransform>
                         </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="{DynamicResource SelectionBrush}"/>
-                                <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter Property="Opacity" Value="0.8"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-    </Window.Resources>
-    <DockPanel Margin="20">
-        <DockPanel DockPanel.Dock="Bottom">
-            <Button Content="关闭" HorizontalAlignment="Right" Style="{StaticResource PrimaryButton}" IsCancel="True" Click="Close_Click"/>
-        </DockPanel>
-        <TabControl x:Name="Tabs" Margin="0,0,0,12" BorderThickness="0" Background="{DynamicResource BgBrush}" Foreground="{DynamicResource InkBrush}">
-            <TabItem Header="通用">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="4,16,4,0">
-                    <TextBlock Text="录制帧率" Margin="0,0,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <StackPanel Orientation="Horizontal">
-                        <Button x:Name="Fps30" Content="30 FPS" Style="{StaticResource ChipButton}" Click="Fps30_Click"/>
-                        <Button x:Name="Fps60" Content="60 FPS" Style="{StaticResource ChipButton}" Click="Fps60_Click"/>
-                    </StackPanel>
-                    <TextBlock Text="预览画质" Margin="0,18,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <StackPanel Orientation="Horizontal">
-                        <Button x:Name="QualityLow" Content="清晰预览（流畅）" Style="{StaticResource ChipButton}" Click="QualityLow_Click"/>
-                        <Button x:Name="QualityFull" Content="完整分辨率" Style="{StaticResource ChipButton}" Click="QualityFull_Click"/>
-                    </StackPanel>
-                    <TextBlock Text="ffmpeg" Margin="0,18,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <DockPanel>
-                        <Button DockPanel.Dock="Right" Content="浏览" Style="{StaticResource QuietButton}" Click="BrowseFfmpeg_Click"/>
-                        <TextBlock x:Name="FfmpegLabel" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                    </DockPanel>
-                </StackPanel></ScrollViewer>
-            </TabItem>
-            <TabItem Header="录制">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="4,16,4,0">
-                    <TextBlock Text="摄像头默认形状" Margin="0,0,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <StackPanel Orientation="Horizontal">
-                        <Button x:Name="CamCircle" Content="圆形" Style="{StaticResource ChipButton}" Click="CamCircle_Click"/>
-                        <Button x:Name="CamSquare" Content="方形" Style="{StaticResource ChipButton}" Click="CamSquare_Click"/>
-                        <Button x:Name="CamRounded" Content="圆角" Style="{StaticResource ChipButton}" Click="CamRounded_Click"/>
-                    </StackPanel>
-                    <TextBlock Text="录制倒计时" Margin="0,18,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <StackPanel Orientation="Horizontal">
-                        <Button x:Name="Cd0" Content="关" Style="{StaticResource ChipButton}" Click="Cd0_Click"/>
-                        <Button x:Name="Cd3" Content="3 秒" Style="{StaticResource ChipButton}" Click="Cd3_Click"/>
-                        <Button x:Name="Cd5" Content="5 秒" Style="{StaticResource ChipButton}" Click="Cd5_Click"/>
-                    </StackPanel>
-                    <TextBlock Text="麦克风与系统声音可在录制条上单独开关；此处是新项目的默认值。" TextWrapping="Wrap" Margin="0,18,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                        <CheckBox x:Name="MicDefaultBox" Content="默认开麦克风" Margin="0,0,16,0" Click="MicDefault_Changed"/>
-                        <CheckBox x:Name="SysAudioDefaultBox" Content="默认录系统声音" Click="SysAudioDefault_Changed"/>
-                    </StackPanel>
-                </StackPanel></ScrollViewer>
-            </TabItem>
-            <TabItem Header="编辑器">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="4,16,4,0">
-                    <TextBlock Text="布局" Margin="0,0,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <Button Content="重置编辑器布局（恢复默认轨道显示与时间线缩放）" Style="{StaticResource QuietButton}" Click="ResetLayout_Click" HorizontalAlignment="Left"/>
-                    <TextBlock x:Name="ResetDone" Margin="0,8,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <TextBlock Text="首次使用引导" Margin="0,18,0,6" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <Button Content="重新播放引导" Style="{StaticResource QuietButton}" Click="ReplayTour_Click" HorizontalAlignment="Left"/>
-                </StackPanel></ScrollViewer>
-            </TabItem>
-            <TabItem Header="权限">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="4,16,4,0">
-                    <TextBlock Text="屏幕录制" FontFamily="{DynamicResource FontSemi}"/>
-                    <TextBlock TextWrapping="Wrap" Text="显示器、区域和窗口按桌面矩形采集；窗口移动或被遮挡会影响录制画面。" Margin="0,4,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <TextBlock Text="摄像头" Margin="0,14,0,0" FontFamily="{DynamicResource FontSemi}"/>
-                    <TextBlock TextWrapping="Wrap" Text="画中画录制需要摄像头设备访问权限。" Margin="0,4,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <TextBlock Text="麦克风" Margin="0,14,0,0" FontFamily="{DynamicResource FontSemi}"/>
-                    <TextBlock TextWrapping="Wrap" Text="解说录制需要允许桌面应用访问麦克风；无法访问时会跳过麦克风轨，请先检查权限与设备。" Margin="0,4,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <Button Content="打开系统隐私设置" Margin="0,16,0,0" Style="{StaticResource QuietButton}" Click="OpenPrivacy_Click" HorizontalAlignment="Left"/>
-                </StackPanel></ScrollViewer>
-            </TabItem>
-            <TabItem Header="关于">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="4,16,4,0">
-                    <TextBlock x:Name="UpdateLabel" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Text="DogSC Windows。支持屏幕录制、剪辑、效果复制及导出，也可导入 macOS 项目；部分 macOS 画面效果暂未支持。" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                    <TextBlock Margin="0,10,0,0" Foreground="{DynamicResource InkSecondaryBrush}">
-                        <Hyperlink NavigateUri="https://github.com/coffe01-10/windogsc" RequestNavigate="Link_Click">源代码 github.com/coffe01-10/windogsc</Hyperlink>
-                    </TextBlock>
-                    <TextBlock Margin="0,4,0,0" Foreground="{DynamicResource InkSecondaryBrush}">
-                        <Hyperlink NavigateUri="https://github.com/coffe01-10/windogsc/issues" RequestNavigate="Link_Click">反馈与建议</Hyperlink>
-                    </TextBlock>
-                    <TextBlock Margin="0,4,0,0" Foreground="{DynamicResource InkSecondaryBrush}">
-                        <Hyperlink NavigateUri="https://github.com/laogou717/dogsc" RequestNavigate="Link_Click">macOS 原版 laogou717/dogsc</Hyperlink>
-                    </TextBlock>
-                </StackPanel></ScrollViewer>
-            </TabItem>
-        </TabControl>
-    </DockPanel>
+                        <StackPanel x:Name="NavigationButtons"/>
+                    </Grid>
+                </StackPanel>
+                <Button Grid.Row="2" Style="{StaticResource QuietButton}" Padding="10,8" HorizontalContentAlignment="Left" Click="ReplayTour_Click" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal"><local:Icon Kind="Sparkles" Width="18" Height="18" Margin="0,0,8,0"/><TextBlock Text="首次使用引导" FontSize="12" VerticalAlignment="Center"/></StackPanel>
+                </Button>
+                <TextBlock Grid.Row="3" Text="DogSC" Margin="12,8,0,8" FontSize="11" Foreground="{DynamicResource InkSecondaryBrush}" Opacity="0.6"/>
+            </Grid>
+        </Border>
+        <Border Grid.Column="1" Background="{DynamicResource LineBrush}"/>
+        <Grid Grid.Column="2" ClipToBounds="True">
+            <ScrollViewer x:Name="SettingsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ContentControl x:Name="SettingsPage" Margin="24" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Top"/>
+            </ScrollViewer>
+            <Grid x:Name="SettingsTransitionLayer" IsHitTestVisible="False" ClipToBounds="True"/>
+        </Grid>
+    </Grid>
 </Window>

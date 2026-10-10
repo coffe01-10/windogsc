@@ -19,6 +19,8 @@ public sealed class AppSettings
     public string? PlaybackDeviceId { get; set; }
     public string? CameraName { get; set; }
     public string Theme { get; set; } = "light";
+    public string? AppearancePreference { get; set; }
+    public bool ExportCompletionSoundEnabled { get; set; } = true;
     public List<string> RecentProjects { get; set; } = [];
     [JsonConverter(typeof(NonFiniteToNullConverter))]
     public double BarLeft { get; set; } = double.NaN;

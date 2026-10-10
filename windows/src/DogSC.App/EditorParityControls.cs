@@ -104,9 +104,7 @@ public partial class EditorWindow
         Add("应用", () =>
         {
             if (list.SelectedItem is not ScenePreset preset) return;
-            Push();
-            ScenePresets.Apply(preset, _project, _directory);
-            Commit();
+            ApplyScenePreset(preset);
         });
         Add("删除", () =>
         {

@@ -19,7 +19,9 @@
                 <TextBox x:Name="NameBox" MinWidth="180" BorderThickness="0" Background="Transparent" FontFamily="{DynamicResource FontMedium}" FontSize="14" LostFocus="Name_LostFocus"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Button Content="保存场景" Style="{StaticResource QuietButton}" Click="SaveScene_Click" Margin="0,0,8,0"/>
+                <Button x:Name="SceneMenuButton" Style="{StaticResource QuietButton}" Click="SceneMenu_Click" Margin="0,0,8,0" BorderThickness="0.75" BorderBrush="{DynamicResource LineBrush}">
+                    <StackPanel Orientation="Horizontal"><local:Icon Kind="Layout" Width="16" Height="16" Margin="0,0,7,0"/><TextBlock x:Name="SceneMenuLabel" Text="场景" VerticalAlignment="Center"/><local:Icon Kind="ChevronDown" Width="10" Height="10" Margin="8,0,0,0"/></StackPanel>
+                </Button>
                 <Button x:Name="UndoButton" ToolTip="撤销（Ctrl+Z）" AutomationProperties.Name="撤销" Style="{StaticResource IconButton}" Click="Undo_Click"><local:Icon Kind="Undo"/></Button>
                 <Button x:Name="RedoButton" ToolTip="重做（Ctrl+Y）" AutomationProperties.Name="重做" Style="{StaticResource IconButton}" Click="Redo_Click"><local:Icon Kind="Redo"/></Button>
                 <Button Style="{StaticResource QuietButton}" Click="Export_Click" Margin="8,0" BorderThickness="0.75" BorderBrush="{DynamicResource LineBrush}"><StackPanel Orientation="Horizontal"><local:Icon Kind="Share" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="导出" VerticalAlignment="Center"/></StackPanel></Button>
@@ -39,6 +41,10 @@
                         MaxHeight="{Binding ActualHeight, ElementName=ToolRailHost}"
                         Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75">
                     <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+                      <Grid x:Name="ToolRailGrid">
+                        <Border x:Name="ToolRailSelection" CornerRadius="10" HorizontalAlignment="Left" VerticalAlignment="Top" Background="{DynamicResource RailSelectionBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="0.5" IsHitTestVisible="False">
+                            <Border.RenderTransform><TranslateTransform/></Border.RenderTransform>
+                        </Border>
                         <StackPanel>
                             <Button x:Name="ToolLayout" Content="画面" Width="56" Height="52" Padding="0" Style="{StaticResource QuietButton}" Click="Tool_Click" Tag="layout" Margin="0,0,0,5"/>
                             <Button x:Name="ToolOpening" Content="开场" Width="56" Height="52" Padding="0" Style="{StaticResource QuietButton}" Click="Tool_Click" Tag="opening" Margin="0,0,0,5"/>
@@ -47,6 +53,7 @@
                             <Button x:Name="ToolCamera" Content="摄像头" Width="56" Height="52" Padding="0" Style="{StaticResource QuietButton}" Click="Tool_Click" Tag="camera" Margin="0,0,0,5"/>
                             <Button x:Name="ToolAudio" Content="声音" Width="56" Height="52" Padding="0" Style="{StaticResource QuietButton}" Click="Tool_Click" Tag="audio"/>
                         </StackPanel>
+                      </Grid>
                     </ScrollViewer>
                 </Border>
             </Grid>
@@ -108,15 +115,19 @@
                         <Border x:Name="RegionToolbar" Visibility="Collapsed" Background="{DynamicResource CardBrush}"
                                 BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="9" Padding="5"/>
                     </Canvas>
+                    <Grid x:Name="PreviewTransitionLayer" IsHitTestVisible="False" ClipToBounds="True"/>
                 </Grid>
             </Grid>
             <GridSplitter Grid.Column="2" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="Transparent" ToolTip="拖动调整属性面板宽度" AutomationProperties.Name="属性面板宽度"/>
             <Grid Grid.Column="3" Margin="8,0,16,0">
                 <Grid.RowDefinitions><RowDefinition x:Name="InspectorToolbarRow" Height="52"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Border x:Name="InspectorSurface" Grid.Row="1" VerticalAlignment="Center" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75" CornerRadius="20" Padding="20">
+                <Grid ClipToBounds="True">
                 <ScrollViewer x:Name="InspectorScroll" VerticalScrollBarVisibility="Auto">
                     <StackPanel x:Name="Inspector"/>
                 </ScrollViewer>
+                <Grid x:Name="InspectorTransitionLayer" IsHitTestVisible="False" ClipToBounds="True"/>
+                </Grid>
                 </Border>
             </Grid>
         </Grid>

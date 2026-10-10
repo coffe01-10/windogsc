@@ -56,6 +56,12 @@ public enum IconKind
     SideSlide,
     Ban,
     Sparkles,
+    Shield,
+    Info,
+    Appearance,
+    Bell,
+    ExternalLink,
+    RecordCircle,
 }
 
 public sealed class Icon : FrameworkElement
@@ -135,6 +141,7 @@ public sealed class Icon : FrameworkElement
         // 按图形的实际边界居中，麦克风、扬声器等非对称路径不再偏向画布一侧。
         drawing.PushTransform(new TranslateTransform(12 - (bounds.Left + bounds.Width / 2) + (kind == IconKind.Play ? 1 : 0), 12 - (bounds.Top + bounds.Height / 2)));
         drawing.DrawGeometry(filled ? brush : null, filled ? null : pen, geometry);
+        if (kind == IconKind.RecordCircle) drawing.DrawEllipse(brush, null, new Point(12, 12), 3.2, 3.2);
         if (kind is IconKind.CanvasPicture or IconKind.Photo or IconKind.PhotoPlus)
             drawing.DrawEllipse(brush, null, kind == IconKind.CanvasPicture ? new Point(15.5, 9.2) : new Point(8, 8), 1.3, 1.3);
         if (kind == IconKind.OpeningStack)
@@ -146,6 +153,12 @@ public sealed class Icon : FrameworkElement
 
     static string PathFor(IconKind kind) => kind switch
     {
+        IconKind.RecordCircle => "M21,12 A9,9 0 1 0 3,12 A9,9 0 1 0 21,12",
+        IconKind.Shield => "M12,2 L21,6 V12 C21,17 17,21 12,23 C7,21 3,17 3,12 V6 Z M9,12 V10 A3,3 0 0 1 15,10 V12 M8,12 H16 V18 H8 Z M12,14 V16",
+        IconKind.Info => "M21,12 A9,9 0 1 0 3,12 A9,9 0 1 0 21,12 M12,7 V7.1 M10,11 H12 V17 M10,17 H14",
+        IconKind.Appearance => "M21,12 A9,9 0 1 0 3,12 A9,9 0 1 0 21,12 M12,3 V21 M12,5 L17,7 M12,8 L20,11 M12,12 L20,15 M12,16 L16,18",
+        IconKind.Bell => "M5,17 H19 L17,14 V10 A5,5 0 0 0 7,10 V14 Z M10,20 Q12,23 14,20 M12,3 V5",
+        IconKind.ExternalLink => "M13,3 H21 V11 M21,3 L10,14 M9,5 H5 Q3,5 3,7 V19 Q3,21 5,21 H17 Q19,21 19,19 V15",
         IconKind.Ban => "M21,12 A9,9 0 1 0 3,12 A9,9 0 1 0 21,12 M5.6,5.6 L18.4,18.4",
         IconKind.Sparkles => "M12,3 L14.2,9.8 L21,12 L14.2,14.2 L12,21 L9.8,14.2 L3,12 L9.8,9.8 Z M20,2 V6 M18,4 H22",
         IconKind.Settings => "M10,2 H14 L15,5 L18,6 L21,5 L23,9 L20.5,11 V14 L23,16 L21,20 L18,19 L15,20 L14,23 H10 L9,20 L6,19 L3,20 L1,16 L3.5,14 V11 L1,9 L3,5 L6,6 L9,5 Z M16,12.5 A4,4 0 1 0 8,12.5 A4,4 0 1 0 16,12.5",

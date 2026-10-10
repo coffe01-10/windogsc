@@ -13,6 +13,7 @@ public partial class ExportWindow : Window
     int _fps;
     bool _running;
     string? _completedOutput;
+    FluidSegments _outputChoices = null!, _fpsChoices = null!, _resolutionChoices = null!;
 
     public ExportWindow(ProjectDocument project, string directory, ImageSource? preview = null)
     {
@@ -38,6 +39,10 @@ public partial class ExportWindow : Window
             ResolutionRow.Children.Add(button);
         }
 
+        _outputChoices = WrapChoices(OutputChoicesRow, [VideoChoice, AudioChoice], 0);
+        _fpsChoices = WrapChoices(FrameRateChoicesRow, [Fps30, Fps60], _fps == 60 ? 1 : 0);
+        var resolutions = ResolutionRow.Children.OfType<Button>().ToArray();
+        _resolutionChoices = WrapChoices(ResolutionRow, resolutions, Array.FindIndex(resolutions, b => (string)b.Tag == _resolution));
         Paint();
         Closing += (_, _) => _cancel?.Cancel();
         Loaded += (_, _) => WindowPlacement.KeepInWorkArea(this, center: true);
@@ -45,14 +50,18 @@ public partial class ExportWindow : Window
 
     void Video_Click(object sender, RoutedEventArgs e)
     {
+        var transition = FluidMotion.PrepareSwap(ExportSettings, ExportTransitionLayer);
         _audioOnly = false;
         Paint();
+        transition();
     }
 
     void Audio_Click(object sender, RoutedEventArgs e)
     {
+        var transition = FluidMotion.PrepareSwap(ExportSettings, ExportTransitionLayer);
         _audioOnly = true;
         Paint();
+        transition();
     }
 
     void Resolution_Click(object sender, RoutedEventArgs e)
@@ -131,6 +140,7 @@ public partial class ExportWindow : Window
                 Fps = _fps,
             }, output, _cancel.Token);
             _completedOutput = output;
+            if (SettingsStore.Current.ExportCompletionSoundEnabled) System.Media.SystemSounds.Asterisk.Play();
             Status.Text = "导出完成 · " + output;
             Bar.Value = 1;
             ExportButton.Content = "在文件夹中显示";
@@ -182,11 +192,14 @@ public partial class ExportWindow : Window
         PaintChoice(AudioChoice, _audioOnly);
         PaintChoice(Fps30, _fps == 30);
         PaintChoice(Fps60, _fps == 60);
-        foreach (var child in ResolutionRow.Children.OfType<Button>())
+        var resolutionButtons = _resolutionChoices.Buttons.ToArray();
+        foreach (var child in resolutionButtons)
         {
             var selected = (string)child.Tag == _resolution;
             PaintChoice(child, selected);
         }
+        _outputChoices.Select(_audioOnly ? 1 : 0); _fpsChoices.Select(_fps == 60 ? 1 : 0);
+        _resolutionChoices.Select(Array.FindIndex(resolutionButtons, b => (string)b.Tag == _resolution));
 
         var (width, height) = CanvasLayout.OutputSize(_project.Width, _project.Height, _project.Canvas.Aspect, _audioOnly ? "source" : _resolution);
         var duration = TimelineMath.Duration(_project);
@@ -212,6 +225,13 @@ public partial class ExportWindow : Window
     {
         ControlAppearance.SelectSegment(button, selected);
         if (button.Content is string title) button.Content = title.TrimEnd(' ', '✓') + (selected ? " ✓" : "");
-        if (!selected) button.SetResourceReference(Button.BackgroundProperty, "SegmentWellBrush");
+        button.Background = Brushes.Transparent; button.BorderThickness = new Thickness(0);
+    }
+
+    FluidSegments WrapChoices(System.Windows.Controls.Primitives.UniformGrid host, Button[] buttons, int selected)
+    {
+        host.Children.Clear(); host.Columns = 1;
+        var segments = new FluidSegments(buttons, selected); host.Children.Add(segments);
+        return segments;
     }
 }
