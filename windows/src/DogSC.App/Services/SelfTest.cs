@@ -324,7 +324,7 @@ public static class SelfTest
             return pixels;
         }
         static int Pixel(byte[] p, double x, double y, int channel) => p[((int)(y * 360) * 640 + (int)(x * 640)) * 4 + channel];
-        project.ScreenMotions = [new() { Timing = new() { Duration = 1.6, LeadInDuration = .5, ReturnDuration = .4 },
+        project.ScreenMotions = [new() { LinearBlur = true, Timing = new() { Duration = 1.6, LeadInDuration = .5, ReturnDuration = .4 },
             Target = new() { Scale = .8, X = .45, RotationY = 8 } }];
         await Render("screen-motion-duration");
         project.ScreenMotions.Clear();

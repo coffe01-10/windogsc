@@ -351,6 +351,13 @@ public partial class EditorWindow
             Control("旋转 X", -60, 60, screen.Target.RotationX, x => screen.Target.RotationX = x);
             Control("旋转 Y", -60, 60, screen.Target.RotationY, x => screen.Target.RotationY = x);
             Control("透视", 0, 1, screen.Target.Perspective, x => screen.Target.Perspective = x);
+            section.Children.Add(Caption("聚焦锚点（%）"));
+            Control("锚点 X", 0, 1, screen.Target.AnchorX, x => screen.Target.AnchorX = x);
+            Control("锚点 Y", 0, 1, screen.Target.AnchorY, x => screen.Target.AnchorY = x);
+            var blur = new CheckBox { Content = "线性模糊（运动窗口内加高斯模糊）", IsChecked = screen.LinearBlur, Margin = new Thickness(0, 6, 0, 2) };
+            blur.Checked += (_, _) => { Push(); screen.LinearBlur = true; Commit(); };
+            blur.Unchecked += (_, _) => { Push(); screen.LinearBlur = false; Commit(); };
+            section.Children.Add(blur);
         }
         else
         {

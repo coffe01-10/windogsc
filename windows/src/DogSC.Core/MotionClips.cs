@@ -51,6 +51,9 @@ public sealed class ScreenMotionState
     public double RotationY { get; set; }
     public double RotationZ { get; set; }
     public double Perspective { get; set; } = 0.65;
+    /// <summary>投影锚点（Mac Focus/Center Anchors，默认 50%/50%）。</summary>
+    public double AnchorX { get; set; } = 0.5;
+    public double AnchorY { get; set; } = 0.5;
 }
 
 public sealed class ScreenMotionClip
@@ -58,6 +61,8 @@ public sealed class ScreenMotionClip
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public TransitionTiming Timing { get; set; } = new();
     public ScreenMotionState Target { get; set; } = new();
+    /// <summary>线性模糊：运动窗口内对卡片加高斯模糊（Mac Linear Blur 近似）。</summary>
+    public bool LinearBlur { get; set; }
     /// <summary>组合布局预设插入的跨轨道配对 ID。</summary>
     public string? GroupId { get; set; }
 }

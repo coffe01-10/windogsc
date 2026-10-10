@@ -60,6 +60,8 @@ public partial class EditorWindow : Window
         Timeline.ClipSelected += (_, id) => { _cameraSelected = false; CancelOverlayGesture(); CancelRegionEditing(); _selectedClip = id; _selectedZoom = null; _selectedDecoration = null; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
         Timeline.ZoomSelected += (_, id) => { CancelOverlayGesture(); CancelRegionEditing(); _selectedZoom = id; _selectedClip = null; _selectedDecoration = null; _tool = "zoom"; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
         Timeline.DecorationSelected += (_, id) => SelectDecoration(id);
+        Timeline.ClipMenuAction += (_, e) => OnClipMenu(e.Id, e.Action);
+        Timeline.MarkerDeleteRequested += (_, marker) => { Push(); _project.Markers.Remove(marker); Commit(); };
         Timeline.TrimFinished += (_, trim) =>
         {
             Push();
@@ -140,6 +142,7 @@ public partial class EditorWindow : Window
         UpdateThemeButton();
         FillAspects();
         Timeline.TrackFlags = SettingsStore.Current.TimelineTracks;
+        foreach (ComboBoxItem item in PreviewQualityBox.Items) item.IsSelected = (item.Tag as string) == SettingsStore.Current.PreviewQuality;
         Timeline.Project = _project;
         _player.Open(_project, directory);
         _player.SetGains(_project.MicrophoneGain, _project.SystemGain);
@@ -1189,8 +1192,11 @@ public partial class EditorWindow : Window
         FrameRect.Effect = null;
         FrameHost.Opacity = _screenLayerOpacity * (1 - backdrop.ScreenSuppression);
         ShadowRect.Opacity = _shadowLayerOpacity * (1 - backdrop.ScreenSuppression);
-        FrameHost.Effect = backdrop.ScreenBlur > 0.01
-            ? new BlurEffect { Radius = backdrop.ScreenBlur * viewScale }
+        var motionBlur = _project.ScreenMotions.Any(c => c.LinearBlur
+            && _player.Time >= c.Timing.StartTime && _player.Time < c.Timing.EffectEndTime) ? 7 : 0;
+        var screenBlur = Math.Sqrt(backdrop.ScreenBlur * backdrop.ScreenBlur + motionBlur * motionBlur);
+        FrameHost.Effect = screenBlur > 0.01
+            ? new BlurEffect { Radius = screenBlur * viewScale }
             : null;
         CameraBubble.Opacity = _cameraLayerOpacity * (1 - backdrop.CameraSuppression);
         CameraBubble.Effect = backdrop.CameraBlur > 0.01
@@ -1714,6 +1720,53 @@ public partial class EditorWindow : Window
             : ReferenceEquals(sender, TrackCameraMotionItem) ? 4 : 8;
         var flags = TrackFlags;
         ApplyTrackFlags((flags & bit) != 0 ? flags & ~bit : flags | bit);
+    }
+
+    void SnapToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (Timeline is not null) Timeline.SnapEnabled = SnapToggle.IsChecked == true;
+    }
+
+    void PreviewQuality_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (PreviewQualityBox.SelectedItem is not ComboBoxItem item) return;
+        var quality = item.Tag as string ?? "full";
+        if (SettingsStore.Current.PreviewQuality == quality) return;
+        SettingsStore.Current.PreviewQuality = quality;
+        SettingsStore.Save();
+        _player.Quality = quality;
+        _player.Seek(_player.Time, _player.IsPlaying);
+    }
+
+    /// <summary>片段右键菜单：切分 / 速度 / 波纹删除 / 删除（对齐 Mac 时间线菜单）。</summary>
+    void OnClipMenu(string clipId, string action)
+    {
+        var clip = _project.Clips.FirstOrDefault(item => item.Id == clipId);
+        if (clip is null) return;
+        var placed = TimelineMath.Place(_project).FirstOrDefault(item => item.Clip.Id == clipId);
+        if (placed is null) return;
+        var time = _player.Time;
+        if (action.StartsWith("speed:") && double.TryParse(action[6..], CultureInfo.InvariantCulture, out var speed))
+        {
+            Push();
+            if (TimelineEdits.TrySetSpeed(_project, clipId, speed)) Commit();
+            else _undo.Pop();
+            return;
+        }
+        if (action is "split" or "ripple-before" or "ripple-after"
+            && (time <= placed.Start || time >= placed.End)) return;
+        Push();
+        var sourceTime = clip.SourceStart + (time - placed.Start) * clip.Speed;
+        var changed = action switch
+        {
+            "split" => TimelineEdits.TrySplit(_project, time),
+            "ripple-before" => TimelineEdits.TryTrim(_project, clipId, sourceTime, clip.SourceEnd),
+            "ripple-after" => TimelineEdits.TryTrim(_project, clipId, clip.SourceStart, sourceTime),
+            "delete" => TimelineEdits.TryDeleteClip(_project, clipId),
+            _ => false,
+        };
+        if (changed) Commit();
+        else _undo.Pop();
     }
 
     void Preview_SizeChanged(object sender, SizeChangedEventArgs e) => LayoutPreview();

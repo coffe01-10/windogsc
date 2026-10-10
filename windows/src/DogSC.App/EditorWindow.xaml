@@ -126,6 +126,11 @@
                         <TextBlock x:Name="TimeLabel" VerticalAlignment="Center" Margin="8,0,0,0" MaxWidth="650" TextTrimming="CharacterEllipsis" FontFamily="{DynamicResource FontMedium}"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <CheckBox x:Name="SnapToggle" Content="吸附" IsChecked="True" VerticalAlignment="Center" Margin="0,0,10,0" Checked="SnapToggle_Changed" Unchecked="SnapToggle_Changed" ToolTip="拖动时按刻度与片段边缘吸附"/>
+                        <ComboBox x:Name="PreviewQualityBox" Width="86" VerticalAlignment="Center" Margin="0,0,10,0" SelectionChanged="PreviewQuality_Changed" ToolTip="预览画质">
+                            <ComboBoxItem Content="清晰预览" Tag="low"/>
+                            <ComboBoxItem Content="完整分辨率" Tag="full"/>
+                        </ComboBox>
                         <TextBlock Text="时间线" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}" Margin="0,0,8,0"/>
                         <Slider x:Name="TimelineZoom" Width="110" Minimum="1" Maximum="6" Value="1" ValueChanged="TimelineZoom_Changed"/>
                         <Button x:Name="TrackMenuButton" Content="轨道" Margin="8,0,0,0" VerticalAlignment="Center" Click="TrackMenu_Click">

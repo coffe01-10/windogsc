@@ -424,11 +424,17 @@ public static class ExportGraph
                     var corners = MotionExport.ScreenCorners(
                         screenTrack.SampleLayout(mid, null, viewport), baseSample,
                         canvasWidth, canvasHeight, placement.X, placement.Y, placement.Width, placement.Height);
+                    // 线性模糊（Mac Linear Blur 近似）：处于启用片段窗口内的分段加高斯模糊。
+                    var blur = project.ScreenMotions.Any(c => c.LinearBlur
+                        && mid >= c.Timing.StartTime
+                        && mid <= c.Timing.StartTime + c.Timing.Duration + c.Timing.ReturnDuration)
+                        ? ",gblur=sigma=7" : "";
                     script.Append("[pms").Append(i).Append("]trim=start=").Append(F(s0))
                         .Append(":end=").Append(F(Math.Min(s0 + segDur, duration)))
                         .Append(",setpts=PTS-STARTPTS,perspective=")
                         .Append(string.Join(":", corners.SelectMany(p => new[] { F(p.X), F(p.Y) })))
-                        .Append(":sense=destination:eval=init[pmsq").Append(i).AppendLine("]");
+                        .Append(":sense=destination:eval=init").Append(blur)
+                        .Append("[pmsq").Append(i).AppendLine("]");
                 }
                 for (var i = 0; i < segCount; i++) script.Append("[pmsq").Append(i).Append(']');
                 script.Append("concat=n=").Append(segCount).AppendLine(":v=1:a=0[pmot]");
