@@ -77,8 +77,48 @@ public static class Native
     /// <summary>鼠标左键此刻是否按着（录制轮询用）。</summary>
     public static bool LeftButtonDown() => (GetAsyncKeyState(0x01) & 0x8000) != 0;
 
+    /// <summary>
+    /// 当前系统光标对应的样式 id（system.*）。标准 IDC_* 光标句柄是系统共享的，
+    /// 可直接与 LoadCursor 返回值比较；应用自定义光标返回 null。
+    /// </summary>
+    public static string? CursorAssetId()
+    {
+        var info = new CursorInfo { cbSize = Marshal.SizeOf<CursorInfo>() };
+        if (!GetCursorInfo(ref info) || info.hCursor == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        return info.hCursor switch
+        {
+            var h when h == LoadCursor(IntPtr.Zero, 32512) => "system.arrow",      // IDC_ARROW
+            var h when h == LoadCursor(IntPtr.Zero, 32513) => "system.ibeam",      // IDC_IBEAM
+            var h when h == LoadCursor(IntPtr.Zero, 32515) => "system.crosshair",  // IDC_CROSS
+            var h when h == LoadCursor(IntPtr.Zero, 32649) => "system.pointing-hand", // IDC_HAND
+            var h when h == LoadCursor(IntPtr.Zero, 32648) => "system.not-allowed",   // IDC_NO
+            var h when h == LoadCursor(IntPtr.Zero, 32646) => "system.open-hand",     // IDC_SIZEALL
+            var h when h == LoadCursor(IntPtr.Zero, 32651) => "system.open-hand",     // IDC_PERSON（近似）
+            _ => null,
+        };
+    }
+
     [DllImport("user32.dll")]
     static extern short GetAsyncKeyState(int virtualKey);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr LoadCursor(IntPtr hInstance, int lpCursorName);
+
+    [DllImport("user32.dll")]
+    static extern bool GetCursorInfo(ref CursorInfo pci);
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct CursorInfo
+    {
+        public int cbSize;
+        public int flags;
+        public IntPtr hCursor;
+        public PointData ptScreenPos;
+    }
 
     public static IReadOnlyList<WindowDesc> Windows()
     {

@@ -80,6 +80,8 @@ public sealed class CursorPoint
     public double X { get; set; }
     public double Y { get; set; }
     public bool Click { get; set; }
+    /// <summary>录制时该时刻的真实光标样式（system.* id）；空=未知。</summary>
+    public string? Cursor { get; set; }
 }
 
 public sealed class ClipSegment
@@ -101,6 +103,11 @@ public sealed class ZoomSpan
     public double FocusY { get; set; } = 0.5;
     public string Origin { get; set; } = "manual";
     public string Easing { get; set; } = "linear";
+    /// <summary>custom 曲线的贝塞尔控制点（Mac customCurve；x∈0..1）。</summary>
+    public double CurveX1 { get; set; } = 0.65;
+    public double CurveY1 { get; set; }
+    public double CurveX2 { get; set; } = 0.35;
+    public double CurveY2 { get; set; } = 1;
     public double? EnterDuration { get; set; }
     public double? ExitDuration { get; set; }
     public double SpringMass { get; set; } = 2.4;
@@ -236,9 +243,17 @@ public sealed class SoftRegion
 
 public sealed class CursorFx
 {
-    /// <summary>pointer=箭头，dot=圆点，hidden=始终隐藏。</summary>
+    /// <summary>pointer=箭头，dot=圆点，hidden=始终隐藏（旧字段；新样式见 Asset）。</summary>
     public string Mode { get; set; } = "pointer";
-    /// <summary>点击处画一个反馈圈。</summary>
+    /// <summary>光标样式 id（system.*，见 CursorCatalog）；空=按 Mode 映射。</summary>
+    public string? Asset { get; set; }
+    /// <summary>指针运动平滑：smooth=弹簧 / medium=适中 / rapid=快速 / none=无。</summary>
+    public string Motion { get; set; } = "smooth";
+    /// <summary>运动倾斜强度 0..4（0=关闭；Mac 默认 2）。</summary>
+    public double MotionTilt { get; set; } = 2;
+    /// <summary>点击效果：ripple/glow/pulse/burst/none；空=按 ClickRipple 映射。</summary>
+    public string? ClickStyle { get; set; }
+    /// <summary>点击处画一个反馈圈（旧字段；等价 ClickStyle=none/ripple）。</summary>
     public bool ClickRipple { get; set; } = true;
     /// <summary>光标静止不动一段时间后隐藏。</summary>
     public bool IdleHide { get; set; }
@@ -355,6 +370,14 @@ public static class ProjectFile
         project.Canvas.Intro = project.Canvas.Intro is "fade" or "rise" or "zoom" ? project.Canvas.Intro : "none";
         project.Canvas.Cursor ??= new CursorFx();
         project.Canvas.Cursor.Mode = project.Canvas.Cursor.Mode is "pointer" or "dot" or "hidden" ? project.Canvas.Cursor.Mode : "pointer";
+        if (project.Canvas.Cursor.Asset is { Length: 0 }) project.Canvas.Cursor.Asset = null;
+        if (project.Canvas.Cursor.Asset is not null && CursorCatalog.Find(project.Canvas.Cursor.Asset) is null)
+            project.Canvas.Cursor.Asset = null;
+        project.Canvas.Cursor.Motion = project.Canvas.Cursor.Motion is "smooth" or "medium" or "rapid" or "none" ? project.Canvas.Cursor.Motion : "smooth";
+        project.Canvas.Cursor.MotionTilt = Math.Clamp(project.Canvas.Cursor.MotionTilt, 0, 4);
+        if (project.Canvas.Cursor.ClickStyle is { Length: 0 }) project.Canvas.Cursor.ClickStyle = null;
+        if (project.Canvas.Cursor.ClickStyle is not null && CursorCatalog.ClickStyles.All(s => s.Id != project.Canvas.Cursor.ClickStyle))
+            project.Canvas.Cursor.ClickStyle = null;
         project.Canvas.Cursor.Size = Math.Clamp(project.Canvas.Cursor.Size, 0.5, 4);
         project.Canvas.Cursor.IdleDelay = Math.Clamp(project.Canvas.Cursor.IdleDelay, 0.1, 10);
         project.Canvas.Cursor.TimingAdvance = Math.Clamp(project.Canvas.Cursor.TimingAdvance, -1, 1);
@@ -427,6 +450,11 @@ public static class ProjectFile
             zoom.SpringMass = Math.Clamp(zoom.SpringMass, .1, 10);
             zoom.SpringStiffness = Math.Clamp(zoom.SpringStiffness, 10, 500);
             zoom.SpringDamping = Math.Clamp(zoom.SpringDamping, 1, 100);
+            zoom.Easing = zoom.Easing is "linear" or "smooth" or "spring" or "quadratic" or "cubic" or "custom" ? zoom.Easing : "linear";
+            zoom.CurveX1 = Math.Clamp(zoom.CurveX1, 0, 1);
+            zoom.CurveX2 = Math.Clamp(zoom.CurveX2, 0, 1);
+            zoom.CurveY1 = Math.Clamp(zoom.CurveY1, -2, 2);
+            zoom.CurveY2 = Math.Clamp(zoom.CurveY2, -2, 2);
         }
         project.ScreenMotions ??= [];
         project.CameraMotions ??= [];

@@ -16,6 +16,7 @@ public class ParityCompletionTests
     public void CursorInterpolatesContinuousMovesWithoutMovingDuringLongIdleGaps()
     {
         var project = Sample();
+        project.Canvas.Cursor.Motion = "none";
         project.Assets[0].Cursor = [new() { Time = 0, X = .1, Y = .2 }, new() { Time = .1, X = .5, Y = .4 }, new() { Time = 5, X = .9, Y = .8 }];
         var track = new CursorTimeline(project);
         Assert.Equal(.3, track.At(.05).Pointer!.Value.X, 6);

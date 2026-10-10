@@ -208,7 +208,7 @@ public static class ExportGraph
         if (!options.AudioOnly)
         {
             var concatenated = Join(script, videoLabels, "vcat", video: true);
-            if (project.Canvas.Cursor.Mode != "hidden" && project.Assets.Any(asset => asset.Cursor.Count > 0))
+            if (CursorCatalog.ResolveAsset(project.Canvas.Cursor) != "system.hidden" && project.Assets.Any(asset => asset.Cursor.Count > 0))
             {
                 cursorIndex = inputs.Count;
                 inputs.Add("");
@@ -217,7 +217,7 @@ public static class ExportGraph
                 script.Append('[').Append(cursorIndex).AppendLine(":v]setpts=PTS-STARTPTS[cursorimg]");
                 script.AppendLine("[cursorcommands][cursorimg]overlay@pointer=x=-10000:y=-10000:format=auto:shortest=1[cursored]");
                 concatenated = "[cursored]";
-                if (project.Canvas.Cursor.ClickRipple && project.Assets.Any(asset => asset.Cursor.Any(point => point.Click)))
+                if (CursorCatalog.ResolveClick(project.Canvas.Cursor) != "none" && project.Assets.Any(asset => asset.Cursor.Any(point => point.Click)))
                 {
                     rippleIndex = inputs.Count;
                     inputs.Add("");
