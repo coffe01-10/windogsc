@@ -142,6 +142,14 @@ public sealed class CanvasSettings
     public double FocusBlur { get; set; }
     /// <summary>开场动画预设：none / fade / rise / zoom。</summary>
     public string Intro { get; set; } = "none";
+    /// <summary>Mac Global Opening：none/slide/sideslide/lift；启用后替代 Intro，按元素间隔级联进场。</summary>
+    public string Opening { get; set; } = "none";
+    /// <summary>开场节奏：smooth/clear/gentle（缓动曲线）。</summary>
+    public string OpeningTiming { get; set; } = "smooth";
+    /// <summary>开场总时长（秒，Mac 默认 2.2）。</summary>
+    public double OpeningDuration { get; set; } = 2.2;
+    /// <summary>元素进场间隔（秒，Mac 默认 0.16）。</summary>
+    public double OpeningInterval { get; set; } = 0.16;
     /// <summary>光标呈现设置（录制不录光标，编辑期按轨迹重绘）。</summary>
     public CursorFx Cursor { get; set; } = new();
     /// <summary>壁纸图片：项目相对路径（media/ 下）或绝对路径；空 = 纯色背景。</summary>
@@ -368,6 +376,10 @@ public static class ProjectFile
         project.Canvas.TiltY = Math.Clamp(project.Canvas.TiltY, -40, 40);
         project.Canvas.FocusBlur = Math.Clamp(project.Canvas.FocusBlur, 0, 1);
         project.Canvas.Intro = project.Canvas.Intro is "fade" or "rise" or "zoom" ? project.Canvas.Intro : "none";
+        project.Canvas.Opening = project.Canvas.Opening is "slide" or "sideslide" or "lift" ? project.Canvas.Opening : "none";
+        project.Canvas.OpeningTiming = project.Canvas.OpeningTiming is "clear" or "gentle" ? project.Canvas.OpeningTiming : "smooth";
+        project.Canvas.OpeningDuration = Math.Clamp(project.Canvas.OpeningDuration, 0.2, 10);
+        project.Canvas.OpeningInterval = Math.Clamp(project.Canvas.OpeningInterval, 0, 2);
         project.Canvas.Cursor ??= new CursorFx();
         project.Canvas.Cursor.Mode = project.Canvas.Cursor.Mode is "pointer" or "dot" or "hidden" ? project.Canvas.Cursor.Mode : "pointer";
         if (project.Canvas.Cursor.Asset is { Length: 0 }) project.Canvas.Cursor.Asset = null;

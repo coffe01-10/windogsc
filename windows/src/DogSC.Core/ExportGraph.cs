@@ -354,9 +354,31 @@ public static class ExportGraph
                 tilted = "projected";
             }
 
-            if (project.Canvas.Intro == "zoom")
+            // Global Opening（Mac）：slide/sideslide/lift + smooth/clear/gentle 缓动，
+            // 启用后取代 Intro；元素级联在摄像头/贴图侧用 OpeningProgress(mid) 近似。
+            var opening = project.Canvas.Opening;
+            // 引号内逗号不用转义（crop/geq 的 '...'），裸参（overlay x/y）才要 \\,——两个变体。
+            var ltQ = "min(t/" + F(project.Canvas.OpeningDuration) + ",1)";
+            string Ease(string lt) => project.Canvas.OpeningTiming switch
             {
-                var factor = "(0.9+0.1*min(t/" + F(CanvasLayout.IntroDuration) + "\\,1))";
+                "clear" => "(1-(1-(" + lt + "))*(1-(" + lt + ")))",
+                "gentle" => "(1-(1-(" + lt + "))*(1-(" + lt + "))*(1-(" + lt + ")))",
+                _ => "(" + lt + ")*(" + lt + ")*(3-2*(" + lt + "))",
+            };
+            var openP = Ease(ltQ);
+            var openingActive = opening is "slide" or "sideslide" or "lift";
+            if (openingActive && opening == "lift")
+            {
+                var factor = "(0.94+0.06*" + openP + ")";
+                script.Append('[').Append(tilted).Append("]scale=w='trunc(iw*").Append(factor)
+                    .Append("/2)*2':h='trunc(ih*").Append(factor).Append("/2)*2':eval=frame,pad=")
+                    .Append(placement.Width).Append(':').Append(placement.Height)
+                    .AppendLine(":(ow-iw)/2:(oh-ih)/2:color=0x00000000:eval=frame[introzoom]");
+                tilted = "introzoom";
+            }
+            else if (!openingActive && project.Canvas.Intro == "zoom")
+            {
+                var factor = "(0.9+0.1*min(t/" + F(CanvasLayout.IntroDuration) + ",1))";
                 script.Append('[').Append(tilted).Append("]scale=w='trunc(iw*").Append(factor)
                     .Append("/2)*2':h='trunc(ih*").Append(factor).Append("/2)*2':eval=frame,pad=")
                     .Append(placement.Width).Append(':').Append(placement.Height)
@@ -364,29 +386,46 @@ public static class ExportGraph
                 tilted = "introzoom";
             }
             // 开场淡入：fade alpha 让 rgba 内容帧从透明淡入，叠到背景上。
-            if (project.Canvas.Intro is "fade" or "rise" or "zoom")
+            if (openingActive || project.Canvas.Intro is "fade" or "rise" or "zoom")
             {
                 script.Append('[').Append(tilted).Append("]fade=t=in:st=0:d=")
-                    .Append(F(CanvasLayout.IntroDuration)).AppendLine(":alpha=1[intro]");
+                    .Append(F(openingActive ? Math.Min(1.0, project.Canvas.OpeningDuration) : CanvasLayout.IntroDuration))
+                    .AppendLine(":alpha=1[intro]");
                 tilted = "intro";
             }
 
             // 生成流（color 源）做主、解码视频做辅时 ffmpeg overlay 的帧配对会漂移，
             // 这里不用 overlay，改走 pad+maskedmerge：先把画面垫到全画布透明帧上，
             // 再用它的 alpha 当蒙版和背景合并，时间轴严格按 pts 对齐。
-            var rise = project.Canvas.Intro == "rise";
-            var riseDy = CanvasLayout.Even((int)Math.Round(placement.Height * 0.08));
-            var padH = placement.Height + placement.Y + riseDy;
-            var padH2 = CanvasLayout.Even(Math.Max(padH, canvasHeight + riseDy));
+            var rise = !openingActive && project.Canvas.Intro == "rise";
+            var slideDy = opening == "slide" ? CanvasLayout.Even((int)Math.Round(placement.Height * 0.08))
+                : opening == "lift" ? CanvasLayout.Even((int)Math.Round(placement.Height * 0.04))
+                : 0;
+            var sideDx = opening == "sideslide" ? CanvasLayout.Even((int)Math.Round(placement.Width * 0.08)) : 0;
+            var riseDy = rise ? CanvasLayout.Even((int)Math.Round(placement.Height * 0.08)) : 0;
+            var padH = placement.Height + placement.Y + riseDy + slideDy;
+            var padH2 = CanvasLayout.Even(Math.Max(padH, canvasHeight + riseDy + slideDy));
             script.Append('[').Append(tilted).Append("]pad=")
-                .Append(canvasWidth).Append(':').Append(padH2).Append(':')
-                .Append(placement.X).Append(':').Append(placement.Y + riseDy)
+                .Append(canvasWidth + sideDx).Append(':').Append(padH2).Append(':')
+                .Append(placement.X + sideDx).Append(':').Append(placement.Y + riseDy + slideDy)
                 .AppendLine(":color=black@0,format=rgba[pl0]");
-            if (rise)
+            if (openingActive && (opening is "slide" or "lift"))
+            {
+                script.Append("[pl0]crop=").Append(canvasWidth).Append(':').Append(canvasHeight)
+                    .Append(":0:'").Append(slideDy).Append("*").Append(openP)
+                    .Append("'[placed]").AppendLine();
+            }
+            else if (opening == "sideslide")
+            {
+                script.Append("[pl0]crop=").Append(canvasWidth).Append(':').Append(canvasHeight)
+                    .Append(":'").Append(sideDx).Append("*").Append(openP).Append("':0[placed]")
+                    .AppendLine();
+            }
+            else if (rise)
             {
                 script.Append("[pl0]crop=").Append(canvasWidth).Append(':').Append(canvasHeight)
                     .Append(":0:'").Append(riseDy).Append("*min(t/")
-                    .Append(F(CanvasLayout.IntroDuration)).Append("\\,1)'[placed]").AppendLine();
+                    .Append(F(CanvasLayout.IntroDuration)).Append(",1)'[placed]").AppendLine();
             }
             else
             {
@@ -574,14 +613,17 @@ public static class ExportGraph
                         {
                             var segStart = cam.Start + i * segDuration;
                             var segEnd = i == segCount - 1 ? cam.End : segStart + segDuration;
-                            var frame = window[Math.Min(i, window.Count - 1)].Value;
+                            var sample = window[Math.Min(i, window.Count - 1)];
+                            var frame = sample.Value;
+                            // Global Opening：摄像头是元素 1，延迟 Interval 进场（透明度×进度+滑动偏移）。
+                            var camp = openingActive ? CanvasLayout.OpeningProgress(project.Canvas, sample.Time, 1) : 1;
                             var label = "cmm" + cam.Index + "_" + i;
                             script.Append("[cms").Append(cam.Index).Append('_').Append(i).Append(']');
                             script.Append("trim=start=").Append(F(segStart)).Append(":end=").Append(F(segEnd))
                                 .Append(",setpts=PTS-STARTPTS+").Append(F(segStart)).Append("/TB,scale=")
                                 .Append(Math.Max(2, (int)Math.Round(frame.W))).Append(':')
                                 .Append(Math.Max(2, (int)Math.Round(frame.H))).Append(",format=rgba");
-                            var opacity = Math.Clamp(frame.Opacity, 0, 1);
+                            var opacity = Math.Clamp(frame.Opacity, 0, 1) * camp;
                             if (opacity < 0.999)
                             {
                                 script.Append(",geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*")
@@ -590,8 +632,10 @@ public static class ExportGraph
                             script.Append('[').Append(label).AppendLine("]");
                             var underLabel = i == 0 ? cameraUnder : "cmo" + cam.Index + "_" + (i - 1);
                             var over = i == segCount - 1 ? next : "cmo" + cam.Index + "_" + i;
+                            var camX = frame.X + (opening == "sideslide" ? (1 - camp) * 60 : 0);
+                            var camY = frame.Y + (opening is "slide" or "lift" ? (1 - camp) * 40 : 0);
                             script.Append('[').Append(underLabel).Append("][").Append(label)
-                                .Append("]overlay=").Append(F(frame.X)).Append(':').Append(F(frame.Y))
+                                .Append("]overlay=").Append(F(camX)).Append(':').Append(F(camY))
                                 .Append(":format=auto:eof_action=pass:repeatlast=0:enable='gte(t,")
                                 .Append(F(segStart)).Append(")*lt(t,").Append(F(segEnd)).Append(")'")
                                 .Append('[').Append(over).AppendLine("]");
@@ -604,8 +648,27 @@ public static class ExportGraph
                         var oyExpr = entry == "rise"
                             ? F(bubble.Y) + "+(1-min((t-" + F(cam.Start) + ")/" + F(anim) + "\\,1))*" + F(bubble.Height * 0.4)
                             : bubble.Y.ToString();
+                        // Global Opening：摄像头延迟 Interval 以缓动进度进场。
+                        var camSrc = src;
+                        if (openingActive)
+                        {
+                            // geq 内时间变量是大写 T；overlay 裸参用小写 t + 转义逗号。
+                            var lt1 = "min(max(T-" + F(project.Canvas.OpeningInterval) + ",0)/"
+                                + F(Math.Max(0.2, project.Canvas.OpeningDuration - project.Canvas.OpeningInterval)) + ",1)";
+                            var lt1E = "min(max(t-" + F(project.Canvas.OpeningInterval) + "\\,0)/"
+                                + F(Math.Max(0.2, project.Canvas.OpeningDuration - project.Canvas.OpeningInterval)) + "\\,1)";
+                            var p1 = Ease(lt1);
+                            var p1E = Ease(lt1E);
+                            script.Append('[').Append(src).Append("]format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*")
+                                .Append(p1).Append("'[camin").Append(cam.Index).AppendLine("]");
+                            camSrc = "camin" + cam.Index;
+                            if (opening is "slide" or "lift")
+                                oyExpr += "+(1-" + p1E + ")*" + F(bubble.Height * 0.4);
+                            if (opening == "sideslide")
+                                oxExpr += "+(1-" + p1E + ")*" + F(bubble.Width * 0.4);
+                        }
                         // 只在该片段的时间窗内叠加画中画，缺摄像头的片段保持背景画面。
-                        script.Append('[').Append(cameraUnder).Append("][").Append(src)
+                        script.Append('[').Append(cameraUnder).Append("][").Append(camSrc)
                             .Append("]overlay=").Append(oxExpr).Append(':').Append(oyExpr)
                             .Append(":format=auto:eval=frame:eof_action=pass:repeatlast=0:enable='gte(t,").Append(F(cam.Start))
                             .Append(")*lt(t,").Append(F(cam.End)).Append(")'")
