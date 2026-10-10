@@ -60,6 +60,8 @@ public partial class EditorWindow : Window
         Timeline.ClipSelected += (_, id) => { _cameraSelected = false; CancelOverlayGesture(); CancelRegionEditing(); _selectedClip = id; _selectedZoom = null; _selectedDecoration = null; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
         Timeline.ZoomSelected += (_, id) => { CancelOverlayGesture(); CancelRegionEditing(); _selectedZoom = id; _selectedClip = null; _selectedDecoration = null; _tool = "zoom"; RebuildInspector(); SyncSelection(); ApplyZoomVisual(); };
         Timeline.DecorationSelected += (_, id) => SelectDecoration(id);
+        Timeline.ClipMenuAction += (_, e) => OnClipMenu(e.Id, e.Action);
+        Timeline.MarkerDeleteRequested += (_, marker) => { Push(); _project.Markers.Remove(marker); Commit(); };
         Timeline.TrimFinished += (_, trim) =>
         {
             Push();
@@ -140,6 +142,7 @@ public partial class EditorWindow : Window
         UpdateThemeButton();
         FillAspects();
         Timeline.TrackFlags = SettingsStore.Current.TimelineTracks;
+        foreach (ComboBoxItem item in PreviewQualityBox.Items) item.IsSelected = (item.Tag as string) == SettingsStore.Current.PreviewQuality;
         Timeline.Project = _project;
         _player.Open(_project, directory);
         _player.SetGains(_project.MicrophoneGain, _project.SystemGain);
@@ -1706,6 +1709,98 @@ public partial class EditorWindow : Window
             : ReferenceEquals(sender, TrackCameraMotionItem) ? 4 : 8;
         var flags = TrackFlags;
         ApplyTrackFlags((flags & bit) != 0 ? flags & ~bit : flags | bit);
+    }
+
+    void SnapToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (Timeline is not null) Timeline.SnapEnabled = SnapToggle.IsChecked == true;
+    }
+
+    void PreviewQuality_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (PreviewQualityBox.SelectedItem is not ComboBoxItem item) return;
+        var quality = item.Tag as string ?? "full";
+        if (SettingsStore.Current.PreviewQuality == quality) return;
+        SettingsStore.Current.PreviewQuality = quality;
+        SettingsStore.Save();
+        _player.Quality = quality;
+        var time = _player.Time;
+        _player.Open(_project, _directory);
+        _player.Seek(time, false);
+    }
+
+    /// <summary>片段右键菜单：切分 / 速度 / 波纹删除 / 删除（对齐 Mac 时间线菜单）。</summary>
+    void OnClipMenu(string clipId, string action)
+    {
+        var clip = _project.Clips.FirstOrDefault(item => item.Id == clipId);
+        if (clip is null) return;
+        var placed = TimelineMath.Place(_project).FirstOrDefault(item => item.Clip.Id == clipId);
+        if (placed is null) return;
+        var time = _player.Time;
+        if (action.StartsWith("speed:") && double.TryParse(action[6..], CultureInfo.InvariantCulture, out var speed))
+        {
+            Push();
+            clip.Speed = speed;
+            Commit();
+            return;
+        }
+        switch (action)
+        {
+            case "split":
+            {
+                // Mac「在播放头切开」：把播放头所在片段切成两段，源区间按比例分。
+                var sourceTime = clip.SourceStart + (time - placed.Start) * clip.Speed;
+                if (time <= placed.Start + 0.01 || time >= placed.End - 0.01) return;
+                Push();
+                var second = new ClipSegment { AssetId = clip.AssetId, SourceStart = sourceTime, SourceEnd = clip.SourceEnd, Speed = clip.Speed };
+                clip.SourceEnd = sourceTime;
+                _project.Clips.Insert(_project.Clips.IndexOf(clip) + 1, second);
+                Commit();
+                break;
+            }
+            case "ripple-before":
+            {
+                // 波纹删除播放头前：删掉片段开头到播放头的内容，后续自动前移（连续时间线天然闭合缺口）。
+                var delta = time - placed.Start;
+                if (delta <= 0.01) return;
+                Push();
+                clip.SourceStart += delta * clip.Speed;
+                ShiftTimelineEffects(placed.Start + delta, -delta);
+                Commit();
+                break;
+            }
+            case "ripple-after":
+            {
+                var delta = placed.End - time;
+                if (delta <= 0.01) return;
+                Push();
+                clip.SourceEnd -= delta * clip.Speed;
+                ShiftTimelineEffects(placed.End, -delta);
+                Commit();
+                break;
+            }
+            case "delete":
+            {
+                Push();
+                _project.Clips.Remove(clip);
+                ShiftTimelineEffects(placed.End, -(placed.End - placed.Start));
+                Commit();
+                break;
+            }
+        }
+    }
+
+    /// <summary>把 cutoff 之后开始的时间轴效果整体平移 delta（波纹删除用，对齐 Mac）。</summary>
+    void ShiftTimelineEffects(double cutoff, double delta)
+    {
+        foreach (var zoom in _project.Zooms)
+        {
+            if (zoom.Start >= cutoff) zoom.Start = Math.Max(0, zoom.Start + delta);
+        }
+        foreach (var m in _project.ScreenMotions) if (m.Timing.StartTime >= cutoff) m.Timing.StartTime = Math.Max(0, m.Timing.StartTime + delta);
+        foreach (var m in _project.CameraMotions) if (m.Timing.StartTime >= cutoff) m.Timing.StartTime = Math.Max(0, m.Timing.StartTime + delta);
+        foreach (var s in _project.Canvas.Stickers) if (s.Timing.Start >= cutoff) s.Timing.Start = Math.Max(0, s.Timing.Start + delta);
+        foreach (var r in _project.Canvas.SoftRegions) if (r.Timing.Start >= cutoff) r.Timing.Start = Math.Max(0, r.Timing.Start + delta);
     }
 
     void Preview_SizeChanged(object sender, SizeChangedEventArgs e) => LayoutPreview();

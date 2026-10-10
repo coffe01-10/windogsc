@@ -313,7 +313,7 @@ public sealed class ScreenMotionTrack : MotionClipTrack<ScreenMotionClip>
         return InterpolateLayout(clip.Target, base_, progress, viewport,
             Framing.Focus, Framing.Placement,
             inheritedProjectionAnchor: null,
-            projectionAnchor: new NormalizedPoint(clip.Target.X, clip.Target.Y));
+            projectionAnchor: new NormalizedPoint(clip.Target.AnchorX, clip.Target.AnchorY));
     }
 
     private static double ReturnProgressWithDuration(TransitionTiming timing, double returnDuration,

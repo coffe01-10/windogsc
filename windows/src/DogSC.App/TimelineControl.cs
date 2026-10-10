@@ -33,6 +33,12 @@ public sealed class TimelineControl : FrameworkElement
     public event EventHandler<string>? ClipSelected;
     public event EventHandler<string>? ZoomSelected;
     public event EventHandler<string>? DecorationSelected;
+    /// <summary>右键菜单动作："split"/"speed:1.5"/"ripple-before"/"ripple-after"/"delete"。</summary>
+    public event EventHandler<(string Id, string Action)>? ClipMenuAction;
+    /// <summary>右键删除标记（标记录制回看标记）。</summary>
+    public event EventHandler<SourceMarker>? MarkerDeleteRequested;
+    /// <summary>吸附开关（对齐 Mac Snap 开关）：关闭后拖动不按刻度/边缘吸附。</summary>
+    public bool SnapEnabled { get; set; } = true;
     string? _selectedDecoration;
     public string? SelectedDecorationId { get => _selectedDecoration; set { _selectedDecoration = value; InvalidateVisual(); } }
 
@@ -292,6 +298,64 @@ public sealed class TimelineControl : FrameworkElement
         e.Handled = true;
     }
 
+    SourceMarker? HitMarker(Point point, double pixels)
+    {
+        if (_project is null) return null;
+        foreach (var marker in _project.Markers)
+        {
+            var time = TimelineMath.MarkerTime(_project, marker);
+            if (time is null) continue;
+            var x = TimeToX(time.Value, pixels);
+            if (Math.Abs(point.X - x) < 7 && point.Y >= 6 && point.Y <= 22) return marker;
+        }
+        return null;
+    }
+
+    protected override void OnMouseRightButtonDown(MouseButtonEventArgs e)
+    {
+        if (_project is null) return;
+        var point = e.GetPosition(this);
+        var pixels = PixelsPerSecond(ActualWidth);
+        if (HitMarker(point, pixels) is { } marker)
+        {
+            var menu = new ContextMenu();
+            var item = new MenuItem { Header = "删除标记" };
+            item.Click += (_, _) => MarkerDeleteRequested?.Invoke(this, marker);
+            menu.Items.Add(item);
+            menu.IsOpen = true;
+            e.Handled = true;
+            return;
+        }
+        if (HitClip(point, pixels) is { } hit)
+        {
+            var id = hit.Clip.Id;
+            var menu = new ContextMenu();
+            void Add(string title, string action)
+            {
+                var item = new MenuItem { Header = title };
+                item.Click += (_, _) => ClipMenuAction?.Invoke(this, (id, action));
+                menu.Items.Add(item);
+            }
+            Add("在播放头切开", "split");
+            var speed = new MenuItem { Header = "片段速度" };
+            foreach (var (label, value) in new[] { ("1.0x（默认）", "1"), ("1.2x", "1.2"), ("1.5x", "1.5"), ("2x", "2"), ("5x", "5"), ("10x", "10") })
+            {
+                var sub = new MenuItem { Header = label };
+                var v = value;
+                sub.Click += (_, _) => ClipMenuAction?.Invoke(this, (id, "speed:" + v));
+                speed.Items.Add(sub);
+            }
+            menu.Items.Add(speed);
+            menu.Items.Add(new Separator());
+            Add("波纹删除播放头前", "ripple-before");
+            Add("波纹删除播放头后", "ripple-after");
+            menu.Items.Add(new Separator());
+            Add("删除片段", "delete");
+            menu.IsOpen = true;
+            e.Handled = true;
+        }
+    }
+
     protected override void OnMouseMove(MouseEventArgs e)
     {
         if (_project is null)
@@ -447,7 +511,7 @@ public sealed class TimelineControl : FrameworkElement
             return delta;
         }
 
-        var snapped = TimelineMath.Snap(edge.Value, SnapTargets(drag.Id), threshold);
+        var snapped = SnapEnabled ? TimelineMath.Snap(edge.Value, SnapTargets(drag.Id), threshold) : edge.Value;
         return delta + (snapped - edge.Value);
     }
 
@@ -500,11 +564,11 @@ public sealed class TimelineControl : FrameworkElement
         }
         if ((TrackFlags & 2) != 0)
         {
-            effects = effects.Concat(_project.ScreenMotions.Select((x, i) => (x.Id, Title: $"屏幕运动 {i + 1}", Timing: MotionWindow(x.Timing))));
+            effects = effects.Concat(_project.ScreenMotions.Select((x, i) => (x.Id, Title: $"屏幕运动 {i + 1} · {MotionTag(x.Timing)}", Timing: MotionWindow(x.Timing))));
         }
         if ((TrackFlags & 4) != 0)
         {
-            effects = effects.Concat(_project.CameraMotions.Select((x, i) => (x.Id, Title: $"摄像头运动 {i + 1}", Timing: MotionWindow(x.Timing))));
+            effects = effects.Concat(_project.CameraMotions.Select((x, i) => (x.Id, Title: $"摄像头运动 {i + 1} · {MotionTag(x.Timing)}", Timing: MotionWindow(x.Timing))));
         }
         effects = effects.OrderBy(x => x.Timing.Duration <= 0 ? 0 : x.Timing.Start);
         var ends = new List<double>();
@@ -584,6 +648,17 @@ public sealed class TimelineControl : FrameworkElement
                 yield return time.Value;
             }
         }
+    }
+
+    /// <summary>运动片段行标题后缀：缓动名 + 进入/回落秒数（对齐 Mac "Smooth 0.70/0.70"）。</summary>
+    static string MotionTag(TransitionTiming t)
+    {
+        var name = t.Easing switch
+        {
+            "linear" => "Linear", "quadratic" => "Quad", "cubic" => "Cubic",
+            "quintic" => "Tension", "spring" => "Spring", _ => t.Easing,
+        };
+        return $"{name} {t.LeadInDuration.ToString("0.00", CultureInfo.InvariantCulture)}/{t.ReturnDuration.ToString("0.00", CultureInfo.InvariantCulture)}";
     }
 
     /// <summary>松手时按鼠标落点算片段应插入的位置（跳过自身）。</summary>
