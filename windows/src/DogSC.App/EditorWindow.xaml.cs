@@ -930,6 +930,63 @@ public partial class EditorWindow : Window
             CameraBubble.Visibility = Visibility.Collapsed;
         }
 
+        // 屏幕 / 摄像头运动轨道预览采样（导出同款 MotionTracks 采样器）：
+        // 屏幕侧近似——真透视不可画，用 anchor 缩放+rotZ+位移+rotX/Y 压扁的仿射近似。
+        var time = _player.Time;
+        if (_project.ScreenMotions.Count > 0)
+        {
+            var viewport = new ScreenAnchorViewport(outputWidth, outputHeight, frame.Width, frame.Height);
+            var track = new ScreenMotionTrack(_project.ScreenMotions);
+            var s = track.SampleLayout(time, null, viewport);
+            var mo = s.ManualOffset ?? new CompositionPoint(0, 0);
+            var moBase = track.SampleLayout(-1, null, viewport).ManualOffset ?? new CompositionPoint(0, 0);
+            var anchorX = (frame.X + s.ProjectionAnchor.X * frame.Width) * frameScale;
+            var anchorY = (frame.Y + s.ProjectionAnchor.Y * frame.Height) * frameScale;
+            var sx = Math.Max(0.05, s.State.Scale) * Math.Cos(s.State.RotationY * Math.PI / 180);
+            var sy = Math.Max(0.05, s.State.Scale) * Math.Cos(s.State.RotationX * Math.PI / 180);
+            var m = new Matrix();
+            m.Translate(-anchorX, -anchorY);
+            m.Scale(sx, sy);
+            m.Rotate(s.State.RotationZ);
+            m.Translate(anchorX, anchorY);
+            m.Translate((mo.X - moBase.X) * frameScale, (mo.Y - moBase.Y) * frameScale);
+            var transform = new MatrixTransform(m);
+            FrameHost.RenderTransform = transform;
+            ShadowRect.RenderTransform = transform;
+        }
+        else
+        {
+            FrameHost.RenderTransform = Transform.Identity;
+            ShadowRect.RenderTransform = Transform.Identity;
+        }
+
+        if (_project.CameraMotions.Count > 0 && _project.HasCamera)
+        {
+            var camBase = new CameraMotionState
+            {
+                Layout = _project.Camera.Shape is "circle" or "horizontal" or "vertical" or "original" ? _project.Camera.Shape : "square",
+                X = _project.Camera.CenterX, Y = _project.Camera.CenterY,
+                Size = _project.Camera.Size, Roundness = _project.Camera.Corner * 2,
+                Opacity = _project.Camera.Hidden ? 0 : 1,
+            };
+            var sample = new CameraMotionTrack(_project.CameraMotions).Sample(
+                time, camBase, _cameraMaskAspect ?? CameraSourceAspect, (double)outputWidth / outputHeight);
+            var rect = MotionExport.CameraPixels(sample, outputWidth, outputHeight);
+            CameraBubble.Visibility = Visibility.Visible;
+            CameraBubble.Width = Math.Max(2, rect.W * frameScale);
+            CameraBubble.Height = Math.Max(2, rect.H * frameScale);
+            Canvas.SetLeft(CameraBubble, rect.X * frameScale);
+            Canvas.SetTop(CameraBubble, rect.Y * frameScale);
+            var side = Math.Min(CameraBubble.Width, CameraBubble.Height);
+            CameraBubble.RadiusX = CameraBubble.RadiusY = side * Math.Clamp(sample.CornerFraction, 0, 0.5);
+            CameraBubble.Opacity = Math.Clamp(sample.Opacity, 0, 1);
+            UpdateCameraContent();
+        }
+        else
+        {
+            CameraBubble.Opacity = 1;
+        }
+
         CanvasEffects.Width = viewWidth;
         CanvasEffects.Height = viewHeight;
         StickerLayers.Width = viewWidth;
