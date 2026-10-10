@@ -76,6 +76,12 @@ public sealed class ExportService
                 plan.Inputs[region.Index] = mask;
             }
 
+            if (plan.ChromeIndex >= 0 && plan.Chrome is not null)
+            {
+                plan.Inputs[plan.ChromeIndex] = ChromeArt.Bake(plan.Chrome, plan.Width, plan.Height,
+                    Path.Combine(temp, "chrome.png"));
+            }
+
             var graph = string.Join(";", plan.FilterScript.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
             var graphPath = Path.Combine(temp, "filters.txt");
             await File.WriteAllTextAsync(graphPath, graph, cancellation);
@@ -96,11 +102,17 @@ public sealed class ExportService
                     args.Add(plan.Fps.ToString());
                 }
                 else if (index == plan.FrameMaskIndex || index == plan.ProjectionMaskIndex || index == plan.CameraMaskIndex || index == plan.FocusMaskIndex
-                    || plan.RegionMasks.Any(mask => mask.Index == index)
-                    || index == plan.WallpaperIndex || plan.StickerIndices.Contains(index))
+                    || plan.RegionMasks.Any(mask => mask.Index == index) || index == plan.ChromeIndex
+                    || (index == plan.WallpaperIndex && !plan.WallpaperIsVideo) || plan.StickerIndices.Contains(index))
                 {
                     args.Add("-framerate");
                     args.Add(plan.Fps.ToString());
+                }
+                else if (index == plan.WallpaperIndex && plan.WallpaperIsVideo)
+                {
+                    // 视频壁纸：无限循环铺满时间线，时长由滤镜侧 trim 截断。
+                    args.Add("-stream_loop");
+                    args.Add("-1");
                 }
 
                 args.Add("-i");

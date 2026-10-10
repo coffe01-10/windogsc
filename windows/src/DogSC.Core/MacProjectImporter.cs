@@ -180,10 +180,10 @@ public static class MacProjectImporter
 
         project.Canvas.Corner = Num(c, "cornerRadius", 24);
         project.Canvas.Shadow = Num(c, "shadowStrength", 0.28) * 100;
-        // 背景：pattern/dynamicFlow/视频都映不动，只有纯色近似与图片可取。
+        // 背景：图片和视频走壁纸通道；pattern/dynamicFlow 为程序生成暂无对应。
         var bg = Obj(c, "backgroundSource");
         var kind = bg is null ? null : Text(bg.Value, "kind");
-        if (kind is "projectImage" or "systemImage")
+        if (kind is "projectImage" or "systemImage" or "projectVideo" or "systemVideo")
         {
             var rel = Text(bg!.Value, "relativePath") ?? Text(bg.Value, "absolutePath");
             if (rel is not null)
@@ -193,12 +193,21 @@ public static class MacProjectImporter
         }
         else if (kind is not null)
         {
-            dropped.Add("canvas.backgroundSource.kind=" + kind + "（Windows 只支持纯色或图片壁纸）");
+            dropped.Add("canvas.backgroundSource.kind=" + kind + "（Windows 只支持纯色 / 图片 / 视频壁纸）");
         }
 
+        // 屏幕外框：风格名直接透传（ChromeGeometry 识别 Mac 原名），标题 / 地址 / 缩放同取。
+        if (Text(c, "screenFrame") is { } frame)
+        {
+            project.Canvas.ScreenFrame = frame;
+        }
+        project.Canvas.ScreenFrameScale = Num(c, "screenFrameScale", 1);
+        project.Canvas.ScreenFrameToolbarScale = Num(c, "screenFrameToolbarScale", 1);
+        project.Canvas.ScreenFrameTitle = Text(c, "screenFrameTitle") ?? "";
+        project.Canvas.ScreenFrameAddress = Text(c, "screenFrameBrowserAddress") ?? "";
+
         // Windows 无对应概念的字段。
-        foreach (var key in new[] { "borderWidth", "borderHex", "screenFrame", "screenFrameScale",
-                     "screenFrameToolbarScale", "screenFrameTitle", "screenFrameBrowserAddress",
+        foreach (var key in new[] { "borderWidth", "borderHex",
                      "patternScale", "patternOpacity", "backgroundBlur", "insetOpacity" })
         {
             if (c.TryGetProperty(key, out _))

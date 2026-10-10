@@ -24,6 +24,9 @@ public class MacProjectImporterTests
             "shadowStrength": 0.5,
             "backgroundSource": { "kind": "projectImage", "relativePath": "media/wall.png" },
             "screenFrame": "devicePhone",
+            "screenFrameScale": 1.2,
+            "screenFrameTitle": "演示",
+            "screenFrameBrowserAddress": "x.test",
             "crop": { "x": 0, "y": 0, "width": 1, "height": 1 }
           },
           "camera": {
@@ -99,8 +102,12 @@ public class MacProjectImporterTests
         Assert.True(project.Canvas.Cursor.IdleHide);
         Assert.True(project.Canvas.Cursor.ClickRipple);
 
-        // 丢弃清单：screenFrame/crop/width 等 macOS 独有字段被记下。
-        Assert.Contains(result.DroppedFields, f => f.StartsWith("canvas.screenFrame"));
+        // 丢弃清单：crop 已映射、screenFrame 已映射；剩余 macOS 独有字段被记下。
+        Assert.DoesNotContain(result.DroppedFields, f => f.StartsWith("canvas.screenFrame"));
+        Assert.Equal("devicePhone", result.Project.Canvas.ScreenFrame);
+        Assert.Equal(1.2, result.Project.Canvas.ScreenFrameScale);
+        Assert.Equal("演示", result.Project.Canvas.ScreenFrameTitle);
+        Assert.Equal("x.test", result.Project.Canvas.ScreenFrameAddress);
         Assert.DoesNotContain(result.DroppedFields, f => f.StartsWith("canvas.crop"));
         Assert.Equal(1, project.Canvas.Crop.Width);
         Assert.Equal(2, project.Canvas.Cursor.Size);

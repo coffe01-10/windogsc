@@ -139,6 +139,16 @@ public sealed class CanvasSettings
     public string? Wallpaper { get; set; }
     /// <summary>壁纸模糊强度 0..1（垫在画面下做氛围虚化）。</summary>
     public double WallpaperBlur { get; set; } = 0.35;
+    /// <summary>屏幕外框：none / windowLight / windowDark / browserLight / browserDark / phone / tablet（及 Mac 原名 devicePhone* / deviceTablet*）。</summary>
+    public string ScreenFrame { get; set; } = "none";
+    /// <summary>外框整体缩放 0.6..1.6。</summary>
+    public double ScreenFrameScale { get; set; } = 1;
+    /// <summary>外框顶栏缩放 0.65..1.6。</summary>
+    public double ScreenFrameToolbarScale { get; set; } = 1;
+    /// <summary>窗口标题文字。</summary>
+    public string ScreenFrameTitle { get; set; } = "";
+    /// <summary>浏览器地址栏文字。</summary>
+    public string ScreenFrameAddress { get; set; } = "";
     public List<StickerImage> Stickers { get; set; } = [];
     public List<SoftRegion> SoftRegions { get; set; } = [];
 

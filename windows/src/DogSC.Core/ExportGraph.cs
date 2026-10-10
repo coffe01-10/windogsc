@@ -57,6 +57,12 @@ public sealed class ExportPlan
     public int CursorOffsetY { get; init; }
     /// <summary>壁纸图片输入（-1 = 纯色背景）。</summary>
     public int WallpaperIndex { get; init; } = -1;
+    /// <summary>壁纸是视频（输入加 -stream_loop -1，不加 -framerate）。</summary>
+    public bool WallpaperIsVideo { get; init; }
+    /// <summary>屏幕外框 chrome PNG 输入（-1 = 无外框）。</summary>
+    public int ChromeIndex { get; init; } = -1;
+    /// <summary>外框规格（ChromeIndex >= 0 时非空，App 侧据此烘 PNG）。</summary>
+    public ChromeSpec? Chrome { get; init; }
     /// <summary>贴图输入（-1 = 不画）。</summary>
     public int StickerIndex { get; init; } = -1;
     /// <summary>局部柔化遮罩输入（-1 = 不柔化）。</summary>
@@ -95,6 +101,12 @@ public static class ExportGraph
         var fps = options.Fps is 60 ? 60 : 30;
         var (canvasWidth, canvasHeight) = CanvasLayout.OutputSize(project.Width, project.Height, project.Canvas.Aspect, options.Resolution);
         var placement = CanvasLayout.Place(canvasWidth, canvasHeight, project.Width, project.Height, project.Canvas);
+        // 屏幕外框：启用后卡片圆角改成 chrome 内容圆角，让卡片底角贴合外框轮廓。
+        var chrome = ChromeGeometry.Resolve(project.Canvas, placement, canvasWidth, canvasHeight);
+        if (chrome is not null)
+        {
+            placement = placement with { Radius = (int)Math.Round(chrome.ContentRadius) };
+        }
         var bubble = CanvasLayout.Bubble(canvasWidth, canvasHeight, project.Camera, media.CameraAspect);
         var inputs = new List<string>();
         var videoIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -183,7 +195,9 @@ public static class ExportGraph
         var rippleIndex = -1;
         var softMaskIndex = -1;
         var stickerIndex = -1;
+        var chromeIndex = -1;
         var wallpaperIndex = -1;
+        var wallpaperIsVideo = false;
         var stickerRect = (0, 0, 0, 0);
         var softRect = (0, 0, 0, 0);
         if (!options.AudioOnly)
@@ -235,15 +249,21 @@ public static class ExportGraph
             var under = "bg";
             if (!string.IsNullOrWhiteSpace(media.Wallpaper) && File.Exists(media.Wallpaper))
             {
-                // 壁纸：cover 铺满画布，可选高斯模糊做氛围底。
+                // 壁纸：图片单帧循环或视频（输入侧 -stream_loop 循环）cover 铺满画布，可选高斯模糊。
                 wallpaperIndex = inputs.Count;
                 inputs.Add(media.Wallpaper);
+                wallpaperIsVideo = IsVideoPath(media.Wallpaper);
                 var blur = Math.Clamp(project.Canvas.WallpaperBlur, 0, 1);
                 script.Append('[').Append(wallpaperIndex).Append(":v]scale=")
                     .Append(canvasWidth).Append(':').Append(canvasHeight)
                     .Append(":force_original_aspect_ratio=increase,crop=")
                     .Append(canvasWidth).Append(':').Append(canvasHeight)
-                    .Append(",format=rgba,loop=loop=-1:size=1:start=0,trim=duration=")
+                    .Append(",format=rgba,");
+                if (!wallpaperIsVideo)
+                {
+                    script.Append("loop=loop=-1:size=1:start=0,");
+                }
+                script.Append("trim=duration=")
                     .Append(F(Math.Max(duration, 0.1))).Append(",setpts=PTS-STARTPTS,fps=").Append(fps);
                 if (blur > 0.03)
                 {
@@ -338,10 +358,20 @@ public static class ExportGraph
                 script.Append("[pl0]crop=").Append(canvasWidth).Append(':').Append(canvasHeight)
                     .AppendLine(":0:0[placed]");
             }
+            var placedSrc = "placed";
+            // 屏幕外框 chrome：静态 PNG 叠到透明画布卡片上，放在运动透视之前跟随运镜一起变。
+            if (chrome is not null)
+            {
+                chromeIndex = inputs.Count;
+                inputs.Add("");
+                script.Append('[').Append(chromeIndex).Append(":v]format=rgba,loop=loop=-1:size=1:start=0,trim=duration=")
+                    .Append(F(Math.Max(duration, 0.1))).Append(",setpts=PTS-STARTPTS,fps=").Append(fps).AppendLine("[chrome]");
+                script.Append("[placed][chrome]overlay=0:0:format=auto:shortest=1").AppendLine("[plchr]");
+                placedSrc = "plchr";
+            }
             // 屏幕运动轨道：ffmpeg 9.0.2 的 perspective 不支持逐帧表达式，
             // 切成 15Hz 常量角点分段（trim+perspective(eval=init) 再 concat），
             // 每段取中点采样的单应四角（tilt+缩放+rotZ+位移）。
-            var placedSrc = "placed";
             if (project.ScreenMotions.Count > 0)
             {
                 var viewport = new ScreenAnchorViewport(canvasWidth, canvasHeight, placement.Width, placement.Height);
@@ -349,7 +379,7 @@ public static class ExportGraph
                 var baseSample = screenTrack.SampleLayout(-1, null, viewport);
                 const double segDur = 1.0 / 15;
                 var segCount = Math.Max(1, (int)Math.Ceiling(duration / segDur - 0.0001));
-                script.Append("[placed]split=").Append(segCount);
+                script.Append('[').Append(placedSrc).Append("]split=").Append(segCount);
                 for (var i = 0; i < segCount; i++) script.Append("[pms").Append(i).Append(']');
                 script.AppendLine();
                 for (var i = 0; i < segCount; i++)
@@ -369,14 +399,17 @@ public static class ExportGraph
                 script.Append("concat=n=").Append(segCount).AppendLine(":v=1:a=0[pmot]");
                 placedSrc = "pmot";
             }
-            script.Append('[').Append(placedSrc).AppendLine("]alphaextract,negate[bgn]");
+            // placedSrc 要被引用两次（挖洞 alpha + 合成主输入）：label 只能用一次，
+            // 二次引用会被 ffmpeg 静默改链到未命名输入流——先 split 出两份。
+            script.Append('[').Append(placedSrc).AppendLine("]split[plmain][plmask]");
+            script.AppendLine("[plmask]alphaextract,negate[bgn]");
             // —— 贴纸背景通道（压屏幕/虚化）：先把背景拆出一份供压制合并 ——
             var stickerTrack = new StickerMotion.Track(project.Canvas.Stickers);
             var backdropMax = StickerBackdropMax(stickerTrack, duration, fps);
             // 背景挖洞（screen 区域 alpha=0）后叠在画面流上，视频流做主避免 overlay 帧配对漂移。
             script.Append('[').Append(under).AppendLine("]format=rgba[bgrgb]");
             script.AppendLine("[bgrgb][bgn]alphamerge[bga]");
-            script.Append('[').Append(placedSrc).Append("][bga]overlay=0:0:format=auto:shortest=1")
+            script.Append("[plmain][bga]overlay=0:0:format=auto:shortest=1")
                 .AppendLine("[composed]");
             videoMap = "composed";
             var camOn = includeCamera && cameraSlices.Count > 0;
@@ -705,6 +738,9 @@ public static class ExportGraph
             CursorOffsetX = placement.X,
             CursorOffsetY = placement.Y,
             WallpaperIndex = wallpaperIndex,
+            WallpaperIsVideo = wallpaperIsVideo,
+            ChromeIndex = chromeIndex,
+            Chrome = chrome,
             StickerIndex = stickerIndex,
             SoftMaskIndex = softMaskIndex,
             StickerRect = stickerRect,
@@ -950,6 +986,10 @@ public static class ExportGraph
     }
 
     private static string F(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
+
+    /// <summary>壁纸路径是不是视频（视频走 -stream_loop 循环输入，不再单帧 loop）。</summary>
+    internal static bool IsVideoPath(string path) => Path.GetExtension(path).ToLowerInvariant() is
+        ".mp4" or ".mov" or ".m4v" or ".webm" or ".mkv" or ".avi" or ".wmv";
 
     private sealed record Piece(
         string VideoPath,
