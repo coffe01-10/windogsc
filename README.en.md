@@ -107,7 +107,7 @@ You can also specify FFmpeg with the `DOGSC_FFMPEG` environment variable, or pla
 
 ## Relationship to the original
 
-This project continues the Windows implementation of DogSC while retaining the original **record → edit and animate → export** workflow. The upstream Swift source is in `Sources/`; the Windows implementation is in `windows/`. Building the Windows app requires neither Xcode nor Apple signing certificates.
+This project continues the Windows implementation of DogSC while retaining the original **record → edit and animate → export** workflow. This repository tracks the Windows implementation in `windows/`; the macOS Swift source is available in the [upstream repository](https://github.com/laogou717/dogsc). Local macOS reference source, build configuration, and platform-specific resources are ignored by Git. Shared icons, fonts, and copyright notices are retained. Building the Windows app requires neither Xcode nor Apple signing certificates.
 
 The recording toolbar offers **Import macOS Project…**. It converts screen, audio, camera, cursor paths, markers, and some editing, motion, and effect settings. Unsupported content is reported in a migration summary. The platforms use different project formats; a converted Windows project cannot be used directly as a native Mac project.
 

@@ -85,7 +85,7 @@
 
 Windows 的工具条大小、收起展开、四边吸附与过渡保留。按用户要求删除的 Mac 更新提示不恢复，Mac 下载入口不计为待补功能。
 
-主要源码：`Sources/RecorderCore/ProjectModel.swift`、`ProjectTimeline.swift`、`FrameScene.swift`、`OverlayTimeline.swift`、`AutoZoomPlanner.swift`，以及 Windows 的 `ProjectDocument.cs`、`MacProjectImporter.cs`、`CursorTimeline.cs`、`ZoomMotion.cs`、`PerspectiveGeometry.cs`、`EffectTiming.cs`、`ExportGraph.cs`、`EditorParityControls.cs`、`EditorDecorations.cs`、`RegionPreview.cs` 和 `Services/SelfTest.cs`。
+主要源码：上游 [Sources/RecorderCore](https://github.com/laogou717/dogsc/tree/e207d11b111c5e58152238fb64115b2009850547/Sources/RecorderCore) 下的 `ProjectModel.swift`、`ProjectTimeline.swift`、`FrameScene.swift`、`OverlayTimeline.swift`、`AutoZoomPlanner.swift`，以及本仓库 Windows 的 `ProjectDocument.cs`、`MacProjectImporter.cs`、`CursorTimeline.cs`、`ZoomMotion.cs`、`PerspectiveGeometry.cs`、`EffectTiming.cs`、`ExportGraph.cs`、`EditorParityControls.cs`、`EditorDecorations.cs`、`RegionPreview.cs` 和 `Services/SelfTest.cs`。本地保留的 macOS 参考文件已由 `.gitignore` 排除，不随 Windows 仓库提交。
 
 ## 截图组件补齐（2026-10-10）
 

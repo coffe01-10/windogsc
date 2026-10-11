@@ -107,7 +107,7 @@ FFmpeg 也可通过 `DOGSC_FFMPEG` 环境变量指定，或与 `ffprobe.exe` 一
 
 ## 与原版的关系
 
-这里继续完善 DogSC 的 Windows 体验，保留原版“录制 → 编辑与运镜 → 导出”的使用主线。上游 Swift 源码位于 `Sources/`；Windows 实现位于 `windows/`，构建 Windows 版无需 Xcode 或 Apple 签名证书。
+这里继续完善 DogSC 的 Windows 体验，保留原版“录制 → 编辑与运镜 → 导出”的使用主线。本仓库跟踪 `windows/` 下的 Windows 实现；macOS Swift 源码见[上游仓库](https://github.com/laogou717/dogsc)。本地保留的 macOS 参考源码、构建配置和专用资源已加入 Git 忽略规则，共享图标、字体与版权声明继续保留。构建 Windows 版无需 Xcode 或 Apple 签名证书。
 
 录制条提供「导入 macOS 项目…」，可转换屏幕、音频、摄像头、光标轨迹、标记及部分剪辑、运镜和效果设置；未支持的内容会显示迁移摘要。两端项目格式不同，转换后的 Windows 项目不能直接作为 Mac 原生项目使用。
 

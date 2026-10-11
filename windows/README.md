@@ -1,6 +1,6 @@
 ﻿# DogSC Windows
 
-Windows 桌面版。录制屏幕、剪辑、自动运镜与屏幕 3D、导出 MP4 / M4A。界面和流程参考 macOS 版 DogSC，实现是 .NET 8 / WPF，不编译 `Sources/` 里的 Swift。
+Windows 桌面版。录制屏幕、剪辑、自动运镜与屏幕 3D、导出 MP4 / M4A。界面和流程参考 [macOS 版 DogSC](https://github.com/laogou717/dogsc)，实现是 .NET 8 / WPF。macOS 源码仅作移植参考，不参与 Windows 构建，也不纳入本仓库的 Git 跟踪。
 
 ![当前 Windows 中文编辑器：六个导航入口、浮动属性卡片与独立效果轨道](../docs/images/windows/zh-CN/editor.png)
 

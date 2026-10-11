@@ -19,3 +19,18 @@ TestResults/
 /artifacts/
 /windows/artifacts/
 .zcode/
+
+# macOS upstream reference files stay local; this repository publishes Windows.
+/Sources/
+/Package.swift
+/Package.resolved
+/build-app.sh
+/.github/workflows/release.yml
+/Resources/AppIcon.icns
+/Resources/DMGBackground.png
+/Resources/DogSC.entitlements
+/Resources/Info.plist
+/Resources/en.lproj/
+/Resources/zh-Hans.lproj/
+/Resources/Onboarding/
+/Resources/Support/
