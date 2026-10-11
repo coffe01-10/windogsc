@@ -121,6 +121,14 @@ public static class CanvasLayout
     public static BubblePlacement Bubble(int canvasWidth, int canvasHeight, CameraBubble camera, double sourceAspect = 16d / 9)
     {
         var aspect = camera.Shape switch { "horizontal" => 1.5, "vertical" => .72, "original" => sourceAspect, _ => 1 };
+        if (camera.Docked)
+        {
+            var sample = CameraMotionTrack.Resolve(new() { Layout = camera.Shape == "none" ? "square" : camera.Shape,
+                X = camera.CenterX, Y = camera.CenterY, Size = camera.Size }, sourceAspect, canvasWidth / (double)canvasHeight);
+            var rect = MotionExport.CameraPixels(sample, canvasWidth, canvasHeight, camera);
+            return new((int)Math.Round(rect.X), (int)Math.Round(rect.Y), Even((int)Math.Round(rect.W)))
+                { Height = Even((int)Math.Round(rect.H)) };
+        }
         var width = Even((int)Math.Round(canvasWidth * Math.Clamp(camera.Size, .08, .46)));
         var height = Even((int)Math.Round(width / aspect));
         var fit = Math.Min(1, Math.Min(canvasWidth / (double)width, canvasHeight / (double)height));
@@ -128,6 +136,34 @@ public static class CanvasLayout
         var x = (int)Math.Round(Math.Clamp(camera.CenterX * canvasWidth - width / 2d, 0, canvasWidth - width));
         var y = (int)Math.Round(Math.Clamp(camera.CenterY * canvasHeight - height / 2d, 0, canvasHeight - height));
         return new BubblePlacement(x, y, width) { Height = height };
+    }
+
+    public static OverlayBox FitCamera(OverlayBox box, double width, double height, CameraBubble camera)
+    {
+        if (!camera.Docked) return box.Fit(width, height);
+        // Docking also works for an oversized aperture: its two edges can
+        // stop at either canvas edge without shrinking the authored camera.
+        return box with { X = Math.Clamp(box.X, Math.Min(box.Width / 2, width - box.Width / 2), Math.Max(box.Width / 2, width - box.Width / 2)),
+            Y = Math.Clamp(box.Y, Math.Min(box.Height / 2, height - box.Height / 2), Math.Max(box.Height / 2, height - box.Height / 2)) };
+    }
+
+    public static void WriteCameraBox(CameraBubble camera, OverlayBox box, double width, double height,
+        double screenZoomScale, bool resize)
+    {
+        if (camera.Docked)
+        {
+            // A full-width/full-height aperture has no recoverable docking
+            // coordinate; retain it so it returns when the camera shrinks.
+            if (Math.Abs(width - box.Width) > .0001) camera.CenterX = Math.Clamp((box.X - box.Width / 2) / (width - box.Width), 0, 1);
+            if (Math.Abs(height - box.Height) > .0001) camera.CenterY = Math.Clamp((box.Y - box.Height / 2) / (height - box.Height), 0, 1);
+            var zoomScale = 1 + (camera.ScaleDuringZoom - 1) * Math.Clamp((screenZoomScale - 1) / .565, 0, 1);
+            if (resize) camera.Size = box.Height / Math.Min(width, height) / zoomScale;
+        }
+        else
+        {
+            camera.CenterX = box.X / width; camera.CenterY = box.Y / height;
+            if (resize) camera.Size = box.Width / width;
+        }
     }
 
     public static OverlayBox Sticker(int canvasWidth, int canvasHeight, StickerImage sticker, double aspect)

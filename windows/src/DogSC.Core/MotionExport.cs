@@ -226,10 +226,32 @@ public static class MotionExport
         double X, double Y, double W, double H, double Opacity);
 
     public static CameraFrame CameraPixels(
-        CameraMotionSample s, int canvasW, int canvasH)
+        CameraMotionSample s, int canvasW, int canvasH, CameraBubble? style = null, double screenZoomScale = 1)
     {
+        var zoomProgress = Math.Clamp((screenZoomScale - 1) / .565, 0, 1);
+        var zoomScale = 1 + ((style?.ScaleDuringZoom ?? 1) - 1) * zoomProgress;
+        var docking = s.DockingProgress ?? (style?.Docked == true ? 1 : 0);
+        if (docking > 0 && docking < 1)
+        {
+            var legacy = CameraPixels(s with { DockingProgress = 0 }, canvasW, canvasH, style, screenZoomScale);
+            var docked = CameraPixels(s with { DockingProgress = 1 }, canvasW, canvasH, style, screenZoomScale);
+            return new(MotionEasing.Mix(legacy.X, docked.X, docking), MotionEasing.Mix(legacy.Y, docked.Y, docking),
+                MotionEasing.Mix(legacy.W, docked.W, docking), MotionEasing.Mix(legacy.H, docked.H, docking), s.Opacity);
+        }
+        if (docking >= 1)
+        {
+            var shortEdge = Math.Min(canvasW, canvasH);
+            var height = Math.Clamp(shortEdge * s.Size * zoomScale, 72 * shortEdge / 1080d, shortEdge * 1.2);
+            var width = height * Math.Max(s.AspectRatio, .01);
+            var fitted = Math.Min(1, Math.Min(canvasW * 1.2 / width, canvasH * 1.2 / height));
+            width *= fitted; height *= fitted;
+            var full = Math.Clamp(s.FullscreenProgress, 0, 1);
+            return new(Math.Clamp(s.Position.X, 0, 1) * (canvasW - width) * (1 - full),
+                Math.Clamp(s.Position.Y, 0, 1) * (canvasH - height) * (1 - full),
+                width + (canvasW - width) * full, height + (canvasH - height) * full, s.Opacity);
+        }
         // size = 画布宽占比；fullscreenProgress 把矩形过渡到全画布。
-        var w = canvasW * (s.Size * (1 - s.FullscreenProgress) + s.FullscreenProgress);
+        var w = canvasW * (s.Size * zoomScale * (1 - s.FullscreenProgress) + s.FullscreenProgress);
         var aspect = Math.Max(s.AspectRatio, 0.05);
         var h = w / aspect;
         // 超画布时等比收回（与 Bubble 的 fit 相同）。

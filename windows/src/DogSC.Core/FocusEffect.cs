@@ -98,7 +98,9 @@ public sealed class FocusRaster
         _centerX = placement.X + ((scene.Center.X - crop.X) / crop.Width * pose.Scale - pose.X * (pose.Scale - 1)) * placement.Width;
         _centerY = placement.Y + ((scene.Center.Y - crop.Y) / crop.Height * pose.Scale - pose.Y * (pose.Scale - 1)) * placement.Height;
         _shortEdge = Math.Min(placement.Width, placement.Height) * pose.Scale;
-        var viewport = new ScreenAnchorViewport(width, height, placement.Width, placement.Height);
+        var viewport = new ScreenAnchorViewport(width, height, placement.Width, placement.Height,
+            BaseCenterX: (placement.X + placement.Width / 2d) / width,
+            BaseCenterY: (placement.Y + placement.Height / 2d) / height, BaseScale: project.Canvas.Scale);
         var track = new ScreenMotionTrack(project.ScreenMotions);
         var sample = editingScreen is null ? track.SampleLayout(time, null, viewport,
             project.Motion.ScreenSpringMass, project.Motion.ScreenSpringStiffness, project.Motion.ScreenSpringDamping)

@@ -44,6 +44,8 @@ public readonly record struct CompositionPoint(double X, double Y);
 /// <summary>屏幕卡片的空间运动目标（裁切/边框/阴影属基础外观）。</summary>
 public sealed class ScreenMotionState
 {
+    /// <summary>Layout presets store canvas position and absolute base size; legacy motion targets use focus coordinates and relative scale.</summary>
+    public bool CanvasPlacement { get; set; }
     public double X { get; set; } = 0.5;
     public double Y { get; set; } = 0.5;
     public double Scale { get; set; } = 1;
@@ -75,6 +77,8 @@ public sealed class ScreenMotionClip
 /// <summary>摄像头运动目标；layout 同时承载形状与全屏两态，离散形状在采样前先解析为连续参数。</summary>
 public sealed class CameraMotionState
 {
+    /// <summary>Optional layout coordinate system owned by a saved preset; absent clips inherit the project's camera layout.</summary>
+    public bool? Docked { get; set; }
     /// <summary>square/horizontal/vertical/original/circle/fullscreen。</summary>
     public string Layout { get; set; } = "square";
     public double X { get; set; } = 0.86;
@@ -102,7 +106,10 @@ public readonly record struct ScreenAnchorViewport(
     double DecorationTopAtScaleOne = 0,
     double DecorationRightAtScaleOne = 0,
     double DecorationBottomAtScaleOne = 0,
-    double DecorationLeftAtScaleOne = 0);
+    double DecorationLeftAtScaleOne = 0,
+    double BaseCenterX = .5,
+    double BaseCenterY = .5,
+    double BaseScale = 1);
 
 /// <summary>评估结果 + 非奇异的像素位移；manualOffset 供渲染用。</summary>
 public readonly record struct ScreenMotionSample(
@@ -117,4 +124,5 @@ public readonly record struct CameraMotionSample(
     double AspectRatio,
     double CornerFraction,
     double FullscreenProgress,
-    double Opacity);
+    double Opacity,
+    double? DockingProgress = null);

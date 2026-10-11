@@ -330,8 +330,19 @@ public sealed class ScreenMotionTrack : MotionClipTrack<ScreenMotionClip>
 
     private static ScreenMotionSample LayoutSample(
         ScreenMotionState state, ScreenAnchorViewport? viewport, Framing framing)
-        => new(state, viewport?.Let(v => DirectOffset(state, v, framing)),
+    {
+        var resolved = ResolveCanvasPlacement(state, viewport);
+        return new(resolved, viewport?.Let(v => DirectOffset(resolved, v, framing)),
             framing == Framing.Focus ? new NormalizedPoint(state.AnchorX, state.AnchorY) : new NormalizedPoint(state.X, state.Y));
+    }
+
+    static ScreenMotionState ResolveCanvasPlacement(ScreenMotionState state, ScreenAnchorViewport? viewport)
+    {
+        if (!state.CanvasPlacement || viewport is not { } v) return state;
+        return new() { CanvasPlacement = true, X = state.X, Y = state.Y, Scale = state.Scale / v.BaseScale,
+            RotationX = state.RotationX, RotationY = state.RotationY, RotationZ = state.RotationZ,
+            Perspective = state.Perspective, AnchorX = state.AnchorX, AnchorY = state.AnchorY };
+    }
 
     private static ScreenMotionSample InterpolateLayout(
         ScreenMotionState from, ScreenMotionState to, double progress,
@@ -340,6 +351,7 @@ public sealed class ScreenMotionTrack : MotionClipTrack<ScreenMotionClip>
         NormalizedPoint? inheritedProjectionAnchor,
         NormalizedPoint projectionAnchor)
     {
+        from = ResolveCanvasPlacement(from, viewport); to = ResolveCanvasPlacement(to, viewport);
         var t = Math.Clamp(progress, 0, 1);
         NormalizedPoint position;
         if (viewport is { } v)
@@ -396,6 +408,9 @@ public sealed class ScreenMotionTrack : MotionClipTrack<ScreenMotionClip>
     private static CompositionPoint DirectOffset(
         ScreenMotionState state, ScreenAnchorViewport viewport, Framing framing)
     {
+        if (state.CanvasPlacement)
+            return new((state.X - viewport.BaseCenterX) * viewport.CanvasWidth,
+                (state.Y - viewport.BaseCenterY) * viewport.CanvasHeight);
         var cardScale = state.Scale;
         var contentWidth = viewport.FittedWidth * cardScale;
         var contentHeight = viewport.FittedHeight * cardScale;
@@ -461,7 +476,7 @@ public sealed class CameraMotionTrack : MotionClipTrack<CameraMotionClip>
         if (index is null) return resolvedBase;
         var clip = ClipList[index.Value];
         var timing = clip.Timing;
-        var target = Resolve(clip.Target, cameraAspectRatio, canvasAspectRatio);
+        var target = Resolve(clip.Target, cameraAspectRatio, canvasAspectRatio, base_.Docked);
         if (time < timing.EndTime)
         {
             CameraMotionSample inherited;
@@ -472,7 +487,7 @@ public sealed class CameraMotionTrack : MotionClipTrack<CameraMotionClip>
                     <= MotionEasing.AdjacencyTolerance;
                 inherited = !touches && ReturnOf(previous.Timing) > 0.0001
                     ? resolvedBase
-                    : Resolve(previous.Target, cameraAspectRatio, canvasAspectRatio);
+                    : Resolve(previous.Target, cameraAspectRatio, canvasAspectRatio, base_.Docked);
             }
             else
             {
@@ -513,7 +528,7 @@ public sealed class CameraMotionTrack : MotionClipTrack<CameraMotionClip>
                 }
                 return inherited;
             }
-            var target = Resolve(clip.Target, cameraAspectRatio, canvasAspectRatio);
+            var target = Resolve(clip.Target, cameraAspectRatio, canvasAspectRatio, DockedOf(resolvedBase));
             if (time < timing.EndTime)
             {
                 var leadIn = Math.Min(timing.LeadInDuration, timing.Duration);
@@ -547,7 +562,7 @@ public sealed class CameraMotionTrack : MotionClipTrack<CameraMotionClip>
         var linear = timing.ReturnProgressOffset + (1 - timing.ReturnProgressOffset) * local;
         var progress = MotionEasing.EasedProgress(linear, timing.Easing, timing.CustomCurve,
             springMass, springStiffness, springDamping);
-        var target = Resolve(clip.Target, cameraAspectRatio, canvasAspectRatio);
+        var target = Resolve(clip.Target, cameraAspectRatio, canvasAspectRatio, DockedOf(resolvedBase));
         return TransitionSample(target, resolvedBase, progress);
     }
 
@@ -565,7 +580,7 @@ public sealed class CameraMotionTrack : MotionClipTrack<CameraMotionClip>
 
     /// <summary>形状→连续参数，对齐 Mac CameraMotionTrack.resolve。</summary>
     public static CameraMotionSample Resolve(
-        CameraMotionState state, double cameraAspectRatio, double canvasAspectRatio)
+        CameraMotionState state, double cameraAspectRatio, double canvasAspectRatio, bool? docked = null)
     {
         double aspect, cornerFraction, fullscreen;
         switch (state.Layout)
@@ -589,8 +604,10 @@ public sealed class CameraMotionTrack : MotionClipTrack<CameraMotionClip>
         }
         return new CameraMotionSample(
             new NormalizedPoint(state.X, state.Y), state.Size,
-            aspect, cornerFraction, fullscreen, state.Opacity);
+            aspect, cornerFraction, fullscreen, state.Opacity, (state.Docked ?? docked) is { } mode ? (mode ? 1 : 0) : null);
     }
+
+    static bool? DockedOf(CameraMotionSample sample) => sample.DockingProgress is { } mode ? mode >= .5 : null;
 
     private static CameraMotionSample Interpolate(
         CameraMotionSample from, CameraMotionSample to, double progress)
@@ -604,6 +621,8 @@ public sealed class CameraMotionTrack : MotionClipTrack<CameraMotionClip>
             MotionEasing.Mix(from.AspectRatio, to.AspectRatio, t),
             MotionEasing.Mix(from.CornerFraction, to.CornerFraction, t),
             MotionEasing.Mix(from.FullscreenProgress, to.FullscreenProgress, t),
-            MotionEasing.Mix(from.Opacity, to.Opacity, t));
+            MotionEasing.Mix(from.Opacity, to.Opacity, t),
+            from.DockingProgress is { } fromMode && to.DockingProgress is { } toMode ? MotionEasing.Mix(fromMode, toMode, t)
+                : from.DockingProgress ?? to.DockingProgress);
     }
 }

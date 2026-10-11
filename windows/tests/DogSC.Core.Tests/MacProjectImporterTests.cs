@@ -161,7 +161,9 @@ public class MacProjectImporterTests
         Assert.DoesNotContain(result.DroppedFields, f => f == "motion");
         Assert.Equal("spring", project.Motion.DefaultZoomEasing);
         Assert.Equal(.7, project.Motion.DefaultZoomTransitionDuration);
-        Assert.Contains(result.DroppedFields, f => f.StartsWith("camera.borderWidth"));
+        Assert.DoesNotContain(result.DroppedFields, f => f.StartsWith("camera.borderWidth"));
+        Assert.Equal(3, project.Camera.BorderWidth);
+        Assert.Equal(.25, project.Camera.ShadowStrength);
 
         // 媒体引用清单供调用方拷文件。
         Assert.Contains("media/screen.mp4", result.MediaReferences);

@@ -155,7 +155,9 @@ public static class ExportGraph
 
         // 任一片段有摄像头就导出画中画；缺摄像头的片段留空，由 overlay 的时间窗跳过。
         var includeCamera = !options.AudioOnly && (!project.Camera.Hidden || project.CameraMotions.Count > 0) && slices.Any(slice => slice.CameraPath is not null);
-        var dynamicCamera = project.CameraMotions.Count > 0 || project.Canvas.Opening != "none";
+        var dynamicCamera = project.CameraMotions.Count > 0 || project.Camera.Docked || project.Camera.ScaleDuringZoom != 1
+            || project.Camera.BorderWidth > 0 || project.Camera.ShadowStrength > 0
+            || project.Camera.Entry != "none" || project.Canvas.Opening != "none";
         var script = new StringBuilder();
         var videoLabels = new List<string>();
         var regionMasks = new List<RegionMask>();
@@ -480,7 +482,9 @@ public static class ExportGraph
                     script.Append("[pmshadow][").Append(placedSrc).AppendLine("]overlay=0:0:format=auto:shortest=1[pmshadowcard]");
                     placedSrc = "pmshadowcard";
                 }
-                var viewport = new ScreenAnchorViewport(canvasWidth, canvasHeight, placement.Width, placement.Height);
+                var viewport = new ScreenAnchorViewport(canvasWidth, canvasHeight, placement.Width, placement.Height,
+                    BaseCenterX: (placement.X + placement.Width / 2d) / canvasWidth,
+                    BaseCenterY: (placement.Y + placement.Height / 2d) / canvasHeight, BaseScale: project.Canvas.Scale);
                 var screenTrack = new ScreenMotionTrack(project.ScreenMotions);
                 var baseSample = screenTrack.SampleLayout(-1, null, viewport);
                 script.Append('[').Append(placedSrc).Append(']')
@@ -614,9 +618,44 @@ public static class ExportGraph
                     if (dynamicCamera)
                     {
                         var scene = new CameraSceneTrack(project, canvasWidth, canvasHeight, cam.Aspect);
-                        script.Append('[').Append(cam.Label).Append(']')
-                            .Append(CameraLayerExport.Filter(scene, cam.Start, cam.End, cam.EntryStart, cam.EntryEnd, fps, backdropMax.CameraBlur * 3))
-                            .Append('[').Append(src).AppendLine("]");
+                        var border = project.Camera.BorderWidth > 0;
+                        var shadow = project.Camera.ShadowStrength > 0;
+                        var decorated = border || shadow;
+                        if (decorated)
+                        {
+                            script.Append('[').Append(cam.Label).Append("]split=").Append(1 + (border ? 1 : 0) + (shadow ? 1 : 0))
+                                .Append("[camtexture").Append(cam.Index).Append(']');
+                            if (border) script.Append("[cambordersrc").Append(cam.Index).Append(']');
+                            if (shadow) script.Append("[camshadowsrc").Append(cam.Index).Append(']');
+                            script.AppendLine();
+                        }
+                        var texture = decorated ? "camtexture" + cam.Index : cam.Label;
+                        var styled = decorated ? "camaperture" + cam.Index : src;
+                        script.Append('[').Append(texture).Append(']')
+                            .Append(CameraLayerExport.Filter(scene, cam.Start, cam.End, cam.EntryStart, cam.EntryEnd, fps, backdropMax.CameraBlur * 3, !decorated))
+                            .Append('[').Append(styled).AppendLine("]");
+                        if (border)
+                        {
+                            script.Append("[cambordersrc").Append(cam.Index).Append(']')
+                                .Append(CameraLayerExport.DecorationFilter(scene, cam.Start, cam.End, cam.EntryStart, cam.EntryEnd, fps, false))
+                                .Append("[camborder").Append(cam.Index).AppendLine("]");
+                            script.Append("[camborder").Append(cam.Index).Append("][").Append(styled)
+                                .Append("]overlay=0:0:format=auto:shortest=1[cambordered").Append(cam.Index).AppendLine("]");
+                            styled = "cambordered" + cam.Index;
+                        }
+                        if (shadow)
+                        {
+                            script.Append("[camshadowsrc").Append(cam.Index).Append(']')
+                                .Append(CameraLayerExport.DecorationFilter(scene, cam.Start, cam.End, cam.EntryStart, cam.EntryEnd, fps, true))
+                                .Append("[camshadow").Append(cam.Index).AppendLine("]");
+                            script.Append("[camshadow").Append(cam.Index).Append("][").Append(styled)
+                                .Append("]overlay=0:0:format=auto:shortest=1[camstyled").Append(cam.Index).AppendLine("]");
+                            styled = "camstyled" + cam.Index;
+                        }
+                        if (decorated)
+                            script.Append('[').Append(styled).Append(']')
+                                .Append(CameraLayerExport.OpacityFilter(scene, cam.Start, cam.End, cam.EntryStart, cam.EntryEnd, fps))
+                                .Append('[').Append(src).AppendLine("]");
                         if (backdropMax.CameraSuppression > 0)
                         {
                             script.Append('[').Append(src).Append("]split[camcolor").Append(cam.Index)

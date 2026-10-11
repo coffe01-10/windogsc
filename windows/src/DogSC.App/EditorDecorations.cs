@@ -439,6 +439,15 @@ public partial class EditorWindow
             Push(); DeleteDecoration(_selectedDecoration!); _selectedDecoration = null; Commit();
         }));
         commands.Children.Add(DecorationButton(L.Text("从起点播放"), () => _player.Seek(timing.StartTime, play: true)));
+        if (!string.IsNullOrEmpty(screen?.GroupId ?? camera?.GroupId))
+        {
+            commands.Children.Add(DecorationButton(L.Text("解除布局联动"), () =>
+            {
+                Push();
+                if (screen is not null) screen.GroupId = null; else camera!.GroupId = null;
+                Commit();
+            }));
+        }
         section.Children.Add(commands);
 
         void Control(string title, double min, double max, double value, Action<double> assign)
@@ -446,8 +455,11 @@ public partial class EditorWindow
 
         var duration = TimelineMath.Duration(_project);
         section.Children.Add(Caption(L.Text("时间")));
-        Control(L.Text("起点"), 0, Math.Max(0.1, duration - .05), timing.StartTime, x => timing.StartTime = x);
-        Control(L.Text("片段时长（含进入）"), .05, Math.Max(.5, duration), timing.Duration, x => timing.Duration = x);
+        var motionId = screen?.Id ?? camera!.Id;
+        Control(L.Text("起点"), 0, Math.Max(0.1, duration - .05), timing.StartTime,
+            x => MotionTimingEdits.SetRange(_project, motionId, x, timing.Duration));
+        Control(L.Text("片段时长（含进入）"), .05, Math.Max(.5, duration), timing.Duration,
+            x => MotionTimingEdits.SetRange(_project, motionId, timing.StartTime, x));
         Control(L.Text("进入时长"), 0, 2, timing.LeadInDuration, x => { timing.LeadInDuration = x; timing.PreferredLeadInDuration = null; });
         Control(L.Text("回落时长"), 0, 2, timing.ReturnDuration, x => { timing.ReturnDuration = x; timing.PreferredReturnDuration = null; });
 
@@ -488,7 +500,7 @@ public partial class EditorWindow
             section.Children.Add(layouts);
             Control(L.Text("水平位置"), 0, 1, camera!.Target.X, x => camera.Target.X = x);
             Control(L.Text("垂直位置"), 0, 1, camera.Target.Y, x => camera.Target.Y = x);
-            Control(L.Text("大小"), .05, 1, camera.Target.Size, x => camera.Target.Size = x);
+            Control(L.Text("大小"), (camera.Target.Docked ?? _project.Camera.Docked) ? .01 : .08, 1, camera.Target.Size, x => camera.Target.Size = x);
             Control(L.Text("圆角"), 0, 1, camera.Target.Roundness, x => camera.Target.Roundness = x);
             Control(L.Text("不透明度（0=隐藏）"), 0, 1, camera.Target.Opacity, x => camera.Target.Opacity = x);
         }

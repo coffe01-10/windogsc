@@ -351,6 +351,16 @@
   "圆角、描边与阴影": "Corners, Border & Shadow",
   "层级": "Layer Order",
   "屏幕素材布局": "Screen Layout",
+  "运镜时大小": "Size During Zoom",
+  "摄像头描边": "Camera Border",
+  "摄像头阴影": "Camera Shadow",
+  "保存摄像头布局预设": "Save Camera Layout Preset",
+  "我的摄像头布局预设": "My Camera Layout Presets",
+  "布局预设名称": "Layout preset name",
+  "删除“{0}”": "Delete “{0}”",
+  "同名预设将被替换。": "A preset with the same name will be replaced.",
+  "保存摄像头形状、位置、大小与圆角，以及屏幕位置和大小。应用时在播放头创建联动动画。": "Save camera shape, position, size and corners, plus screen position and size. Applying creates linked animations at the playhead.",
+  "布局预设记录画布中的位置和大小，应用到其他项目时按当前画布适配。": "Layout presets store canvas position and size, adapting to the current canvas in other projects.",
   "播放头布局动画": "Layout at Playhead",
   "构图": "Composition",
   "柔化效果": "Blur Effect",
@@ -2051,5 +2061,10 @@
   "自动跟随方式": "Automatic Following",
   "连续指针": "Continuous Pointer",
   "点击分组": "Click Groups",
-  "指针在中央区域内移动时保持构图，越界后平滑跟随。": "Hold the composition inside the central region and follow smoothly when the pointer leaves it."
+  "指针在中央区域内移动时保持构图，越界后平滑跟随。": "Hold the composition inside the central region and follow smoothly when the pointer leaves it.",
+  "播放头布局动画": "Layout at Playhead",
+  "屏幕与摄像头联动": "Link Screen and Camera",
+  "解除布局联动": "Unlink Layout",
+  "播放头附近没有空间添加布局动画，请先移动播放头。": "There is no room for a layout animation here. Move the playhead first.",
+  "在播放头创建布局动画；已有动画直接更新。联动后拖动或调整一侧时长，另一侧跟随。": "Create a layout animation at the playhead, or update an existing one. Linked clips move and resize together."
 }

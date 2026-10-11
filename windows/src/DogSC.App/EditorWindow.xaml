@@ -111,7 +111,11 @@
                             <Rectangle x:Name="SpatialFocusBlur"/>
                             <Rectangle x:Name="SpatialFocusDim" Fill="Black"/>
                         </Grid>
-                        <Rectangle x:Name="CameraBubble" Visibility="Collapsed" IsHitTestVisible="False" StrokeThickness="2" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                        <Canvas x:Name="CameraLayer" IsHitTestVisible="False">
+                            <Rectangle x:Name="CameraShadow" Fill="Black" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                            <Path x:Name="CameraBorder" Fill="White" Visibility="Collapsed"/>
+                            <Rectangle x:Name="CameraBubble" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                        </Canvas>
                         </Canvas>
                         </Grid>
                         <Canvas x:Name="StickerLayers" IsHitTestVisible="False"/>

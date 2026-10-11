@@ -29,7 +29,7 @@ public partial class EditorWindow : Window
     readonly Dictionary<string, Border> _stickerImages = [];
     StickerMotion.Track? _stickerTrack;
     ScreenMotionTrack? _screenMotionTrack;
-    CameraMotionTrack? _cameraMotionTrack;
+    CameraSceneTrack? _cameraSceneTrack;
     CursorTimeline? _cursorTimeline;
     (string Asset, int Height)? _cursorBitmapKey;
     readonly RotateTransform _cursorRotation = new();
@@ -69,7 +69,6 @@ public partial class EditorWindow : Window
         SyncScenePresetLabel();
         FrameRect.Fill = new DrawingBrush { Drawing = _player.ScreenDrawing, Stretch = Stretch.Fill };
         CameraBubble.Fill = new DrawingBrush { Drawing = _player.CameraDrawing, Stretch = Stretch.Fill };
-        CameraBubble.Stroke = Brushes.White;
         foreach (var speed in new[] { 0.5, 0.75, 1d, 1.25, 1.5, 2d, 4, 8, 12, 20, 50, 100 })
         {
             SpeedBox.Items.Add(speed.ToString("0.##", CultureInfo.InvariantCulture) + "×");
@@ -126,8 +125,7 @@ public partial class EditorWindow : Window
             var motion = MotionTimingOf(move.ZoomId);
             if (motion is null) return;
             Push();
-            motion.StartTime = Math.Max(0, move.Start);
-            motion.Duration = Math.Max(0.05, move.Duration - Math.Max(0, motion.ReturnDuration));
+            MotionTimingEdits.SetRange(_project, move.ZoomId, move.Start, move.Duration - Math.Max(0, motion.ReturnDuration));
             Commit();
         };
         Timeline.ClipMoved += (_, move) =>
@@ -270,7 +268,7 @@ public partial class EditorWindow : Window
         _focusTrack = new FocusTrack(_project);
         _stickerTrack = new StickerMotion.Track(_project.Canvas.Stickers);
         _screenMotionTrack = new ScreenMotionTrack(_project.ScreenMotions);
-        _cameraMotionTrack = new CameraMotionTrack(_project.CameraMotions);
+        _cameraSceneTrack = null;
         _selectedClip = _project.Clips.FirstOrDefault()?.Id;
         NameBox.Text = _project.Name;
         Title = "DogSC — " + _project.Name;
@@ -414,6 +412,7 @@ public partial class EditorWindow : Window
         if (!_project.HasCamera) { Inspector.Children.Add(Caption(L.Text("此项目没有摄像头素材。"))); return; }
         BuildCameraDetails();
         BuildCameraContentControls();
+        BuildCameraLayoutAnimations();
         Inspector.Children.Add(Caption(L.Text("形状")));
         var shapes = new WrapPanel();
         foreach (var (name, key) in new[] { (L.Text("圆形"), "circle"), (L.Text("方形"), "square"), (L.Text("横向"), "horizontal"), (L.Text("纵向"), "vertical"), (L.Text("原比例"), "original"), (L.Text("直角"), "none") })
@@ -426,7 +425,13 @@ public partial class EditorWindow : Window
 
         Inspector.Children.Add(shapes);
         Inspector.Children.Add(Caption(L.Text("大小")));
-        Inspector.Children.Add(Slider(0.08, 0.46, _project.Camera.Size, value => _project.Camera.Size = value));
+        Inspector.Children.Add(Slider(_project.Camera.Docked ? .01 : .08, _project.Camera.Docked ? 1 : .46, _project.Camera.Size, value => _project.Camera.Size = value));
+        Inspector.Children.Add(Caption(L.Text("运镜时大小")));
+        Inspector.Children.Add(Slider(.1, 2, _project.Camera.ScaleDuringZoom, value => _project.Camera.ScaleDuringZoom = value));
+        Inspector.Children.Add(Caption(L.Text("摄像头描边")));
+        Inspector.Children.Add(Slider(0, 18, _project.Camera.BorderWidth, value => _project.Camera.BorderWidth = value));
+        Inspector.Children.Add(Caption(L.Text("摄像头阴影")));
+        Inspector.Children.Add(Slider(0, 1, _project.Camera.ShadowStrength, value => _project.Camera.ShadowStrength = value));
         if (_project.Camera.Shape != "circle" && _project.Camera.Shape != "none")
         {
             Inspector.Children.Add(Caption(L.Text("圆角")));
@@ -440,10 +445,12 @@ public partial class EditorWindow : Window
             (.12, .85, -135d, L.Text("左下")), (.5, .85, 180d, L.Text("下方居中")), (.88, .85, 135d, L.Text("右下")) })
         {
             var center = cx == .5 && cy == .5;
+            var presetX = _project.Camera.Docked ? (cx < .5 ? 0 : cx > .5 ? 1 : .5) : cx;
+            var presetY = _project.Camera.Docked ? (cy < .5 ? 0 : cy > .5 ? 1 : .5) : cy;
             var symbol = new Icon { Kind = center ? IconKind.Record : IconKind.ArrowUp, Width = center ? 9 : 17, Height = center ? 9 : 17,
                 RenderTransformOrigin = new Point(.5, .5), RenderTransform = new RotateTransform(angle) };
-            var cell = new Button { Content = symbol, ToolTip = label, Padding = new Thickness(0), Width = 30, Height = 30, Tag = (cx, cy), Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
-            ControlAppearance.SelectChip(cell, Math.Abs(cx - _project.Camera.CenterX) < .001 && Math.Abs(cy - _project.Camera.CenterY) < .001);
+            var cell = new Button { Content = symbol, ToolTip = label, Padding = new Thickness(0), Width = 30, Height = 30, Tag = (presetX, presetY), Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
+            ControlAppearance.SelectChip(cell, Math.Abs(presetX - _project.Camera.CenterX) < .001 && Math.Abs(presetY - _project.Camera.CenterY) < .001);
             System.Windows.Automation.AutomationProperties.SetName(cell, L.Text("摄像头位置：") + label);
             cell.Click += (_, _) =>
             {
@@ -952,6 +959,7 @@ public partial class EditorWindow : Window
 
     void LayoutPreview()
     {
+        _cameraSceneTrack = null;
         if (_project.Width < 2 || PreviewSlot.ActualWidth < 40 || PreviewSlot.ActualHeight < 40)
         {
             return;
@@ -1100,11 +1108,12 @@ public partial class EditorWindow : Window
                 FrameHost.Width / 2, FrameHost.Height / 2);
         }
 
-        // 摄像头进出动画：fade=淡入淡出，rise=淡入+底部滑入（对齐导出端 0.5s 窗口近似）。
-        UpdateCameraEntry();
+        // Resolve this frame's aperture before applying the shared 0.5s entrance clock.
         ApplyMotionVisual();
+        UpdateCameraEntry();
         ApplyOpeningVisual();
-        _cameraLayerOpacity = CameraBubble.Visibility == Visibility.Visible ? CameraBubble.Opacity : 0;
+        UpdateCameraDecorationVisual();
+        _cameraLayerOpacity = CameraBubble.Visibility == Visibility.Visible ? CameraLayer.Opacity : 0;
 
         UpdateCursorLayer();
         UpdateProceduralMotion();
@@ -1120,6 +1129,7 @@ public partial class EditorWindow : Window
     }
 
     double _screenLayerOpacity = 1, _cameraLayerOpacity = 1, _shadowLayerOpacity;
+    CameraScene _cameraLayoutScene;
     FramePlacement _pvFrame;
     double _pvFrameScale;
     int _pvOutW, _pvOutH;
@@ -1135,7 +1145,9 @@ public partial class EditorWindow : Window
         // planar rotation and translation stay outside the video texture.
         if (_project.ScreenMotions.Count > 0)
         {
-            var viewport = new ScreenAnchorViewport(_pvOutW, _pvOutH, _pvFrame.Width, _pvFrame.Height);
+            var viewport = new ScreenAnchorViewport(_pvOutW, _pvOutH, _pvFrame.Width, _pvFrame.Height,
+                BaseCenterX: (_pvFrame.X + _pvFrame.Width / 2d) / _pvOutW,
+                BaseCenterY: (_pvFrame.Y + _pvFrame.Height / 2d) / _pvOutH, BaseScale: _project.Canvas.Scale);
             var track = _screenMotionTrack ??= new ScreenMotionTrack(_project.ScreenMotions);
             var selected = !_player.IsPlaying ? _project.ScreenMotions.FirstOrDefault(c => c.Id == _selectedDecoration) : null;
             var s = selected is null ? track.SampleLayout(_player.Time, null, viewport,
@@ -1143,8 +1155,11 @@ public partial class EditorWindow : Window
                 : ScreenMotionTrack.TargetLayout(selected.Target, viewport);
             var mo = s.ManualOffset ?? new CompositionPoint(0, 0);
             var moBase = track.SampleLayout(-1, null, viewport).ManualOffset ?? new CompositionPoint(0, 0);
-            var anchorX = (_pvFrame.X + s.ProjectionAnchor.X * _pvFrame.Width) * _pvFrameScale;
-            var anchorY = (_pvFrame.Y + s.ProjectionAnchor.Y * _pvFrame.Height) * _pvFrameScale;
+            // RenderTransform acts inside FrameHost; its Canvas placement is
+            // applied afterwards. Including that placement in the pivot makes
+            // off-centre layouts drift as their scale changes.
+            var anchorX = s.ProjectionAnchor.X * FrameHost.Width;
+            var anchorY = s.ProjectionAnchor.Y * FrameHost.Height;
             var sx = Math.Max(0.05, s.State.Scale);
             var sy = sx;
             UpdatePerspective(_project.Canvas.TiltX + s.State.RotationX, _project.Canvas.TiltY + s.State.RotationY,
@@ -1166,33 +1181,27 @@ public partial class EditorWindow : Window
             UpdatePerspective(_project.Canvas.TiltX, _project.Canvas.TiltY);
         }
 
-        if (_project.CameraMotions.Count > 0 && _project.HasCamera)
+        if (_project.HasCamera)
         {
-            var camBase = new CameraMotionState
-            {
-                Layout = _project.Camera.Shape is "circle" or "horizontal" or "vertical" or "original" ? _project.Camera.Shape : "square",
-                X = _project.Camera.CenterX, Y = _project.Camera.CenterY,
-                Size = _project.Camera.Size, Roundness = _project.Camera.Corner * 2,
-                Opacity = _project.Camera.Hidden ? 0 : 1,
-            };
             var selected = !_player.IsPlaying ? _project.CameraMotions.FirstOrDefault(c => c.Id == _selectedDecoration) : null;
             var cameraAspect = _cameraMaskAspect ?? CameraSourceAspect;
-            var canvasAspect = (double)_pvOutW / _pvOutH;
-            var sample = selected is null
-                ? (_cameraMotionTrack ??= new CameraMotionTrack(_project.CameraMotions)).Sample(_player.Time, camBase, cameraAspect, canvasAspect,
-                    _project.Motion.ScreenSpringMass, _project.Motion.ScreenSpringStiffness, _project.Motion.ScreenSpringDamping)
-                : CameraMotionTrack.Resolve(selected.Target, cameraAspect, canvasAspect);
-            var rect = MotionExport.CameraPixels(sample, _pvOutW, _pvOutH);
+            var scene = (_cameraSceneTrack ??= new CameraSceneTrack(_project, _pvOutW, _pvOutH, cameraAspect, _cursorTimeline?.Motion))
+                .LayoutAt(_player.Time, selected?.Target, _zoomTransform.ScaleX);
+            var rect = scene.Frame;
+            _cameraLayoutScene = scene;
+            CameraLayer.Width = _pvOutW * _pvFrameScale; CameraLayer.Height = _pvOutH * _pvFrameScale;
             CameraBubble.Visibility = Visibility.Visible;
             CameraBubble.Width = Math.Max(2, rect.W * _pvFrameScale);
             CameraBubble.Height = Math.Max(2, rect.H * _pvFrameScale);
             Canvas.SetLeft(CameraBubble, rect.X * _pvFrameScale);
             Canvas.SetTop(CameraBubble, rect.Y * _pvFrameScale);
-            var side = Math.Min(CameraBubble.Width, CameraBubble.Height);
-            CameraBubble.RadiusX = CameraBubble.RadiusY = side * Math.Clamp(sample.CornerFraction, 0, 0.5);
-            // Hidden 基准时 UpdateCameraEntry 会提前返回（气泡 Collapsed），此时取 1 为底。
-            var entryOpacity = CameraBubble.Opacity;
-            CameraBubble.Opacity = (selected is null ? entryOpacity : 1) * Math.Clamp(sample.Opacity, 0, 1);
+            CameraBubble.RadiusX = CameraBubble.RadiusY = scene.Radius * _pvFrameScale;
+            CameraLayer.Opacity = Math.Clamp(rect.Opacity, 0, 1);
+            CameraBubble.RenderTransform = Transform.Identity;
+            // Measure the new aperture before Canvas reads DesiredSize during
+            // arrange; otherwise a growing camera keeps its old, smaller clip.
+            CameraBubble.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            SceneCanvas.InvalidateArrange();
             UpdateCameraContent();
         }
     }
@@ -1208,19 +1217,21 @@ public partial class EditorWindow : Window
         var entry = _project.Camera.Entry;
         var clip = TimelineMath.Place(_project).FirstOrDefault(c => _player.Time >= c.Start && _player.Time < c.End);
         var source = clip is null ? 0 : clip.Clip.SourceStart + (_player.Time - clip.Start) * clip.Clip.Speed;
-        if (clip is null || clip.Asset.Camera is null || source + clip.Asset.CameraOffset + _project.Camera.TimingAdvance < 0)
+        if (clip is null || clip.Asset.Camera is null || source + clip.Asset.CameraOffset
+            + SyncAnchorCurve.Offset(clip.Asset.CameraSyncAnchors, source) + _project.Camera.TimingAdvance < 0)
         {
-            CameraBubble.Opacity = 0;
+            CameraLayer.Opacity = 0;
             return;
         }
-        if (!_player.IsPlaying && _tool == "layout") { CameraBubble.Opacity = 1; CameraBubble.RenderTransform = Transform.Identity; return; }
+        if (!_player.IsPlaying && (_tool == "layout" || _project.CameraMotions.Any(c => c.Id == _selectedDecoration)))
+        { CameraBubble.RenderTransform = Transform.Identity; return; }
         var anim = 0.5;
-        double opacity = 1, rise = 0;
+        double opacity = CameraLayer.Opacity, rise = 0;
         if (clip is not null && entry is "fade" or "rise")
         {
             var into = Math.Clamp((_player.Time - clip.Start) / anim, 0, 1);
             var outOf = Math.Clamp((clip.End - _player.Time) / anim, 0, 1);
-            opacity = Math.Min(into, outOf);
+            opacity *= Math.Min(into, outOf);
             if (entry == "rise")
             {
                 rise = (1 - into) * CameraBubble.Height * 0.4;
@@ -1238,13 +1249,46 @@ public partial class EditorWindow : Window
                 if (_project.Canvas.Opening == "sideslide")
                 {
                     CameraBubble.RenderTransform = new TranslateTransform((1 - camp) * CameraBubble.Width * 0.4, 0);
-                    CameraBubble.Opacity = opacity;
+                    CameraLayer.Opacity = opacity;
                     return;
                 }
             }
         }
-        CameraBubble.Opacity = opacity;
-        CameraBubble.RenderTransform = rise > 0.5 ? new TranslateTransform(0, rise) : Transform.Identity;
+        CameraLayer.Opacity = opacity;
+        CameraBubble.RenderTransform = rise != 0 ? new TranslateTransform(0, rise) : Transform.Identity;
+    }
+
+    void UpdateCameraDecorationVisual()
+    {
+        if (!_project.HasCamera || CameraBubble.Visibility != Visibility.Visible)
+        {
+            CameraBorder.Visibility = CameraShadow.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var matrix = CameraBubble.RenderTransform.Value;
+        var scale = Math.Sqrt(matrix.M11 * matrix.M11 + matrix.M12 * matrix.M12);
+        var rect = new Rect(0, 0, CameraBubble.Width, CameraBubble.Height); rect.Transform(matrix);
+        rect.Offset(Canvas.GetLeft(CameraBubble), Canvas.GetTop(CameraBubble));
+        var radius = CameraBubble.RadiusX * scale;
+        var border = _cameraLayoutScene.BorderWidth * _pvFrameScale * scale;
+        var outer = rect; outer.Inflate(border, border);
+        CameraBorder.Visibility = border > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (border > 0)
+            CameraBorder.Data = new CombinedGeometry(GeometryCombineMode.Exclude,
+                new RectangleGeometry(outer, radius + border, radius + border), new RectangleGeometry(rect, radius, radius));
+        CameraShadow.Visibility = _cameraLayoutScene.ShadowStrength > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (_cameraLayoutScene.ShadowStrength > 0)
+        {
+            CameraShadow.Width = outer.Width; CameraShadow.Height = outer.Height;
+            CameraShadow.RadiusX = CameraShadow.RadiusY = radius + border;
+            Canvas.SetLeft(CameraShadow, outer.Left);
+            Canvas.SetTop(CameraShadow, outer.Top + _cameraLayoutScene.ShadowOffsetY * _pvFrameScale);
+            CameraShadow.Opacity = _cameraLayoutScene.ShadowStrength;
+            // WPF BlurEffect uses a kernel extent; FFmpeg's gblur accepts sigma.
+            _cameraShadowBlur.Radius = _cameraLayoutScene.ShadowRadius * _pvFrameScale * 3;
+            CameraShadow.Effect = _cameraShadowBlur;
+            CameraShadow.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        }
     }
 
     /// <summary>解析壁纸/贴图路径：项目相对或绝对；文件不存在返回 null。</summary>
@@ -1332,6 +1376,7 @@ public partial class EditorWindow : Window
 
     readonly BlurEffect _screenBackdropBlur = new();
     readonly BlurEffect _cameraBackdropBlur = new();
+    readonly BlurEffect _cameraShadowBlur = new();
 
     void UpdateStickerAnimation()
     {
@@ -1354,9 +1399,9 @@ public partial class EditorWindow : Window
             * OpeningMotion.Sample(_project, "screen", _player.Time, PreviewCanvas.Width, PreviewCanvas.Height).Opacity;
         _screenBackdropBlur.Radius = backdrop.ScreenBlur * _pvFrameScale;
         FrameHost.Effect = _screenBackdropBlur.Radius > .01 ? _screenBackdropBlur : null;
-        CameraBubble.Opacity = _cameraLayerOpacity * (1 - backdrop.CameraSuppression);
+        CameraLayer.Opacity = _cameraLayerOpacity * (1 - backdrop.CameraSuppression);
         _cameraBackdropBlur.Radius = backdrop.CameraBlur * _pvFrameScale;
-        CameraBubble.Effect = _cameraBackdropBlur.Radius > .01 ? _cameraBackdropBlur : null;
+        CameraLayer.Effect = _cameraBackdropBlur.Radius > .01 ? _cameraBackdropBlur : null;
         foreach (var sample in samples)
         {
             if (!_stickerImages.TryGetValue(sample.Clip.Id, out var holder)) continue;
@@ -1452,7 +1497,7 @@ public partial class EditorWindow : Window
         _focusTrack = new FocusTrack(_project);
         _stickerTrack = new StickerMotion.Track(_project.Canvas.Stickers);
         _screenMotionTrack = new ScreenMotionTrack(_project.ScreenMotions);
-        _cameraMotionTrack = new CameraMotionTrack(_project.CameraMotions);
+        _cameraSceneTrack = null;
         _saveTimer.Stop();
         if (_activeParameterReadout is null) { _pendingSave = true; _saveTimer.Start(); }
         Timeline.Project = _project;

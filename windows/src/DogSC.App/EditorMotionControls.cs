@@ -5,6 +5,106 @@ namespace DogSC;
 
 public partial class EditorWindow
 {
+    void BuildCameraLayoutAnimations()
+    {
+        var panel = Disclosure(L.Text("播放头布局动画"));
+        CameraMotionState CurrentCamera() => ScenePreset.Clone(_project.CameraMotions.FirstOrDefault(c =>
+            _player.Time >= c.Timing.StartTime && _player.Time < c.Timing.EndTime)?.Target ?? new CameraMotionState
+        {
+            Layout = _project.Camera.Shape == "none" ? "square" : _project.Camera.Shape,
+            X = _project.Camera.CenterX, Y = _project.Camera.CenterY, Size = _project.Camera.Size,
+            Roundness = _project.Camera.Corner * 2, Opacity = _project.Camera.Hidden ? 0 : 1,
+        });
+        void Apply(CameraMotionState target, ScreenMotionState? screen = null)
+            => ApplyCameraLayout(p => LayoutMotionEdits.Apply(p, _player.Time, target, screen), screen is not null);
+        var buttons = new WrapPanel();
+        buttons.Children.Add(DecorationButton(L.Text("当前"), () => Apply(CurrentCamera())));
+        buttons.Children.Add(DecorationButton(L.Text("全屏"), () => Apply(new() { Layout = "fullscreen", X = .5, Y = .5, Size = 1 })));
+        buttons.Children.Add(DecorationButton(L.Text("画中画"), () => Apply(new()
+        {
+            Layout = _project.Camera.Shape == "none" ? "square" : _project.Camera.Shape,
+            X = _project.Camera.CenterX, Y = _project.Camera.CenterY, Size = _project.Camera.Size, Roundness = _project.Camera.Corner * 2,
+        })));
+        buttons.Children.Add(DecorationButton(L.Text("屏幕与摄像头联动"), () => Apply(CurrentCamera(),
+            _project.ScreenMotions.FirstOrDefault(c => _player.Time >= c.Timing.StartTime && _player.Time < c.Timing.EndTime)?.Target
+                ?? new ScreenMotionState())));
+        panel.Children.Add(buttons);
+        panel.Children.Add(Caption(L.Text("在播放头创建布局动画；已有动画直接更新。联动后拖动或调整一侧时长，另一侧跟随。")));
+        var presets = new WrapPanel();
+        presets.Children.Add(DecorationButton(L.Text("保存摄像头布局预设"), ShowSaveLayoutPreset));
+        var mine = DecorationButton(L.Text("我的摄像头布局预设"), () => { });
+        mine.IsEnabled = SettingsStore.Current.LayoutPresets.Count > 0;
+        mine.Click += (_, _) =>
+        {
+            var menu = BuildLayoutPresetMenu(); menu.PlacementTarget = mine; menu.IsOpen = true;
+        };
+        presets.Children.Add(mine); panel.Children.Add(presets);
+    }
+
+    void ApplyCameraLayout(Func<ProjectDocument, CameraMotionClip?> apply, bool paired)
+    {
+        _player.Pause(); _activeParameterReadout?.FinishEditing();
+        var updated = ScenePreset.Clone(_project);
+        var clip = apply(updated);
+        if (clip is null) { TimeLabel.Text = L.Text("播放头附近没有空间添加布局动画，请先移动播放头。"); return; }
+        Push(); _project = updated;
+        ApplyTrackFlags(TrackFlags | 4 | (paired ? 2 : 0));
+        _selectedDecoration = clip.Id; _selectedClip = _selectedZoom = null; _tool = "zoom";
+        Commit();
+    }
+
+    void ApplySavedLayoutPreset(LayoutPreset preset) => ApplyCameraLayout(p => preset.Apply(p, _player.Time), paired: true);
+
+    string? SaveLayoutPreset(string name)
+    {
+        var settings = SettingsStore.Current; var before = settings.LayoutPresets;
+        var saved = LayoutPreset.Capture(_project, name);
+        settings.LayoutPresets = before.Where(p => p.Name != saved.Name).Append(saved).ToList();
+        try { SettingsStore.SaveOrThrow(); return null; }
+        catch (Exception error) { settings.LayoutPresets = before; return L.Text("预设未保存：") + error.Message; }
+    }
+
+    ContextMenu BuildLayoutPresetMenu()
+    {
+        var menu = new ContextMenu();
+        foreach (var preset in SettingsStore.Current.LayoutPresets)
+        {
+            var item = new MenuItem { Header = preset.Name, Tag = preset };
+            item.Click += (_, _) => ApplySavedLayoutPreset(preset); menu.Items.Add(item);
+        }
+        menu.Items.Add(new Separator());
+        foreach (var preset in SettingsStore.Current.LayoutPresets)
+        {
+            var item = new MenuItem { Header = L.Format("删除“{0}”", preset.Name), Tag = preset };
+            item.Click += (_, _) =>
+            {
+                var settings = SettingsStore.Current; var before = settings.LayoutPresets;
+                settings.LayoutPresets = before.Where(p => p.Name != preset.Name).ToList();
+                try { SettingsStore.SaveOrThrow(); }
+                catch (Exception error) { settings.LayoutPresets = before; TimeLabel.Text = L.Text("预设未删除：") + error.Message; return; }
+                RebuildInspector();
+            };
+            menu.Items.Add(item);
+        }
+        return menu;
+    }
+
+    LayoutPresetSavePanel CreateLayoutPresetSavePanel() => new(
+        name => SettingsStore.Current.LayoutPresets.Any(p => p.Name == name), SaveLayoutPreset);
+
+    void ShowSaveLayoutPreset()
+    {
+        _player.Pause(); _activeParameterReadout?.FinishEditing();
+        var dialog = new Window { Title = L.Text("保存摄像头布局预设"), SizeToContent = SizeToContent.WidthAndHeight,
+            WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent,
+            ResizeMode = ResizeMode.NoResize, Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var panel = CreateLayoutPresetSavePanel(); dialog.Content = panel;
+        panel.CancelRequested += dialog.Close; panel.Saved += () => { dialog.Close(); RebuildInspector(); };
+        dialog.Loaded += (_, _) => { WindowPlacement.KeepInWorkArea(dialog, center: true); FluidMotion.Entrance(panel); };
+        ModalShade.Visibility = Visibility.Visible;
+        try { dialog.ShowDialog(); } finally { ModalShade.Visibility = Visibility.Collapsed; }
+    }
+
     void SelectMotionMode(string key)
     {
         _motionMode = key; _selectedDecoration = null; _selectedZoom = null;
@@ -90,8 +190,9 @@ public partial class EditorWindow
     {
         var s = screen.Target;
         section.Children.Add(SectionTitle(L.Text("构图")));
-        section.Children.Add(VectorPad(L.Text("屏幕 3D 构图"), s.X, s.Y, (x, y) => { s.X = x; s.Y = y; }, headingTitle: L.Text("缩放锚点"),
-            detail: L.Text("放大时画面向锚点的反方向展开；缩小时会向锚点收拢，因此 1× 两侧的移动方向会自然相反。")));
+        section.Children.Add(VectorPad(L.Text("屏幕 3D 构图"), s.X, s.Y, (x, y) => { s.X = x; s.Y = y; }, headingTitle: L.Text(s.CanvasPlacement ? "屏幕位置" : "缩放锚点"),
+            detail: L.Text(s.CanvasPlacement ? "布局预设记录画布中的位置和大小，应用到其他项目时按当前画布适配。"
+                : "放大时画面向锚点的反方向展开；缩小时会向锚点收拢，因此 1× 两侧的移动方向会自然相反。")));
         section.Children.Add(InlineValueSlider(L.Text("目标大小"), .25, 4, s.Scale, v => s.Scale = v, v => $"{v:0.00}×"));
         section.Children.Add(SectionTitle(L.Text("空间姿态")));
         section.Children.Add(VectorPad(L.Text("屏幕 3D 倾斜"), s.RotationX, s.RotationY,

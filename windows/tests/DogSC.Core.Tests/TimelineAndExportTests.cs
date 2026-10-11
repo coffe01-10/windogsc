@@ -778,16 +778,20 @@ public class TimelineAndExportTests
         // 默认无进出动画：camr 直接进 overlay，没有 camf 中间帧。
         Assert.DoesNotContain("camf", square.FilterScript, StringComparison.Ordinal);
 
-        // fade 进出：camf 链出现两次 alpha fade。
+        // Entrance uses the shared per-frame scene, including sub-second clips.
         project.Camera.Entry = "fade";
         var fade = ExportGraph.Build(project, new ExportOptions(), Media());
-        Assert.Contains("fade=t=in", fade.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("fade=t=out", fade.FilterScript, StringComparison.Ordinal);
+        Assert.Equal(-1, fade.CameraMaskIndex);
+        Assert.Contains("geq=r=", fade.FilterScript, StringComparison.Ordinal);
+        Assert.Equal(.4, new CameraSceneTrack(project, 640, 360, 16d / 9).At(.2, 0, 4).Frame.Opacity, 6);
 
-        // rise：overlay 的 y 变成逐帧表达式。
+        // Rise is evaluated after the current aperture height is resolved.
         project.Camera.Entry = "rise";
         var rise = ExportGraph.Build(project, new ExportOptions(), Media());
-        Assert.Contains("min((t-", rise.FilterScript, StringComparison.Ordinal);
+        Assert.Equal(-1, rise.CameraMaskIndex);
+        var track = new CameraSceneTrack(project, 640, 360, 16d / 9);
+        var scene = track.At(.2, 0, 4);
+        Assert.Equal(track.LayoutAt(.2).Frame.Y + scene.Frame.H * .4 * .6, scene.Frame.Y, 6);
 
         // none：无 camf、无表达式 y。
         project.Camera.Entry = "none";

@@ -177,33 +177,43 @@ public partial class EditorWindow
             next = _overlayOriginal with { Rotation = rotation };
         }
         else if (_overlayHandle >= 0)
+        {
+            var docked = _overlayId == "camera" && _project.Camera.Docked;
+            var ratio = _overlayOriginal.Width / _overlayOriginal.Height;
+            var shortEdge = Math.Min(OverlayEditor.Width, OverlayEditor.Height);
+            var zoomScale = 1 + (_project.Camera.ScaleDuringZoom - 1) * Math.Clamp((_zoomTransform.ScaleX - 1) / .565, 0, 1);
             next = _overlayOriginal.Resize(_overlayHandle, delta.X, delta.Y,
-                OverlayEditor.Width * (_overlayId == "camera" ? .08 : .02), OverlayEditor.Width * (_overlayId == "camera" ? .46 : 1));
+                docked ? shortEdge * 72 / 1080 * ratio : OverlayEditor.Width * (_overlayId == "camera" ? .08 : .02),
+                docked ? Math.Min(OverlayEditor.Width * 1.2, shortEdge * Math.Min(1.2, zoomScale) * ratio) : OverlayEditor.Width * (_overlayId == "camera" ? .46 : 1));
+        }
         else next = _overlayOriginal with { X = _overlayOriginal.X + delta.X, Y = _overlayOriginal.Y + delta.Y };
         _snapX = _snapY = null;
-        next = next.Fit(OverlayEditor.Width, OverlayEditor.Height);
+        next = _overlayId == "camera" ? CanvasLayout.FitCamera(next, OverlayEditor.Width, OverlayEditor.Height, _project.Camera)
+            : next.Fit(OverlayEditor.Width, OverlayEditor.Height);
         if (_overlayHandle == -1 && !Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
         {
             var a = next.Rotation * Math.PI / 180;
             var ex = (Math.Abs(Math.Cos(a)) * next.Width + Math.Abs(Math.Sin(a)) * next.Height) / 2;
             var ey = (Math.Abs(Math.Sin(a)) * next.Width + Math.Abs(Math.Cos(a)) * next.Height) / 2;
-            if (next.X - ex < 6) { next = next with { X = ex }; _snapX = 0; }
-            else if (OverlayEditor.Width - next.X - ex < 6) { next = next with { X = OverlayEditor.Width - ex }; _snapX = OverlayEditor.Width; }
-            if (next.Y - ey < 6) { next = next with { Y = ey }; _snapY = 0; }
-            else if (OverlayEditor.Height - next.Y - ey < 6) { next = next with { Y = OverlayEditor.Height - ey }; _snapY = OverlayEditor.Height; }
+            if (Math.Abs(next.X - ex) < 6) { next = next with { X = ex }; _snapX = 0; }
+            else if (Math.Abs(OverlayEditor.Width - next.X - ex) < 6) { next = next with { X = OverlayEditor.Width - ex }; _snapX = OverlayEditor.Width; }
+            if (Math.Abs(next.Y - ey) < 6) { next = next with { Y = ey }; _snapY = 0; }
+            else if (Math.Abs(OverlayEditor.Height - next.Y - ey) < 6) { next = next with { Y = OverlayEditor.Height - ey }; _snapY = OverlayEditor.Height; }
             if (Math.Abs(next.X - OverlayEditor.Width / 2) < 6) { next = next with { X = OverlayEditor.Width / 2 }; _snapX = next.X; }
             if (Math.Abs(next.Y - OverlayEditor.Height / 2) < 6) { next = next with { Y = OverlayEditor.Height / 2 }; _snapY = next.Y; }
         }
-        ApplyOverlayBox(_overlayId, next); LayoutPreview();
+        ApplyOverlayBox(_overlayId, next, resize: _overlayHandle >= 0); LayoutPreview();
     }
 
-    void ApplyOverlayBox(string id, OverlayBox box)
+    void ApplyOverlayBox(string id, OverlayBox box, bool resize = false)
     {
-        box = box.Fit(OverlayEditor.Width, OverlayEditor.Height);
         if (id == "camera")
-        { var c = _project.Camera; c.CenterX = box.X / OverlayEditor.Width; c.CenterY = box.Y / OverlayEditor.Height; c.Size = box.Width / OverlayEditor.Width; }
+        {
+            box = CanvasLayout.FitCamera(box, OverlayEditor.Width, OverlayEditor.Height, _project.Camera);
+            CanvasLayout.WriteCameraBox(_project.Camera, box, OverlayEditor.Width, OverlayEditor.Height, _zoomTransform.ScaleX, resize);
+        }
         else
-        { var s = _project.Canvas.Stickers.First(s => s.Id == id); s.X = box.X / OverlayEditor.Width; s.Y = box.Y / OverlayEditor.Height; s.Width = box.Width / OverlayEditor.Width; s.Rotation = box.Rotation; }
+        { box = box.Fit(OverlayEditor.Width, OverlayEditor.Height); var s = _project.Canvas.Stickers.First(s => s.Id == id); s.X = box.X / OverlayEditor.Width; s.Y = box.Y / OverlayEditor.Height; s.Width = box.Width / OverlayEditor.Width; s.Rotation = box.Rotation; }
     }
 
     void FinishOverlayGesture(bool cancel)

@@ -260,6 +260,8 @@ public static class MacProjectImporter
 
     static void MapCamera(JsonElement root, ProjectDocument project, List<string> dropped)
     {
+        project.Camera = new() { Docked = true, CenterX = .96, CenterY = .47, Size = .29,
+            Shape = "square", Corner = .25, Mirrored = true, ScaleDuringZoom = .7, BorderWidth = 3, ShadowStrength = .25 };
         var camera = Obj(root, "camera");
         if (camera is null)
         {
@@ -267,33 +269,28 @@ public static class MacProjectImporter
         }
 
         var c = camera.Value;
+        project.Camera.ScaleDuringZoom = Num(c, "scaleDuringZoom", .7);
+        project.Camera.BorderWidth = Num(c, "borderWidth", 3);
+        project.Camera.ShadowStrength = Num(c, "shadowStrength", .25);
         var pos = Obj(c, "position");
         if (pos is { } p)
         {
-            project.Camera.CenterX = Num(p, "x", 0.84);
-            project.Camera.CenterY = Num(p, "y", 0.78);
+            project.Camera.CenterX = Num(p, "x", .96);
+            project.Camera.CenterY = Num(p, "y", .47);
         }
 
         project.Camera.Size = Num(c, "size", 0.29);
         // Preserve the macOS mask ratio and independent content framing.
-        var shape = Text(c, "shape");
+        var shape = Text(c, "shape") ?? "square";
         project.Camera.Shape = shape switch { "圆形" or "circle" => "circle", "横向" or "horizontal" or "圆角矩形" => "horizontal",
             "纵向" or "vertical" => "vertical", "原始比例" or "original" => "original", "方形" or "square" or "连续圆角" => "square", _ => "none" };
         project.Camera.ContentScale = Num(c, "contentScale", 1);
         if (Obj(c, "contentPosition") is { } content)
         { project.Camera.ContentX = Num(content, "x", .5); project.Camera.ContentY = Num(content, "y", .5); }
         project.Camera.Hidden = c.TryGetProperty("isHidden", out var h) && h.ValueKind == JsonValueKind.True;
-        project.Camera.Mirrored = c.TryGetProperty("isMirrored", out var mirrored) && mirrored.ValueKind == JsonValueKind.True;
-        project.Camera.Corner = .5 * Num(c, "roundness", .36);
+        project.Camera.Mirrored = !c.TryGetProperty("isMirrored", out var mirrored) || mirrored.ValueKind == JsonValueKind.True;
+        project.Camera.Corner = .5 * Num(c, "roundness", .5);
 
-        foreach (var key in new[] { "borderWidth", "scaleDuringZoom",
-                     "shadowStrength" })
-        {
-            if (c.TryGetProperty(key, out _))
-            {
-                dropped.Add("camera." + key);
-            }
-        }
     }
 
     static void MapAudio(JsonElement root, ProjectDocument project)
@@ -409,6 +406,7 @@ public static class MacProjectImporter
                 {
                     FocusEffect = MapFocus(Obj(clip, "focusEffect"), linearDefault: true),
                     Id = Text(clip, "id") ?? Guid.NewGuid().ToString("N"),
+                    GroupId = Text(clip, "groupID"),
                     Timing = MapTiming(clip),
                     Target = new ScreenMotionState
                     {
@@ -433,6 +431,7 @@ public static class MacProjectImporter
                 project.CameraMotions.Add(new CameraMotionClip
                 {
                     Id = Text(clip, "id") ?? Guid.NewGuid().ToString("N"),
+                    GroupId = Text(clip, "groupID"),
                     Timing = MapTiming(clip),
                     Target = new CameraMotionState
                     {

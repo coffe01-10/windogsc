@@ -672,7 +672,7 @@ public partial class EditorWindow
         var cameraMatrix = CameraBubble.RenderTransform.Value;
         cameraMatrix.ScaleAt(camera.Scale, camera.Scale, CameraBubble.Width / 2, CameraBubble.Height / 2);
         cameraMatrix.Translate(camera.X, camera.Y);
-        CameraBubble.RenderTransform = new MatrixTransform(cameraMatrix); CameraBubble.Opacity *= camera.Opacity;
+        CameraBubble.RenderTransform = new MatrixTransform(cameraMatrix); CameraLayer.Opacity *= camera.Opacity;
     }
 
     void BuildMonitorToolbar()

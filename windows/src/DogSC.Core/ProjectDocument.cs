@@ -304,6 +304,12 @@ public sealed class SourceCrop
 
 public sealed class CameraBubble
 {
+    /// <summary>Mac/new recording layout: height as a short-edge fraction and position as edge docking. Absent in legacy Windows projects.</summary>
+    public bool Docked { get; set; }
+    public double ScaleDuringZoom { get; set; } = 1;
+    /// <summary>Camera border in 1080-short-edge style pixels; drawn outside the aperture.</summary>
+    public double BorderWidth { get; set; }
+    public double ShadowStrength { get; set; }
     public double CenterX { get; set; } = 0.84;
     public double CenterY { get; set; } = 0.78;
     public double Size { get; set; } = 0.2;
@@ -455,7 +461,8 @@ public static class ProjectFile
             soft.Corner = Math.Clamp(soft.Corner, 0, 0.5);
             soft.Dimming = Math.Clamp(soft.Dimming, 0, 1);
         }
-        project.Camera.Size = Math.Clamp(project.Camera.Size, 0.08, 0.46);
+        project.Camera.Size = Math.Clamp(project.Camera.Size, project.Camera.Docked ? .01 : .08, project.Camera.Docked ? 1 : .46);
+        project.Camera.ScaleDuringZoom = Math.Clamp(project.Camera.ScaleDuringZoom, .1, 2);
         project.Camera.CenterX = Math.Clamp(project.Camera.CenterX, 0, 1);
         project.Camera.CenterY = Math.Clamp(project.Camera.CenterY, 0, 1);
         project.Camera.Shape = project.Camera.Shape is "square" or "none" or "horizontal" or "vertical" or "original" ? project.Camera.Shape : "circle";
@@ -464,6 +471,8 @@ public static class ProjectFile
         project.Camera.ContentY = Math.Clamp(project.Camera.ContentY, 0, 1);
         project.Camera.Entry = project.Camera.Entry is "fade" or "rise" ? project.Camera.Entry : "none";
         project.Camera.Corner = Math.Clamp(project.Camera.Corner, 0, 0.5);
+        project.Camera.BorderWidth = Math.Clamp(project.Camera.BorderWidth, 0, 18);
+        project.Camera.ShadowStrength = Math.Clamp(project.Camera.ShadowStrength, 0, 1);
         project.MicrophoneGain = Math.Clamp(project.MicrophoneGain, 0, ProjectDocument.MaxGain);
         project.SystemGain = Math.Clamp(project.SystemGain, 0, ProjectDocument.MaxGain);
         foreach (var clip in project.Clips)
@@ -518,7 +527,7 @@ public static class ProjectFile
                 or "original" or "circle" or "fullscreen" ? clip.Target.Layout : "square";
             clip.Target.X = Math.Clamp(clip.Target.X, 0, 1);
             clip.Target.Y = Math.Clamp(clip.Target.Y, 0, 1);
-            clip.Target.Size = Math.Clamp(clip.Target.Size, 0.08, 1);
+            clip.Target.Size = Math.Clamp(clip.Target.Size, (clip.Target.Docked ?? project.Camera.Docked) ? .01 : .08, 1);
             clip.Target.Roundness = Math.Clamp(clip.Target.Roundness, 0, 1);
             clip.Target.Opacity = Math.Clamp(clip.Target.Opacity, 0, 1);
         }

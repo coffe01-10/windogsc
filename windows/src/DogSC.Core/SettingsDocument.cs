@@ -53,6 +53,7 @@ public sealed class AppSettings
     /// <summary>时间线轨道显示位集（对齐 Mac EditorTimelineTrackVisibility）：1=缩放 2=屏幕运动 4=摄像头运动 8=叠加。默认只显示缩放轨，隐藏只是收起行。</summary>
     public int TimelineTracks { get; set; } = 1;
     public List<ScenePreset> ScenePresets { get; set; } = [];
+    public List<LayoutPreset> LayoutPresets { get; set; } = [];
     public bool TourSeen { get; set; }
     public bool RecorderTourSeen { get; set; }
     public string CameraDefaultShape { get; set; } = "circle";
@@ -131,6 +132,7 @@ public static class SettingsFile
         settings.RecordingQuality = settings.RecordingQuality is "high" or "compact" ? settings.RecordingQuality : "standard";
         settings.RecentProjects ??= [];
         settings.ScenePresets ??= [];
+        settings.LayoutPresets ??= [];
         // 坐标字段 NaN 是合法哨兵（未存过位置），Infinity 没有语义、回到 NaN。
         settings.BarLeft = double.IsInfinity(settings.BarLeft) ? defaults.BarLeft : settings.BarLeft;
         settings.BarTop = double.IsInfinity(settings.BarTop) ? defaults.BarTop : settings.BarTop;
