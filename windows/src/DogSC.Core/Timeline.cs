@@ -570,8 +570,10 @@ public static class TimelineEdits
     }
 
     /// <summary>一轮连续操作生成一个镜头；附近点击保持构图，换目标由 ZoomMotion 连续衔接。</summary>
-    public static int AutoZoom(ProjectDocument project, double scale = 1.6, double hold = .9, double lead = .126, double minGap = 1.4)
+    public static int AutoZoom(ProjectDocument project, double? scale = null, double hold = .9, double lead = .126, double minGap = 1.4)
     {
+        var zoomScale = scale ?? project.Motion.DefaultZoomScale ?? 1.6;
+        var transition = project.Motion.DefaultZoomTransitionDuration;
         var total = TimelineMath.Duration(project);
         var events = ZoomMotion.Events(project);
         var manual = project.Zooms.Where(z => z.Origin != "automatic").OrderBy(z => z.Start).ToArray();
@@ -607,15 +609,17 @@ public static class TimelineEdits
                 activity = point.Time;
             }
             var holdEnd = Math.Max(last.Time + hold, activity + .55);
-            var end = Math.Min(Math.Max(holdEnd, start + .7) + .7, limit);
+            var end = Math.Min(Math.Max(holdEnd, start + transition) + transition, limit);
             if (end - start < .12) continue;
             var zoom = new ZoomSpan
             {
-                Start = start, Duration = end - start, Scale = Math.Clamp(scale, 1, 4), Origin = "automatic",
-                Easing = "spring", EnterDuration = .7,
-                ExitDuration = end >= total - .001 ? 0 : Math.Min(.7, Math.Max(0, end - holdEnd)),
-                FocusX = ZoomMotion.Focus((first.X - project.Canvas.Crop.X) / project.Canvas.Crop.Width, scale),
-                FocusY = ZoomMotion.Focus((first.Y - project.Canvas.Crop.Y) / project.Canvas.Crop.Height, scale),
+                Start = start, Duration = end - start, Scale = Math.Clamp(zoomScale, 1, 6), Origin = "automatic",
+                Easing = project.Motion.DefaultZoomEasing, EnterDuration = transition,
+                ExitDuration = end >= total - .001 ? 0 : Math.Min(transition, Math.Max(0, end - holdEnd)),
+                SpringMass = project.Motion.ScreenSpringMass, SpringStiffness = project.Motion.ScreenSpringStiffness,
+                SpringDamping = project.Motion.ScreenSpringDamping,
+                FocusX = ZoomMotion.Focus((first.X - project.Canvas.Crop.X) / project.Canvas.Crop.Width, zoomScale),
+                FocusY = ZoomMotion.Focus((first.Y - project.Canvas.Crop.Y) / project.Canvas.Crop.Height, zoomScale),
             };
             project.Zooms.Add(zoom);
             previousEnd = end;
@@ -626,23 +630,33 @@ public static class TimelineEdits
 
     // Existing clips are selected rather than covered by a second, neutral 3D target.
     // A new clip is returned detached so the editor can capture undo before inserting it.
-    public static ScreenMotionClip? PrepareScreenMotion(ProjectDocument project, double time, double transition = .7)
+    public static ScreenMotionClip? PrepareScreenMotion(ProjectDocument project, double time, double? transition = null,
+        ScreenMotionCreationStyle? fallbackStyle = null)
     {
         var existing = project.ScreenMotions.LastOrDefault(c => time >= c.Timing.StartTime && time < c.Timing.EndTime);
         if (existing is not null) return existing;
         time = Math.Max(0, time);
-        var end = Math.Min(time + 1, TimelineMath.Duration(project));
+        var style = project.Motion.DefaultScreenMotion ?? fallbackStyle;
+        var enter = style?.LeadInDuration ?? transition ?? project.Motion.DefaultZoomTransitionDuration;
+        var exit = style?.ReturnDuration ?? transition ?? project.Motion.DefaultZoomTransitionDuration;
+        var limit = TimelineMath.Duration(project);
         foreach (var next in project.ScreenMotions.Where(c => c.Timing.StartTime > time))
-            end = Math.Min(end, next.Timing.StartTime);
+            limit = Math.Min(limit, next.Timing.StartTime);
+        var end = Math.Min(time + 1, limit);
         if (end - time < .12) return null;
+        var timing = new TransitionTiming { StartTime = time, Duration = end - time,
+            LeadInDuration = Math.Min(enter, end - time), ReturnDuration = Math.Min(exit, limit - end),
+            PreferredLeadInDuration = enter, PreferredReturnDuration = exit, Easing = project.Motion.DefaultZoomEasing };
+        if (style is not null) return style.Create(timing);
         return new ScreenMotionClip
         {
-            Timing = new() { StartTime = time, Duration = end - time,
-                LeadInDuration = Math.Min(transition, end - time), ReturnDuration = transition },
+            Timing = timing,
+            Target = ScenePreset.Clone(new ScreenMotionTrack(project.ScreenMotions).SampleLayout(time, springMass: project.Motion.ScreenSpringMass,
+                springStiffness: project.Motion.ScreenSpringStiffness, springDamping: project.Motion.ScreenSpringDamping).State),
         };
     }
 
-    public static ZoomSpan? AddZoom(ProjectDocument project, double time)
+    public static ZoomSpan? AddZoom(ProjectDocument project, double time, double fallbackScale = 1.6)
     {
         var duration = TimelineMath.Duration(project);
         if (duration < 0.3)
@@ -671,7 +685,10 @@ public static class TimelineEdits
             return null;
         }
 
-        var zoom = new ZoomSpan { Start = time, Duration = length, Easing = "spring", EnterDuration = .7, ExitDuration = .7 };
+        var motion = project.Motion;
+        var zoom = new ZoomSpan { Start = time, Duration = length, Scale = motion.DefaultZoomScale ?? fallbackScale,
+            Easing = motion.DefaultZoomEasing, EnterDuration = motion.DefaultZoomTransitionDuration, ExitDuration = motion.DefaultZoomTransitionDuration,
+            SpringMass = motion.ScreenSpringMass, SpringStiffness = motion.ScreenSpringStiffness, SpringDamping = motion.ScreenSpringDamping };
         project.Zooms.Add(zoom);
         project.Zooms.Sort((left, right) => left.Start.CompareTo(right.Start));
         return zoom;

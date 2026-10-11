@@ -816,7 +816,7 @@ public partial class RecorderBarWindow : Window
         {
             var button = new Button { Style = (Style)FindResource("QuietButton"), HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 1, 0, 1) };
             var stack = new StackPanel();
-            stack.Children.Add(new TextBlock { Text = item.Title, FontFamily = (FontFamily)FindResource("FontMedium") });
+            stack.Children.Add(new TextBlock { Text = item.Title, FontFamily = (FontFamily)FindResource("FontMedium"), FontWeight = FontWeights.Medium });
             if (!string.IsNullOrWhiteSpace(item.Detail))
             {
                 stack.Children.Add(new TextBlock { Text = item.Detail, FontSize = 11, Foreground = (Brush)FindResource("InkSecondaryBrush") });

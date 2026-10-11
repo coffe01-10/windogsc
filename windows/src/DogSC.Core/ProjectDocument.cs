@@ -42,6 +42,7 @@ public sealed class ProjectDocument
     public List<CameraMotionClip> CameraMotions { get; set; } = [];
     public CanvasSettings Canvas { get; set; } = new();
     public CameraBubble Camera { get; set; } = new();
+    public MotionDefaults Motion { get; set; } = new();
     public string ExportResolution { get; set; } = "source";
     public int ExportFps { get; set; } = 30;
 
@@ -132,6 +133,9 @@ public sealed class SourceMarker
 public sealed class CanvasSettings
 {
     public string Aspect { get; set; } = "source";
+    public bool AspectIsCustom { get; set; }
+    public double CustomAspectWidth { get; set; } = 16;
+    public double CustomAspectHeight { get; set; } = 9;
     public SourceCrop Crop { get; set; } = new();
     public string Background { get; set; } = "#F3F1EC";
     public double Padding { get; set; } = 72;
@@ -175,6 +179,8 @@ public sealed class CanvasSettings
     public double ScreenFrameScale { get; set; } = 1;
     /// <summary>外框顶栏缩放 0.65..1.6。</summary>
     public double ScreenFrameToolbarScale { get; set; } = 1;
+    public double? ScreenFrameOuterCornerRadius { get; set; }
+    public double? ScreenFrameContentCornerRadius { get; set; }
     /// <summary>窗口标题文字。</summary>
     public string ScreenFrameTitle { get; set; } = "";
     /// <summary>浏览器地址栏文字。</summary>
@@ -465,7 +471,7 @@ public static class ProjectFile
 
         foreach (var zoom in project.Zooms)
         {
-            zoom.Scale = Math.Clamp(zoom.Scale, 1, 4);
+            zoom.Scale = Math.Clamp(zoom.Scale, 1, 6);
             zoom.FocusX = Math.Clamp(zoom.FocusX, 0, 1);
             zoom.FocusY = Math.Clamp(zoom.FocusY, 0, 1);
             zoom.Duration = Math.Max(0.12, zoom.Duration);

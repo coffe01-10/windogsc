@@ -16,14 +16,16 @@
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Style="{StaticResource QuietButton}" Padding="8" Width="38" Height="36" Click="ProjectFolder_Click" ToolTip="打开项目文件夹"><local:Icon Kind="Folder" Width="20" Height="20"/></Button>
                 <Button Style="{StaticResource QuietButton}" Padding="0" Width="12" Height="36" Margin="0,0,10,0" Click="ProjectFolder_Click" ToolTip="项目文件夹"><local:Icon Kind="ChevronDown" Width="9" Height="9"/></Button>
-                <TextBox x:Name="NameBox" MinWidth="180" BorderThickness="0" Background="Transparent" FontFamily="{DynamicResource FontMedium}" FontSize="14" LostFocus="Name_LostFocus"/>
+                <TextBox x:Name="NameBox" MinWidth="180" BorderThickness="0" Background="Transparent" FontFamily="{DynamicResource FontMedium}" FontWeight="Medium" FontSize="14" LostFocus="Name_LostFocus"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Button x:Name="SceneMenuButton" Style="{StaticResource QuietButton}" Click="SceneMenu_Click" Margin="0,0,8,0" BorderThickness="0.75" BorderBrush="{DynamicResource LineBrush}">
-                    <StackPanel Orientation="Horizontal"><local:Icon Kind="Layout" Width="16" Height="16" Margin="0,0,7,0"/><TextBlock x:Name="SceneMenuLabel" Text="场景" VerticalAlignment="Center"/><local:Icon Kind="ChevronDown" Width="10" Height="10" Margin="8,0,0,0"/></StackPanel>
-                </Button>
                 <Button x:Name="UndoButton" ToolTip="撤销（Ctrl+Z）" AutomationProperties.Name="撤销" Style="{StaticResource IconButton}" Click="Undo_Click"><local:Icon Kind="Undo"/></Button>
                 <Button x:Name="RedoButton" ToolTip="重做（Ctrl+Y）" AutomationProperties.Name="重做" Style="{StaticResource IconButton}" Click="Redo_Click"><local:Icon Kind="Redo"/></Button>
+                <Border Margin="8,0,0,0" CornerRadius="13" Padding="4" Background="{DynamicResource SegmentSelectedBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75">
+                    <Button x:Name="SceneMenuButton" Style="{StaticResource QuietButton}" Click="SceneMenu_Click" Height="32" Padding="12,0">
+                        <StackPanel Orientation="Horizontal"><local:Icon Kind="SceneStack" Width="14" Height="14" Margin="0,0,6,0"/><TextBlock x:Name="SceneMenuLabel" Text="保存场景" VerticalAlignment="Center" FontFamily="{DynamicResource FontMedium}" FontWeight="Medium"/><Ellipse x:Name="SceneModified" Width="5" Height="5" Fill="#EDA629" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="Collapsed"/><local:Icon x:Name="SceneMenuArrow" Kind="ChevronDown" Width="9" Height="9" Margin="6,0,0,0" Visibility="Collapsed"/></StackPanel>
+                    </Button>
+                </Border>
                 <Button Style="{StaticResource QuietButton}" Click="Export_Click" Margin="8,0" BorderThickness="0.75" BorderBrush="{DynamicResource LineBrush}"><StackPanel Orientation="Horizontal"><local:Icon Kind="Share" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="导出" VerticalAlignment="Center"/></StackPanel></Button>
                 <Button ToolTip="设置" AutomationProperties.Name="设置" Style="{StaticResource IconButton}" Click="Settings_Click"><local:Icon Kind="Settings" Width="19" Height="19"/></Button>
                 <Button x:Name="ThemeButton" ToolTip="切换主题" AutomationProperties.Name="切换主题" Style="{StaticResource IconButton}" Click="Theme_Click"><local:Icon x:Name="ThemeIcon" Kind="Moon"/></Button>
@@ -42,7 +44,7 @@
                         Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75">
                     <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
                       <Grid x:Name="ToolRailGrid">
-                        <Border x:Name="ToolRailSelection" CornerRadius="10" HorizontalAlignment="Left" VerticalAlignment="Top" Background="{DynamicResource RailSelectionBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="0.5" IsHitTestVisible="False">
+                        <Border x:Name="ToolRailSelection" CornerRadius="12" HorizontalAlignment="Left" VerticalAlignment="Top" Background="{DynamicResource RailSelectionBrush}" IsHitTestVisible="False">
                             <Border.RenderTransform><TranslateTransform/></Border.RenderTransform>
                         </Border>
                         <StackPanel>
@@ -121,12 +123,23 @@
             <GridSplitter Grid.Column="2" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="Transparent" ToolTip="拖动调整属性面板宽度" AutomationProperties.Name="属性面板宽度"/>
             <Grid Grid.Column="3" Margin="8,0,16,0">
                 <Grid.RowDefinitions><RowDefinition x:Name="InspectorToolbarRow" Height="52"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                <Border x:Name="InspectorSurface" Grid.Row="1" VerticalAlignment="Center" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75" CornerRadius="20" Padding="20">
-                <Grid ClipToBounds="True">
-                <ScrollViewer x:Name="InspectorScroll" VerticalScrollBarVisibility="Auto">
-                    <StackPanel x:Name="Inspector"/>
-                </ScrollViewer>
-                <Grid x:Name="InspectorTransitionLayer" IsHitTestVisible="False" ClipToBounds="True"/>
+                <Border x:Name="InspectorSurface" Grid.Row="1" VerticalAlignment="Center" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75" CornerRadius="20">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Grid x:Name="InspectorHeaderHost" Height="54" ClipToBounds="True">
+                        <ContentControl x:Name="InspectorHeaderContent" Margin="20,0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center"/>
+                        <Grid x:Name="InspectorHeaderTransitionLayer" Margin="20,0" IsHitTestVisible="False"/>
+                        <Border Height="0.75" VerticalAlignment="Bottom" Background="{DynamicResource LineBrush}"/>
+                    </Grid>
+                    <Border x:Name="InspectorNavigationHost" Grid.Row="1" Visibility="Collapsed" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,0.75">
+                        <ContentControl x:Name="InspectorNavigation" Margin="20,8" HorizontalContentAlignment="Stretch"/>
+                    </Border>
+                    <Grid Grid.Row="2" ClipToBounds="True" Margin="20,0,20,16">
+                        <ScrollViewer x:Name="InspectorScroll" VerticalScrollBarVisibility="Auto">
+                            <StackPanel x:Name="Inspector"/>
+                        </ScrollViewer>
+                        <Grid x:Name="InspectorTransitionLayer" IsHitTestVisible="False" ClipToBounds="True"/>
+                    </Grid>
                 </Grid>
                 </Border>
             </Grid>
@@ -153,10 +166,10 @@
                         <Button ToolTip="删除（Delete）" AutomationProperties.Name="删除" Style="{StaticResource IconButton}" Click="Delete_Click"><local:Icon Kind="Trash"/></Button>
                         <Button x:Name="RestoreButton" ToolTip="还原剪掉的素材" AutomationProperties.Name="还原" Style="{StaticResource IconButton}" Click="Restore_Click"><local:Icon Kind="Undo"/></Button>
                         <Border Background="{DynamicResource SegmentWellBrush}" CornerRadius="10" Padding="3" Margin="8,0,0,0" VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal">
+                            <Grid x:Name="TimelineViewChoices">
                                 <Button x:Name="VideoViewButton" Content="视频" Style="{StaticResource TimelineChip}" Click="TimelineView_Click" Tag="video"/>
                                 <Button x:Name="WaveformViewButton" Content="波形" Style="{StaticResource TimelineChip}" Click="TimelineView_Click" Tag="waveform"/>
-                            </StackPanel>
+                            </Grid>
                         </Border>
                         <CheckBox x:Name="MarkersToggle" Content="标记" Style="{StaticResource ToolbarToggle}" IsChecked="True" VerticalAlignment="Center" Margin="8,0" Click="MarkersToggle_Click"/>
                         <Button Style="{StaticResource IconButton}" ToolTip="更多编辑操作" Click="EditMenu_Click">
@@ -176,7 +189,7 @@
                         <Button x:Name="PlayButton" ToolTip="播放（Space）" AutomationProperties.Name="播放" Style="{StaticResource PlaybackButton}" Click="Play_Click"><local:Icon x:Name="PlayIcon" Kind="Play" Width="20" Height="20"/></Button>
                         <Button ToolTip="跳到结尾" AutomationProperties.Name="跳到结尾" Style="{StaticResource PlaybackButton}" Click="SkipEnd_Click"><local:Icon Kind="SkipEnd" Width="20" Height="20"/></Button>
                       </StackPanel>
-                        <TextBlock x:Name="TimeLabel" VerticalAlignment="Center" Canvas.Left="148" Canvas.Top="14" Width="146" TextTrimming="CharacterEllipsis" FontSize="11" FontFamily="{DynamicResource FontMedium}"/>
+                        <TextBlock x:Name="TimeLabel" VerticalAlignment="Center" Canvas.Left="148" Canvas.Top="14" Width="146" TextTrimming="CharacterEllipsis" FontSize="11" FontFamily="{DynamicResource FontMedium}" FontWeight="Medium"/>
                     </Canvas>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <CheckBox x:Name="SnapToggle" Content="吸附" Style="{StaticResource ToolbarToggle}" IsChecked="True" VerticalAlignment="Center" Margin="0,0,8,0" Checked="SnapToggle_Changed" Unchecked="SnapToggle_Changed" ToolTip="拖动时按刻度与片段边缘吸附"/>
@@ -206,7 +219,7 @@
                     BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
                     HorizontalAlignment="Center" VerticalAlignment="Center">
                 <StackPanel>
-                    <TextBlock x:Name="TourTitle" FontFamily="{DynamicResource FontSemi}" FontSize="20" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="TourTitle" FontFamily="{DynamicResource FontSemi}" FontWeight="SemiBold" FontSize="20" TextWrapping="Wrap"/>
                     <TextBlock x:Name="TourBody" Margin="0,10,0,0" TextWrapping="Wrap" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     <TextBlock x:Name="TourStep" Margin="0,14,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     <DockPanel Margin="0,12,0,0">

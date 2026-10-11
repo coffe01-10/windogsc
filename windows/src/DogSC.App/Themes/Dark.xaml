@@ -13,6 +13,8 @@
     <SolidColorBrush x:Key="PanelBrush" Color="#121315"/>
     <SolidColorBrush x:Key="CardBrush" Color="#1C1D1F"/>
     <SolidColorBrush x:Key="GlassEdgeBrush" Color="#26FFFFFF"/>
+    <SolidColorBrush x:Key="ChoiceSelectedBorderBrush" Color="#24FFFFFF"/>
+    <SolidColorBrush x:Key="PopoverSelectionBrush" Color="#52333333"/>
     <SolidColorBrush x:Key="SettingsSidebarBrush" Color="#202123"/>
     <SolidColorBrush x:Key="SettingsCardBrush" Color="#252628"/>
     <SolidColorBrush x:Key="WellBrush" Color="#2A2C2F"/>
@@ -20,6 +22,13 @@
     <SolidColorBrush x:Key="InkSecondaryBrush" Color="#B0B0AA"/>
     <SolidColorBrush x:Key="LineBrush" Color="#22FFFFFF"/>
     <SolidColorBrush x:Key="AccentBrush" Color="#F2F0EA"/>
+    <SolidColorBrush x:Key="PadChromeBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="PadHandleOutlineBrush" Color="#C7FFFFFF"/>
+    <SolidColorBrush x:Key="PadHeadingBrush" Color="#D6FFFFFF"/>
+    <SolidColorBrush x:Key="PadDetailBrush" Color="#61FFFFFF"/>
+    <SolidColorBrush x:Key="PadActionBrush" Color="#D9FFFFFF"/>
+    <SolidColorBrush x:Key="GhostHoverBrush" Color="#12FFFFFF"/>
+    <SolidColorBrush x:Key="GhostPressedBrush" Color="#1CFFFFFF"/>
     <SolidColorBrush x:Key="OnAccentBrush" Color="#141414"/>
     <SolidColorBrush x:Key="RecordBrush" Color="#FF4F4A"/>
     <SolidColorBrush x:Key="SuccessBrush" Color="#5ECC91"/>

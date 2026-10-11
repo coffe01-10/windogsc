@@ -87,12 +87,16 @@ public static class ChromeGeometry
         var outerRadius = isDevice
             ? Math.Min(outerW, outerH) * (isPhone ? 0.11 : 0.065)
             : (kind == "browser" ? 22 : 18) * visualScale;
+        if (canvas.ScreenFrameOuterCornerRadius is { } authoredOuter)
+            outerRadius = Math.Clamp(authoredOuter, 0, 160) * visualScale;
         outerRadius = Math.Min(outerRadius, Math.Min(outerW, outerH) / 2);
 
-        // 内容圆角：设备壳 = 外圆角 - bezel；窗口/浏览器用外圆角让卡片底角贴合外框。
+        // 无显式半径时：设备壳 = 外圆角 - bezel；窗口/浏览器内容为直角。
         var contentRadius = isDevice
             ? Math.Max(outerRadius - Math.Min(top, side), 0)
-            : outerRadius;
+            : 0;
+        if (canvas.ScreenFrameContentCornerRadius is { } authoredContent)
+            contentRadius = Math.Clamp(authoredContent, 0, 160) * visualScale;
         contentRadius = Math.Min(contentRadius, Math.Min(fittedW, fittedH) / 2);
 
         var dark = style.EndsWith("Dark", StringComparison.OrdinalIgnoreCase) || isDevice;

@@ -58,7 +58,7 @@ public static class SettingsStore
     {
         try
         {
-            SettingsFile.Save(AppPaths.SettingsFile, Current);
+            SaveOrThrow();
         }
         catch (Exception ex)
         {
@@ -66,6 +66,9 @@ public static class SettingsStore
             AppPaths.Log("设置保存失败：" + ex.Message);
         }
     }
+
+    // Explicit editor operations need the failure to keep their dialog open.
+    public static void SaveOrThrow() => SettingsFile.Save(AppPaths.SettingsFile, Current);
 
     public static void Remember(string projectDirectory)
     {

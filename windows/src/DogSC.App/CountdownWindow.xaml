@@ -4,7 +4,7 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize" IsHitTestVisible="False">
     <Grid>
-        <TextBlock x:Name="Number" Text="3" FontSize="120" FontFamily="{DynamicResource FontSemi}"
+        <TextBlock x:Name="Number" Text="3" FontSize="120" FontFamily="{DynamicResource FontSemi}" FontWeight="SemiBold"
                    Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center">
             <TextBlock.Effect>
                 <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.45" Color="Black"/>

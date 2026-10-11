@@ -97,7 +97,7 @@ public static class CanvasLayout
         var radius = (int)Math.Round(Math.Clamp(canvas.Corner, 0, 240) / 1080.0 * canvasHeight);
         radius = Math.Clamp(radius, 0, Math.Min(frameWidth, frameHeight) / 2);
         var shadowT = Math.Clamp(canvas.Shadow / 100.0, 0, 1);
-        return new FramePlacement(
+        var placement = new FramePlacement(
             x,
             y,
             frameWidth,
@@ -106,6 +106,9 @@ public static class CanvasLayout
             (int)Math.Round(shadowT * 28),
             (int)Math.Round(shadowT * 22),
             shadowT * 0.5);
+        if (ChromeGeometry.Resolve(canvas, placement, canvasWidth, canvasHeight) is { } chrome)
+            placement = placement with { Radius = (int)Math.Round(chrome.ContentRadius) };
+        return placement;
     }
 
     public static (int X, int Y, int Width, int Height) Crop(int width, int height, SourceCrop crop)
@@ -191,7 +194,7 @@ public static class CanvasLayout
 
     public static (int Width, int Height, int X, int Y) ZoomCrop(int videoWidth, int videoHeight, double scale, double focusX, double focusY)
     {
-        scale = Math.Clamp(scale, 1, 4);
+        scale = Math.Clamp(scale, 1, 6);
         var cropWidth = Even(Math.Clamp((int)Math.Floor(videoWidth / scale), 2, videoWidth));
         var cropHeight = Even(Math.Clamp((int)Math.Floor(videoHeight / scale), 2, videoHeight));
         var maxX = Math.Max(0, videoWidth - cropWidth);

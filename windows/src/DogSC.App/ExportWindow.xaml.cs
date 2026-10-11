@@ -13,6 +13,7 @@ public partial class ExportWindow : Window
     int _fps;
     bool _running;
     string? _completedOutput;
+    string? _nameBeforeEditing;
     FluidSegments _outputChoices = null!, _fpsChoices = null!, _resolutionChoices = null!;
 
     public ExportWindow(ProjectDocument project, string directory, ImageSource? preview = null)
@@ -25,6 +26,7 @@ public partial class ExportWindow : Window
         PreviewImage.Source = preview;
         ProjectName.Text = project.Name;
         FileName.Text = project.Name + "-" + _fps + "fps";
+        FileNameDisplay.Text = FileName.Text;
         FolderPath.Text = SettingsStore.Current.ExportDirectory;
         foreach (var option in new[] { ("原始素材", "source"), ("1080p", "1080"), ("1440p", "1440"), ("4K", "2160") })
         {
@@ -100,6 +102,7 @@ public partial class ExportWindow : Window
         }
 
         var ffmpeg = FfmpegTools.LocateFfmpeg();
+        Status.Visibility = Visibility.Visible;
         if (ffmpeg is null)
         {
             Status.Text = "没有找到 ffmpeg。";
@@ -116,6 +119,7 @@ public partial class ExportWindow : Window
         ProjectFile.Save(_directory, _project);
         SettingsStore.Save();
         _running = true;
+        Height = 635;
         ExportSettings.IsEnabled = false;
         ExportButton.IsEnabled = false;
         _cancel = new CancellationTokenSource();
@@ -181,11 +185,39 @@ public partial class ExportWindow : Window
         WindowPlacement.Drag(this, e);
     }
 
+    void FileNameRow_Down(object sender, MouseButtonEventArgs e)
+    {
+        if (_nameBeforeEditing is not null) return;
+        _nameBeforeEditing = FileName.Text;
+        FileNameDisplay.Visibility = FileNamePencil.Visibility = Visibility.Collapsed;
+        FileName.Visibility = Visibility.Visible; FileName.Focus(); FileName.SelectAll();
+        e.Handled = true;
+    }
+
+    void FinishFileName(bool cancel)
+    {
+        if (_nameBeforeEditing is null) return;
+        FileName.Text = cancel || string.IsNullOrWhiteSpace(FileName.Text) ? _nameBeforeEditing : FileName.Text.Trim();
+        _nameBeforeEditing = null; FileNameDisplay.Text = FileName.Text;
+        FileName.Visibility = Visibility.Collapsed;
+        FileNameDisplay.Visibility = FileNamePencil.Visibility = Visibility.Visible;
+    }
+
+    void FileName_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Enter or Key.Escape)) return;
+        FinishFileName(e.Key == Key.Escape); e.Handled = true;
+    }
+
+    void FileName_LostFocus(object sender, KeyboardFocusChangedEventArgs e) => FinishFileName(false);
+
     void Paint()
     {
         VideoSettings.Visibility = VideoPreview.Visibility = _audioOnly ? Visibility.Collapsed : Visibility.Visible;
         AudioPreview.Visibility = _audioOnly ? Visibility.Visible : Visibility.Collapsed;
-        Height = 635;
+        Height = _audioOnly ? 531 : 635;
+        AudioDescription.Visibility = _audioOnly ? Visibility.Visible : Visibility.Collapsed;
+        PreviewHeading.Text = _audioOnly ? "音频导出" : "当前画面";
         VideoMetadata.Visibility = _audioOnly ? Visibility.Collapsed : Visibility.Visible;
         ExtensionLabel.Text = _audioOnly ? ".m4a" : ".mp4";
         PaintChoice(VideoChoice, !_audioOnly);
@@ -223,15 +255,24 @@ public partial class ExportWindow : Window
 
     void PaintChoice(Button button, bool selected)
     {
-        ControlAppearance.SelectSegment(button, selected);
-        if (button.Content is string title) button.Content = title.TrimEnd(' ', '✓') + (selected ? " ✓" : "");
+        var title = button == VideoChoice ? "视频" : button == AudioChoice ? "仅音频" : button == Fps30 ? "30 FPS" : button == Fps60 ? "60 FPS"
+            : (string)button.Tag switch { "source" => "原始素材", "1080" => "1080p", "1440" => "1440p", _ => "4K" };
+        var content = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var label = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center };
+        label.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding(nameof(Button.Foreground)) { Source = button });
+        label.SetBinding(TextBlock.FontFamilyProperty, new System.Windows.Data.Binding(nameof(Button.FontFamily)) { Source = button });
+        content.Children.Add(label);
+        if (selected) content.Children.Add(new Icon { Kind = IconKind.Checkmark, Width = 11, Height = 11, Margin = new Thickness(5, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        button.Content = content;
+        System.Windows.Automation.AutomationProperties.SetName(button, title);
         button.Background = Brushes.Transparent; button.BorderThickness = new Thickness(0);
     }
 
     FluidSegments WrapChoices(System.Windows.Controls.Primitives.UniformGrid host, Button[] buttons, int selected)
     {
         host.Children.Clear(); host.Columns = 1;
-        var segments = new FluidSegments(buttons, selected); host.Children.Add(segments);
+        foreach (var button in buttons) { button.FontSize = 13; button.Margin = new Thickness(5, 0, 5, 0); button.MinHeight = 38; }
+        var segments = new FluidSegments(buttons, selected, individualTiles: true) { Margin = new Thickness(-5, 0, -5, 0) }; host.Children.Add(segments);
         return segments;
     }
 }

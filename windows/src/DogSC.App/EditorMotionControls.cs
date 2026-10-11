@@ -5,8 +5,6 @@ namespace DogSC;
 
 public partial class EditorWindow
 {
-    double _newMotionTransition = .7;
-
     void SelectMotionMode(string key)
     {
         _motionMode = key; _selectedDecoration = null; _selectedZoom = null;
@@ -18,7 +16,7 @@ public partial class EditorWindow
     void AddScreenMotion()
     {
         _player.Pause();
-        var clip = TimelineEdits.PrepareScreenMotion(_project, _player.Time, _newMotionTransition);
+        var clip = TimelineEdits.PrepareScreenMotion(_project, _player.Time, fallbackStyle: SettingsStore.Current.RememberedScreenMotion);
         if (clip is null) return;
         ApplyTrackFlags(TrackFlags | 2);
         if (!_project.ScreenMotions.Contains(clip))
@@ -37,47 +35,54 @@ public partial class EditorWindow
         Inspector.Children.Add(Caption("在播放头加入位置、大小与透视动画，可与缩放叠加。"));
         var add = DecorationButton("在播放头添加屏幕 3D", AddScreenMotion);
         add.Style = (Style)FindResource("PrimaryButton"); Inspector.Children.Add(add);
-        var transition = Disclosure("新动画过渡", () => Seconds(_newMotionTransition));
-        transition.Children.Add(ValueSlider("过渡时长", 0, 5, _newMotionTransition, v => _newMotionTransition = v, Seconds));
+        var transition = Disclosure("新动画过渡", () => Seconds(_project.Motion.DefaultZoomTransitionDuration));
+        transition.Children.Add(ValueSlider("过渡时长", 0, 5, _project.Motion.DefaultZoomTransitionDuration,
+            v => _project.Motion.DefaultZoomTransitionDuration = v, Seconds));
     }
 
-    UIElement VectorPad(string title, double x, double y, Action<double, double> set, bool tilt = false)
+    UIElement VectorPad(string title, double x, double y, Action<double, double> set, bool tilt = false, string? headingTitle = null, string? detail = null,
+        Func<Point>? readPoint = null)
     {
-        const double w = 200, h = 140;
         var panel = new StackPanel { Margin = new Thickness(0, 8, 0, 8) };
-        var pad = new Canvas { Width = w, Height = h, ClipToBounds = true,
-            Clip = new RectangleGeometry(new Rect(0, 0, w, h), 10, 10) };
+        var pad = new EditorPadSurface(tilt);
+        ParameterReadout? vx = null, vy = null;
+        Button reset = null!;
         System.Windows.Automation.AutomationProperties.SetName(pad, title);
-        pad.SetResourceReference(Panel.BackgroundProperty, "ControlBrush");
-        var guide = (Brush)FindResource("LineBrush");
-        pad.Children.Add(new Line { X1 = w / 2, X2 = w / 2, Y1 = 0, Y2 = h, Stroke = guide, StrokeDashArray = [2, 3] });
-        pad.Children.Add(new Line { X1 = 0, X2 = w, Y1 = h / 2, Y2 = h / 2, Stroke = guide, StrokeDashArray = [2, 3] });
-        var plane = new Polygon { Fill = new SolidColorBrush(Color.FromArgb(30, 100, 100, 100)), Stroke = guide, StrokeThickness = 1 };
-        if (tilt) pad.Children.Add(plane);
-        var dot = new Ellipse { Width = 14, Height = 14 }; dot.SetResourceReference(Shape.FillProperty, "AccentBrush");
-        pad.Children.Add(dot);
-        var vx = new TextBlock(); var vy = new TextBlock();
-        var values = new System.Windows.Controls.Primitives.UniformGrid { Rows = 1, Margin = new Thickness(0, 8, 0, 0) };
+        var heading = PadHeading(headingTitle ?? title, tilt ? "归零" : "居中", () => { Push(); x = y = tilt ? 0 : .5; set(x, y); Paint(); Commit(rebuild: false); });
+        reset = (Button)heading.Children[0];
+        System.Windows.Automation.AutomationProperties.SetName(reset, (tilt ? "归零 " : "居中") + title);
+        heading.Margin = new Thickness(0, 0, 0, 9); panel.Children.Add(heading);
+        if (detail is not null)
+        {
+            var text = new TextBlock { Text = detail, TextWrapping = TextWrapping.Wrap, FontSize = tilt ? 9.5 : 11,
+                FontWeight = tilt ? FontWeights.Medium : FontWeights.Normal, Margin = new Thickness(0, tilt ? -7 : 0, 0, 9) };
+            text.SetResourceReference(TextBlock.ForegroundProperty, tilt ? "PadDetailBrush" : "InkSecondaryBrush");
+            panel.Children.Add(text);
+        }
+        Func<double, string> format = tilt ? v => $"{v:0.0}°" : Percent;
+        vx = Parameter(title + (tilt ? " X 角度" : " X 坐标"), tilt ? -28 : 0, tilt ? 28 : 1, x,
+            v => { x = v; set(x, y); Paint(); }, format);
+        vy = Parameter(title + (tilt ? " Y 角度" : " Y 坐标"), tilt ? -32 : 0, tilt ? 32 : 1, y,
+            v => { y = v; set(x, y); Paint(); }, format);
+        var values = new System.Windows.Controls.Primitives.UniformGrid { Rows = 1, Margin = new Thickness(0, 9, 0, 0) };
         values.Children.Add(CoordinateValue("X", vx)); values.Children.Add(CoordinateValue("Y", vy));
         void Paint()
         {
-            Canvas.SetLeft(dot, x * (w - 14)); Canvas.SetTop(dot, y * (h - 14));
-            vx.Text = tilt ? $"{((.5 - y) * 90):0.0}°" : Percent(x);
-            vy.Text = tilt ? $"{((x - .5) * 90):0.0}°" : Percent(y);
-            if (tilt)
-            {
-                var points = PerspectiveGeometry.Corners(160, 85, (.5 - y) * 90, (x - .5) * 90);
-                plane.Points = new PointCollection(new[] { 0, 1, 3, 2 }.Select(i => new Point(points[i].X + 20, points[i].Y + 27)));
-            }
+            if (readPoint is not null) { var point = readPoint(); x = point.X; y = point.Y; }
+            pad.SetPoint(tilt ? .5 + y / 64 : x, tilt ? .5 - x / 56 : y);
+            reset.IsEnabled = tilt ? Math.Abs(x) >= .0005 || Math.Abs(y) >= .0005
+                : Math.Abs(x - .5) >= .0005 || Math.Abs(y - .5) >= .0005;
+            if (vx is not null) vx.Value = x;
+            if (vy is not null) vy.Value = y;
         }
-        void Move(Point p)
+        foreach (var readout in new[] { vx, vy })
         {
-            x = Math.Clamp((p.X - 7) / (w - 14), 0, 1); y = Math.Clamp((p.Y - 7) / (h - 14), 0, 1);
-            set(x, y); Paint(); Commit(rebuild: false);
+            readout.EditingStarted += () => pad.CoordinateEditing = true;
+            readout.EditingFinished += _ => pad.CoordinateEditing = vx.IsEditing || vy.IsEditing;
         }
-        pad.MouseLeftButtonDown += (_, e) => { Push(); pad.CaptureMouse(); Move(e.GetPosition(pad)); e.Handled = true; };
-        pad.MouseMove += (_, e) => { if (pad.IsMouseCaptured) Move(e.GetPosition(pad)); };
-        pad.MouseLeftButtonUp += (_, _) => { pad.ReleaseMouseCapture(); FlushPendingSave(); };
+        pad.DragStarted += () => Push();
+        pad.PointChanged += (px, py) => { x = tilt ? (.5 - py) * 56 : px; y = tilt ? (px - .5) * 64 : py; set(x, y); Paint(); Commit(rebuild: false); };
+        pad.DragFinished += FlushPendingSave;
         Paint(); panel.Children.Add(pad); panel.Children.Add(values); return panel;
     }
 
@@ -85,18 +90,15 @@ public partial class EditorWindow
     {
         var s = screen.Target;
         section.Children.Add(SectionTitle("构图"));
-        section.Children.Add(PadHeading("缩放锚点", "⌖ 居中", () => { Push(); s.X = s.Y = .5; Commit(); }));
-        section.Children.Add(new TextBlock { Text = "放大时，画面从锚点向外展开；缩小时向锚点收拢。", FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 2), Foreground = (Brush)FindResource("InkSecondaryBrush") });
-        section.Children.Add(VectorPad("屏幕 3D 构图", s.X, s.Y, (x, y) => { s.X = x; s.Y = y; }));
-        section.Children.Add(InlineValueSlider("目标大小", .25, 4, s.Scale, v => s.Scale = v, Times));
+        section.Children.Add(VectorPad("屏幕 3D 构图", s.X, s.Y, (x, y) => { s.X = x; s.Y = y; }, headingTitle: "缩放锚点",
+            detail: "放大时画面向锚点的反方向展开；缩小时会向锚点收拢，因此 1× 两侧的移动方向会自然相反。"));
+        section.Children.Add(InlineValueSlider("目标大小", .25, 4, s.Scale, v => s.Scale = v, v => $"{v:0.00}×"));
         section.Children.Add(SectionTitle("空间姿态"));
-        section.Children.Add(PadHeading("3D 倾斜", "⟳ 重置", () => { Push(); s.RotationX = s.RotationY = 0; Commit(); }));
-        section.Children.Add(new TextBlock { Text = "上下控制 X · 左右控制 Y", FontSize = 11, Foreground = (Brush)FindResource("InkSecondaryBrush") });
-        section.Children.Add(VectorPad("屏幕 3D 倾斜", .5 + s.RotationY / 90, .5 - s.RotationX / 90,
-            (x, y) => { s.RotationY = (x - .5) * 90; s.RotationX = (.5 - y) * 90; }, tilt: true));
-        var rotation = Disclosure("Z 旋转与透视", () => $"Z {s.RotationZ:0.0}° · 透视 {s.Perspective:0.00}");
-        rotation.Children.Add(InlineValueSlider("平面旋转", -180, 180, s.RotationZ, v => s.RotationZ = v, v => $"{v:0.0}°"));
-        rotation.Children.Add(InlineValueSlider("透视", 0, 2, s.Perspective, v => s.Perspective = v));
+        section.Children.Add(VectorPad("屏幕 3D 倾斜", s.RotationX, s.RotationY,
+            (x, y) => { s.RotationX = x; s.RotationY = y; }, tilt: true, headingTitle: "3D 倾斜", detail: "上下控制 X · 左右控制 Y"));
+        var rotation = Disclosure("平面旋转与透视", () => $"Z {s.RotationZ:0.0}° · 透视 {s.Perspective:0.00}");
+        rotation.Children.Add(InlineValueSlider("平面旋转", -30, 30, s.RotationZ, v => s.RotationZ = v, v => $"{v:0.0}°"));
+        rotation.Children.Add(InlineValueSlider("透视强度", 0, 2, s.Perspective, v => s.Perspective = v, v => $"{v:0.00}"));
         AddToggle(section, "线性柔化", screen.LinearBlur, v => { screen.LinearBlur = v; RebuildInspector(); });
         if (screen.LinearBlur) BuildLinearFocusControls(section, screen);
         var anchor = Disclosure("聚焦锚点");

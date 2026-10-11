@@ -95,7 +95,7 @@
                 <DockPanel x:Name="RecordingPanel" Background="Transparent" Visibility="Collapsed" LastChildFill="False">
                     <StackPanel x:Name="RecordingHeader" Orientation="Horizontal" VerticalAlignment="Center" DockPanel.Dock="Left">
                         <Ellipse Width="10" Height="10" Fill="{DynamicResource RecordBrush}" Margin="8,0,8,0"/>
-                        <TextBlock x:Name="TimerLabel" Text="00:00" FontFamily="{DynamicResource FontSemi}" FontSize="20" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TimerLabel" Text="00:00" FontFamily="{DynamicResource FontSemi}" FontWeight="SemiBold" FontSize="20" VerticalAlignment="Center"/>
                         <TextBlock x:Name="RecordingLabel" MaxWidth="140" TextTrimming="CharacterEllipsis" Margin="14,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     </StackPanel>
                     <Button DockPanel.Dock="Right" Height="36" Padding="14,8" VerticalAlignment="Center" Style="{StaticResource PrimaryButton}" Click="Stop_Click" Margin="8,0,4,0" AutomationProperties.AutomationId="StopButton">
@@ -131,7 +131,7 @@
                         <Button Style="{StaticResource IconButton}" Width="32" Height="36" Padding="7" ToolTip="备忘录" AutomationProperties.Name="备忘录" Click="Memo_Click"><local:Icon Kind="Window" Width="18" Height="18"/></Button>
                         <Button x:Name="CompactRecordingMic" Style="{StaticResource IconButton}" Width="32" Height="36" Padding="7" ToolTip="静音麦克风" AutomationProperties.Name="静音麦克风" Click="RecordingMic_Click"><local:Icon Kind="Mic" Width="18" Height="18"/></Button>
                         <Ellipse Width="8" Height="8" Fill="{DynamicResource RecordBrush}" Margin="2,0,6,0" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="CompactTimer" Text="00:00" MinWidth="56" FontSize="16" VerticalAlignment="Center" FontFamily="{DynamicResource FontMedium}"/>
+                        <TextBlock x:Name="CompactTimer" Text="00:00" MinWidth="56" FontSize="16" VerticalAlignment="Center" FontFamily="{DynamicResource FontMedium}" FontWeight="Medium"/>
                         <Button x:Name="CompactPause" Style="{StaticResource IconButton}" Width="32" Height="36" Padding="7" ToolTip="暂停录制" AutomationProperties.Name="暂停录制" Click="Pause_Click"><local:Icon x:Name="CompactPauseIcon" Kind="Pause" Width="18" Height="18"/></Button>
                         <Button Style="{StaticResource IconButton}" Width="32" Height="36" Padding="7" ToolTip="停止录制" AutomationProperties.Name="停止录制" Click="Stop_Click"><local:Icon Kind="Stop" Foreground="{DynamicResource RecordBrush}" Width="18" Height="18"/></Button>
                     </StackPanel>
@@ -147,7 +147,7 @@
         <Popup x:Name="SizePopup" Placement="Bottom" PlacementTarget="{Binding ElementName=CollapseButton}" StaysOpen="False" AllowsTransparency="True">
             <Border Background="{DynamicResource CardBrush}" CornerRadius="14" Padding="16" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
                 <StackPanel Width="220">
-                    <TextBlock Text="工具条大小" FontFamily="{DynamicResource FontMedium}"/>
+                    <TextBlock Text="工具条大小" FontFamily="{DynamicResource FontMedium}" FontWeight="Medium"/>
                     <Grid Margin="0,12,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions>
                         <Slider x:Name="BarSizeSlider" Minimum="0.7" Maximum="1.1" Value="0.85" TickFrequency="0.05" IsSnapToTickEnabled="True" ValueChanged="BarSize_Changed" ToolTip="调整整个工具条的大小" AutomationProperties.Name="工具条大小"/>
                         <TextBlock x:Name="BarSizeLabel" Grid.Column="1" Text="85%" TextAlignment="Right" VerticalAlignment="Center"/>

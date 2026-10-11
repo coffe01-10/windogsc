@@ -53,6 +53,9 @@ public sealed class AppSettings
     public string CameraDefaultShape { get; set; } = "circle";
     public int RecordCountdownSeconds { get; set; } = 3;
     public string? DefaultScenePresetId { get; set; }
+    public double RememberedZoomScale { get; set; } = 1.6;
+    public ScreenMotionCreationStyle? RememberedScreenMotion { get; set; }
+    public ScenePreset? LastUsedScene { get; set; }
     /// <summary>启动时自动检测 GitHub 上的新版本（只提示，不自动更新）。</summary>
     public bool CheckUpdates { get; set; } = true;
 }

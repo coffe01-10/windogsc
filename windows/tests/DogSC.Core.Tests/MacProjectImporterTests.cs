@@ -5,6 +5,37 @@ namespace DogSC.Core.Tests;
 
 public class MacProjectImporterTests
 {
+    [Fact]
+    public void ImportedFrameKeepsAuthoredOuterAndContentRadii()
+    {
+        var json = Sample.Replace("\"screenFrameScale\": 1.2", "\"screenFrameScale\": 1.2, \"screenFrameOuterCornerRadius\":64, \"screenFrameContentCornerRadius\":40");
+        var canvas = MacProjectImporter.Import(json).Project.Canvas;
+        Assert.Equal(64, canvas.ScreenFrameOuterCornerRadius); Assert.Equal(40, canvas.ScreenFrameContentCornerRadius);
+        Assert.Null(MacProjectImporter.Import(Sample).Project.Canvas.ScreenFrameOuterCornerRadius);
+    }
+
+    [Fact]
+    public void ImportedCustomRatioKeepsItsModeWhenItMatchesAPreset()
+    {
+        var json = Sample.Replace("\"aspectRatio\": \"16:9\"", "\"aspectRatio\": \"自定义\", \"customAspectRatio\": {\"width\":16,\"height\":9}");
+        var canvas = MacProjectImporter.Import(json).Project.Canvas;
+        Assert.True(canvas.AspectIsCustom);
+        Assert.Equal("16:9", canvas.Aspect);
+        Assert.Equal(16, canvas.CustomAspectWidth);
+        Assert.Equal(9, canvas.CustomAspectHeight);
+    }
+
+    [Fact]
+    public void ImportedPresetRetainsItsRememberedCustomInput()
+    {
+        var json = Sample.Replace("\"aspectRatio\": \"16:9\"", "\"aspectRatio\": \"16:9\", \"customAspectRatio\": {\"width\":3,\"height\":2}");
+        var canvas = MacProjectImporter.Import(json).Project.Canvas;
+        Assert.False(canvas.AspectIsCustom);
+        Assert.Equal("16:9", canvas.Aspect);
+        Assert.Equal(3, canvas.CustomAspectWidth);
+        Assert.Equal(2, canvas.CustomAspectHeight);
+    }
+
     [Theory]
     [InlineData("二次方缓动", "quadratic")]
     [InlineData("三次方缓动", "cubic")]
@@ -127,7 +158,9 @@ public class MacProjectImporterTests
         Assert.Equal(1, project.Canvas.Crop.Width);
         Assert.Equal(2, project.Canvas.Cursor.Size);
         Assert.DoesNotContain(result.DroppedFields, f => f == "openingSequence");
-        Assert.Contains(result.DroppedFields, f => f == "motion");
+        Assert.DoesNotContain(result.DroppedFields, f => f == "motion");
+        Assert.Equal("spring", project.Motion.DefaultZoomEasing);
+        Assert.Equal(.7, project.Motion.DefaultZoomTransitionDuration);
         Assert.Contains(result.DroppedFields, f => f.StartsWith("camera.borderWidth"));
 
         // 媒体引用清单供调用方拷文件。

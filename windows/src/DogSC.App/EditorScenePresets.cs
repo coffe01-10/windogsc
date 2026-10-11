@@ -1,77 +1,127 @@
 using DogSC.Core;
+using System.Windows.Controls.Primitives;
 
 namespace DogSC;
 
 public partial class EditorWindow
 {
+    string? _selectedScenePreset;
+    ScenePreset? _activeSceneSnapshot;
+    Popup? _scenePopup;
+
+    void SyncScenePresetLabel()
+    {
+        var presets = SettingsStore.Current.ScenePresets;
+        var active = presets.FirstOrDefault(preset => preset.Id == _selectedScenePreset);
+        var name = active?.Name ?? (presets.Count == 0 ? "保存场景" : "场景预设");
+        SceneMenuLabel.Text = name.Length > 14 ? name[..13] + "…" : name;
+        SceneMenuArrow.Visibility = presets.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        SceneModified.Visibility = _activeSceneSnapshot is not null && !_activeSceneSnapshot.MatchesConfiguration(_project, SettingsStore.Current.RememberedZoomScale) ? Visibility.Visible : Visibility.Collapsed;
+        System.Windows.Automation.AutomationProperties.SetName(SceneMenuButton, name);
+        System.Windows.Automation.AutomationProperties.SetItemStatus(SceneMenuButton, SceneModified.Visibility == Visibility.Visible ? "已修改" : "场景预设");
+    }
+
     void SceneMenu_Click(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu { PlacementTarget = SceneMenuButton };
-        foreach (var preset in SettingsStore.Current.ScenePresets)
+        if (_scenePopup?.IsOpen == true) { _scenePopup.IsOpen = false; return; }
+        if (SettingsStore.Current.ScenePresets.Count == 0) { ShowSaveScene(); return; }
+        var panel = new ScenePresetMenuPanel(() => SettingsStore.Current.ScenePresets, () => _selectedScenePreset, () => SettingsStore.Current.DefaultScenePresetId);
+        var popup = new Popup { PlacementTarget = SceneMenuButton, Placement = PlacementMode.Bottom, AllowsTransparency = true, StaysOpen = false, Child = new Border { Padding = new Thickness(6), Child = panel } };
+        _scenePopup = popup;
+        panel.SaveRequested += preset => { popup.IsOpen = false; ShowSaveScene(preset); };
+        panel.ApplyRequested += preset => { popup.IsOpen = false; try { RequestScenePresetApplication(preset); } catch (Exception error) { TimeLabel.Text = "场景未应用：" + error.Message; } };
+        panel.DefaultRequested += id =>
         {
-            var item = new MenuItem { Header = preset.Name, IsCheckable = true, IsChecked = preset.Id == _selectedScenePreset };
-            item.Click += (_, _) => ApplyScenePreset(preset); menu.Items.Add(item);
-        }
-        if (menu.Items.Count > 0) menu.Items.Add(new Separator());
-        var save = new MenuItem { Header = "保存为新场景…", Icon = new Icon { Kind = IconKind.Plus, Width = 16, Height = 16 } };
-        save.Click += (_, _) => ShowSaveScene(); menu.Items.Add(save); menu.IsOpen = true;
+            var settings = SettingsStore.Current; var old = settings.DefaultScenePresetId;
+            try { settings.DefaultScenePresetId = id; SettingsStore.SaveOrThrow(); }
+            catch (Exception error) { settings.DefaultScenePresetId = old; TimeLabel.Text = "默认场景未保存：" + error.Message; }
+        };
+        panel.DeleteRequested += preset =>
+        {
+            var settings = SettingsStore.Current; var index = settings.ScenePresets.IndexOf(preset); var oldDefault = settings.DefaultScenePresetId;
+            settings.ScenePresets.Remove(preset);
+            if (settings.DefaultScenePresetId == preset.Id) settings.DefaultScenePresetId = null;
+            try { SettingsStore.SaveOrThrow(); }
+            catch (Exception error) { settings.ScenePresets.Insert(index, preset); settings.DefaultScenePresetId = oldDefault; TimeLabel.Text = "预设未删除：" + error.Message; return; }
+            if (_selectedScenePreset == preset.Id) { _selectedScenePreset = null; _activeSceneSnapshot = null; }
+            try { ScenePresets.RemoveImages(preset); } catch (Exception error) { AppPaths.Log("预设资源未清理：" + error.Message); }
+            SyncScenePresetLabel(); panel.Refresh(); if (settings.ScenePresets.Count == 0) popup.IsOpen = false;
+        };
+        panel.PreviewKeyDown += (_, key) => { if (key.Key == Key.Escape) { popup.IsOpen = false; key.Handled = true; } };
+        popup.Opened += (_, _) => FluidMotion.Entrance(panel); popup.Closed += (_, _) => SceneMenuButton.Focus(); popup.IsOpen = true;
+    }
+
+    void RequestScenePresetApplication(ScenePreset preset)
+    {
+        if (!preset.NeedsCropPreview(_project)) { ApplyScenePreset(preset); return; }
+        _player.Pause();
+        var outputTime = _player.Time;
+        var dialog = new Window { Title = "检查裁切适配", SizeToContent = SizeToContent.WidthAndHeight,
+            WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent,
+            ResizeMode = ResizeMode.NoResize, Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var panel = new ScenePresetCropPreviewPanel(preset, _project,
+            token => RecordingThumbnail.LoadAtOutputTimeAsync(_project, _directory, outputTime, token));
+        dialog.Content = panel; panel.CancelRequested += dialog.Close;
+        panel.ApplyRequested += () =>
+        {
+            try { ApplyScenePreset(preset); dialog.Close(); }
+            catch (Exception error) { TimeLabel.Text = "场景未应用：" + error.Message; }
+        };
+        dialog.Loaded += (_, _) => { WindowPlacement.KeepInWorkArea(dialog, center: true); FluidMotion.Entrance(panel); };
+        ModalShade.Visibility = Visibility.Visible;
+        try { dialog.ShowDialog(); } finally { ModalShade.Visibility = Visibility.Collapsed; }
     }
 
     void ApplyScenePreset(ScenePreset preset)
     {
+        var resolved = ScenePresets.PrepareApplication(preset, _directory);
         var transition = FluidMotion.PrepareSwap(PreviewCanvas, PreviewTransitionLayer, 0);
-        Push(); ScenePresets.Apply(preset, _project, _directory); _selectedScenePreset = preset.Id;
-        SceneMenuLabel.Text = preset.Name; Commit(); transition();
+        Push(); resolved.Apply(_project); _selectedScenePreset = preset.Id;
+        _activeSceneSnapshot = ScenePreset.Capture(_project, preset.Name, zoomCreationScale: SettingsStore.Current.RememberedZoomScale); Commit(); transition();
+        if (preset.IncludesCursorBackdrop && preset.IncludesBackground && !resolved.IncludesBackground)
+            TimeLabel.Text = "此预设的背景未包含或已不可用，已保留当前背景。";
     }
 
-    void SaveScene_Click(object sender, RoutedEventArgs e) => ShowSaveScene();
+    string NextSceneName()
+    {
+        var index = 1;
+        while (SettingsStore.Current.ScenePresets.Any(preset => string.Equals(preset.Name, "场景 " + index, StringComparison.CurrentCultureIgnoreCase))) index++;
+        return "场景 " + index;
+    }
 
     void ShowSaveScene(ScenePreset? updating = null)
     {
-        var dialog = new Window { Title = "保存场景预设", Width = 420, SizeToContent = SizeToContent.Height,
+        var dialog = new Window { Title = updating is null ? "保存场景预设" : "更新场景预设", SizeToContent = SizeToContent.WidthAndHeight,
+            WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent,
             ResizeMode = ResizeMode.NoResize, Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        dialog.SetResourceReference(BackgroundProperty, "PanelBrush");
-        var panel = new StackPanel { Margin = new Thickness(24) }; dialog.Content = panel;
-        panel.Children.Add(new TextBlock { Text = "保存场景预设", FontSize = 20, Margin = new Thickness(0, 0, 0, 16) });
-        panel.Children.Add(Caption("名称"));
-        var name = new TextBox { Text = updating?.Name ?? "我的场景", Margin = new Thickness(0, 0, 0, 14) };
-        System.Windows.Automation.AutomationProperties.SetName(name, "场景预设名称"); panel.Children.Add(name);
-        CheckBox Choice(string title, bool selected)
-        {
-            var choice = new CheckBox { Content = title, IsChecked = selected, Margin = new Thickness(0, 8, 0, 8) };
-            panel.Children.Add(choice); return choice;
-        }
-        var canvas = Choice("画布与屏幕", updating?.IncludesCanvas ?? true);
-        var camera = Choice("摄像头", updating?.IncludesCamera ?? true);
-        var opening = Choice("开场与运动", updating?.IncludesOpening ?? true);
-        var cursor = Choice("光标与背景", updating?.IncludesCursorBackdrop ?? true);
-        var useDefault = Choice("用于新录制", updating is not null && SettingsStore.Current.DefaultScenePresetId == updating.Id);
-        var status = Caption(""); panel.Children.Add(status);
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
-        var cancel = new Button { Content = "取消", Style = (Style)FindResource("QuietButton"), IsCancel = true, Margin = new Thickness(0, 0, 8, 0) };
-        cancel.Click += (_, _) => dialog.Close(); actions.Children.Add(cancel);
-        var save = new Button { Content = "保存", Style = (Style)FindResource("PrimaryButton"), IsDefault = true };
-        save.Click += (_, _) =>
-        {
-            if (string.IsNullOrWhiteSpace(name.Text)) { status.Text = "请输入预设名称。"; name.Focus(); return; }
-            try
+        var panel = new ScenePresetSavePanel(_project, updating?.Name ?? NextSceneName(), updating is not null,
+            name => SettingsStore.Current.ScenePresets.Any(preset => preset.Id != updating?.Id && string.Equals(preset.Name, name, StringComparison.CurrentCultureIgnoreCase)),
+            async name =>
             {
-                var settings = SettingsStore.Current;
-                var preset = ScenePresets.Capture(_project, _directory, name.Text,
-                    canvas.IsChecked == true, camera.IsChecked == true, opening.IsChecked == true, cursor.IsChecked == true);
-                if (updating is not null)
+                var snapshot = ScenePreset.Clone(_project);
+                ScenePreset? captured = null;
+                var settings = SettingsStore.Current; var index = updating is null ? -1 : settings.ScenePresets.IndexOf(updating);
+                try
                 {
-                    settings.ScenePresets[settings.ScenePresets.IndexOf(updating)] = preset;
-                    ScenePresets.RemoveImages(updating);
+                    captured = await Task.Run(() => ScenePresets.Capture(snapshot, _directory, name, id: updating?.Id));
+                    if (index >= 0) settings.ScenePresets[index] = captured; else settings.ScenePresets.Add(captured);
+                    try { SettingsStore.SaveOrThrow(); }
+                    catch { if (index >= 0) settings.ScenePresets[index] = updating!; else settings.ScenePresets.Remove(captured); throw; }
+                    _selectedScenePreset = captured.Id; _activeSceneSnapshot = ScenePreset.Capture(snapshot, captured.Name, zoomCreationScale: SettingsStore.Current.RememberedZoomScale);
+                    if (updating is not null)
+                        try { ScenePresets.RemoveImages(updating, retaining: captured); } catch (Exception error) { AppPaths.Log("旧预设背景未清理：" + error.Message); }
+                    SyncScenePresetLabel(); return null;
                 }
-                else settings.ScenePresets.Add(preset);
-                if (useDefault.IsChecked == true) settings.DefaultScenePresetId = preset.Id;
-                else if (updating?.Id == settings.DefaultScenePresetId) settings.DefaultScenePresetId = null;
-                _selectedScenePreset = preset.Id; SceneMenuLabel.Text = preset.Name; SettingsStore.Save(); dialog.Close(); RebuildInspector();
-            }
-            catch (Exception ex) { status.Text = "预设未保存：" + ex.Message; }
-        };
-        actions.Children.Add(save); panel.Children.Add(actions);
-        dialog.Loaded += (_, _) => { name.Focus(); name.SelectAll(); }; dialog.ShowDialog();
+                catch (Exception error)
+                {
+                    if (captured is not null) ScenePresets.RemoveImages(captured, retaining: updating);
+                    return "预设未保存：" + error.Message;
+                }
+            });
+        dialog.Content = panel; panel.CancelRequested += dialog.Close; panel.Saved += dialog.Close;
+        dialog.Closing += (_, e) => { if (panel.IsSaving) e.Cancel = true; };
+        dialog.Loaded += (_, _) => { WindowPlacement.KeepInWorkArea(dialog, center: true); FluidMotion.Entrance(panel); };
+        ModalShade.Visibility = Visibility.Visible;
+        try { dialog.ShowDialog(); } finally { ModalShade.Visibility = Visibility.Collapsed; }
     }
 }

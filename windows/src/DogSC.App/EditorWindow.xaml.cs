@@ -34,10 +34,14 @@ public partial class EditorWindow : Window
     (string Asset, int Height)? _cursorBitmapKey;
     readonly RotateTransform _cursorRotation = new();
     readonly ScaleTransform _zoomTransform = new();
+    readonly FluidSegments _timelineViewChoices;
 
     public EditorWindow()
     {
         InitializeComponent();
+        TimelineViewChoices.Children.Clear();
+        _timelineViewChoices = new FluidSegments([VideoViewButton, WaveformViewButton], 0);
+        TimelineViewChoices.Children.Add(_timelineViewChoices);
         CursorBitmap.RenderTransform = _cursorRotation;
         InitializeRegionEditor();
         InitializeOverlayEditor();
@@ -53,15 +57,16 @@ public partial class EditorWindow : Window
             if (TourOverlay.Visibility == Visibility.Visible)
                 Dispatcher.BeginInvoke(() => Keyboard.Focus(TourNext), DispatcherPriority.ContextIdle);
         };
-        Closing += (_, _) => { FinishCropGesture(true); CancelOverlayGesture(); CancelRegionEditing(); FlushPendingSave(); };
+        Closing += (_, _) => { _activeParameterReadout?.FinishEditing(); FinishCropGesture(true); CancelOverlayGesture(); CancelRegionEditing(); FlushPendingSave(); ScenePresets.RememberLastUsed(_project); };
         SetToolContent(ToolLayout, IconKind.CanvasPicture, "画面");
         SetToolContent(ToolZoom, IconKind.MotionViewfinder, "运镜");
         SetToolContent(ToolOpening, IconKind.OpeningStack, "开场");
         SetToolContent(ToolCursor, IconKind.CursorMotion, "光标");
-        SetToolContent(ToolCamera, IconKind.Camera, "摄像头");
-        SetToolContent(ToolAudio, IconKind.Speaker, "声音");
+        SetToolContent(ToolCamera, IconKind.CameraFilled, "摄像头");
+        SetToolContent(ToolAudio, IconKind.SpeakerFilled, "声音");
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/AppIconMaster.png"));
         PaintTimelineView();
+        SyncScenePresetLabel();
         FrameRect.Fill = new DrawingBrush { Drawing = _player.ScreenDrawing, Stretch = Stretch.Fill };
         CameraBubble.Fill = new DrawingBrush { Drawing = _player.CameraDrawing, Stretch = Stretch.Fill };
         CameraBubble.Stroke = Brushes.White;
@@ -255,8 +260,8 @@ public partial class EditorWindow : Window
 
     void PaintAspects()
     {
-        if (AspectRow.Children.OfType<ComboBox>().FirstOrDefault() is { } ratio)
-            ratio.SelectedItem = ratio.Items.Cast<ComboBoxItem>().FirstOrDefault(i => Equals(i.Tag, _project.Canvas.Aspect));
+        AspectRow.Children.OfType<CanvasRatioSelector>().FirstOrDefault()?.Sync();
+        SyncScenePresetLabel();
 
         PaintTools();
     }
@@ -280,7 +285,12 @@ public partial class EditorWindow : Window
                 if (button.IsLoaded) FluidMotion.Select(ToolRailSelection, button, ToolRailGrid);
                 else button.Loaded += (_, _) => { if ((string)button.Tag == _tool) FluidMotion.Select(ToolRailSelection, button, ToolRailGrid, false); };
             }
-            button.SetResourceReference(ForegroundProperty, selected ? "RailSelectionInkBrush" : "InkSecondaryBrush");
+            button.SetResourceReference(ForegroundProperty, selected ? "InkBrush" : "InkSecondaryBrush");
+            if (button.Content is StackPanel content && content.Children[1] is TextBlock label)
+            {
+                label.SetResourceReference(TextBlock.FontFamilyProperty, selected ? "FontMedium" : "FontRegular");
+                label.FontWeight = selected ? FontWeights.Medium : FontWeights.Normal;
+            }
         }
     }
 
@@ -320,6 +330,7 @@ public partial class EditorWindow : Window
 
     void RebuildInspector()
     {
+        _activeParameterReadout?.FinishEditing();
         var transition = FluidMotion.PrepareSwap(InspectorScroll, InspectorTransitionLayer);
         try
         {
@@ -327,6 +338,8 @@ public partial class EditorWindow : Window
         _cursorPreviewTimer?.Stop();
         _cursorPreviewTimer = null;
         Inspector.Children.Clear();
+        InspectorNavigation.Content = null;
+        InspectorNavigationHost.Visibility = Visibility.Collapsed;
         PaintTools();
         if (_cropEditing) { BuildCropInspector(); return; }
         if (_tool == "zoom")
@@ -639,7 +652,7 @@ public partial class EditorWindow : Window
         auto.Click += (_, _) =>
         {
             Push();
-            var added = TimelineEdits.AutoZoom(_project);
+            var added = TimelineEdits.AutoZoom(_project, _project.Motion.DefaultZoomScale ?? SettingsStore.Current.RememberedZoomScale);
             if (added == 0)
             {
                 _undo.Pop();
@@ -655,7 +668,7 @@ public partial class EditorWindow : Window
         add.Click += (_, _) =>
         {
             Push();
-            var zoom = TimelineEdits.AddZoom(_project, _player.Time);
+            var zoom = TimelineEdits.AddZoom(_project, _player.Time, SettingsStore.Current.RememberedZoomScale);
             if (zoom is null)
             {
                 _undo.Pop();
@@ -765,7 +778,14 @@ public partial class EditorWindow : Window
             });
             var toggle = channel.Children.OfType<CheckBox>().Last(); toggle.Content = IconLabel(mic ? IconKind.Mic : IconKind.Speaker, title);
             channel.Children.Add(new TextBlock { Text = clip is null ? "录制应用与系统声音" : "继承全局设置，调整即可单独覆盖", FontSize = 11, Foreground = (Brush)FindResource("InkSecondaryBrush") });
-            channel.Children.Add(ValueSlider("音量", 0, ProjectDocument.MaxGain, Gain(), Set, Percent));
+            channel.Children.Add(ValueSlider("音量", 0, ProjectDocument.MaxGain, Gain(), Set, Percent, before =>
+            {
+                if (clip is null) return;
+                var original = before.Clips.First(c => c.Id == clip.Id);
+                if (mic) clip.MicrophoneGain = original.MicrophoneGain; else clip.SystemGain = original.SystemGain;
+                if (inherit is not null) inherit.IsChecked = clip.MicrophoneGain is null && clip.SystemGain is null
+                    && clip.MicrophoneEnabled is null && clip.SystemEnabled is null;
+            }));
             Inspector.Children.Add(card);
             if (Gain() > 1) Inspector.Children.Add(Caption("超过 100% 的增益以导出为准。"));
         }
@@ -773,37 +793,37 @@ public partial class EditorWindow : Window
 
     UIElement PositionPad()
     {
-        const double w = 180, h = 122;
         var panel = new StackPanel();
-        panel.Children.Add(PadHeading("屏幕位置", "⌖ 居中", () => { Push(); _project.Canvas.CenterX = _project.Canvas.CenterY = .5; Commit(); }));
-        var row = new Grid { Margin = new Thickness(0, 8, 0, 2) };
+        var pad = new EditorPadSurface(compact: true);
+        ParameterReadout? vx = null, vy = null;
+        Button reset = null!;
+        var heading = PadHeading("屏幕位置", "居中", () => { Push(); _project.Canvas.CenterX = _project.Canvas.CenterY = .5; Place(); Commit(rebuild: false); });
+        reset = (Button)heading.Children[0]; panel.Children.Add(heading);
+        var row = new Grid { Margin = new Thickness(0, 9, 0, 2) };
         row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new());
-        var pad = new Canvas { Width = w, Height = h, Clip = new RectangleGeometry(new Rect(0, 0, w, h), 10, 10) };
         System.Windows.Automation.AutomationProperties.SetName(pad, "屏幕位置");
-        pad.SetResourceReference(Panel.BackgroundProperty, "ControlBrush");
-        var line = (Brush)FindResource("LineBrush");
-        pad.Children.Add(new System.Windows.Shapes.Line { X1 = w / 2, X2 = w / 2, Y2 = h, Stroke = line, StrokeDashArray = [2, 3] });
-        pad.Children.Add(new System.Windows.Shapes.Line { Y1 = h / 2, Y2 = h / 2, X2 = w, Stroke = line, StrokeDashArray = [2, 3] });
-        var dot = new System.Windows.Shapes.Ellipse { Width = 14, Height = 14 }; dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "AccentBrush");
-        pad.Children.Add(dot); row.Children.Add(pad);
-        var vx = new TextBlock(); var vy = new TextBlock();
-        var values = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+        row.Children.Add(pad);
+        vx = Parameter("屏幕位置 X 坐标", 0, 1, _project.Canvas.CenterX, v => { _project.Canvas.CenterX = v; Place(); }, Percent);
+        vy = Parameter("屏幕位置 Y 坐标", 0, 1, _project.Canvas.CenterY, v => { _project.Canvas.CenterY = v; Place(); }, Percent);
+        var values = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 0, 0) };
         values.Children.Add(CoordinateValue("X", vx)); var ry = CoordinateValue("Y", vy); ry.Margin = new Thickness(0, 10, 0, 0); values.Children.Add(ry);
         Grid.SetColumn(values, 1); row.Children.Add(values); panel.Children.Add(row);
         void Place()
         {
-            Canvas.SetLeft(dot, _project.Canvas.CenterX * (w - 14)); Canvas.SetTop(dot, _project.Canvas.CenterY * (h - 14));
-            vx.Text = Percent(_project.Canvas.CenterX); vy.Text = Percent(_project.Canvas.CenterY);
+            pad.SetPoint(_project.Canvas.CenterX, _project.Canvas.CenterY);
+            reset.IsEnabled = Math.Abs(_project.Canvas.CenterX - .5) >= .0005 || Math.Abs(_project.Canvas.CenterY - .5) >= .0005;
+            if (vx is not null) vx.Value = _project.Canvas.CenterX;
+            if (vy is not null) vy.Value = _project.Canvas.CenterY;
         }
-        void Move(Point point)
+        foreach (var readout in new[] { vx, vy })
         {
-            _project.Canvas.CenterX = Math.Clamp((point.X - 7) / (w - 14), 0, 1);
-            _project.Canvas.CenterY = Math.Clamp((point.Y - 7) / (h - 14), 0, 1); Place(); Commit(rebuild: false);
+            readout.EditingStarted += () => pad.CoordinateEditing = true;
+            readout.EditingFinished += _ => pad.CoordinateEditing = vx.IsEditing || vy.IsEditing;
         }
         Place();
-        pad.MouseLeftButtonDown += (_, e) => { Push(); pad.CaptureMouse(); Move(e.GetPosition(pad)); e.Handled = true; };
-        pad.MouseMove += (_, e) => { if (pad.IsMouseCaptured) Move(e.GetPosition(pad)); };
-        pad.MouseLeftButtonUp += (_, _) => { pad.ReleaseMouseCapture(); FlushPendingSave(); };
+        pad.DragStarted += () => Push();
+        pad.PointChanged += (x, y) => { _project.Canvas.CenterX = x; _project.Canvas.CenterY = y; Place(); Commit(rebuild: false); };
+        pad.DragFinished += FlushPendingSave;
         return panel;
     }
 
@@ -831,13 +851,13 @@ public partial class EditorWindow : Window
         return row;
     }
 
-    Slider Slider(double min, double max, double value, Action<double> apply, bool refresh = false)
+    Slider Slider(double min, double max, double value, Action<double> apply, bool refresh = false, Func<bool>? suppress = null)
     {
         var slider = new Slider { Minimum = min, Maximum = max, Value = value, Margin = new Thickness(0, 0, 0, 4) };
         var changing = false;
         slider.ValueChanged += (_, args) =>
         {
-            if (_lock)
+            if (_lock || suppress?.Invoke() == true)
             {
                 return;
             }
@@ -883,7 +903,7 @@ public partial class EditorWindow : Window
         panel.Children.Add(button);
     }
 
-    TextBlock Heading(string text) => new() { Text = text, FontFamily = (FontFamily)FindResource("FontSemi"), FontSize = 16, Margin = new Thickness(0, 0, 0, 8) };
+    TextBlock Heading(string text) => new() { Text = text, FontFamily = (FontFamily)FindResource("FontSemi"), FontWeight = FontWeights.SemiBold, FontSize = 16, Margin = new Thickness(0, 0, 0, 8) };
 
     TextBlock Caption(string text) => new() { Text = text, Foreground = (Brush)FindResource("InkSecondaryBrush"), Margin = new Thickness(0, 10, 0, 4), TextWrapping = TextWrapping.Wrap };
 
@@ -1076,7 +1096,8 @@ public partial class EditorWindow : Window
             var viewport = new ScreenAnchorViewport(_pvOutW, _pvOutH, _pvFrame.Width, _pvFrame.Height);
             var track = _screenMotionTrack ??= new ScreenMotionTrack(_project.ScreenMotions);
             var selected = !_player.IsPlaying ? _project.ScreenMotions.FirstOrDefault(c => c.Id == _selectedDecoration) : null;
-            var s = selected is null ? track.SampleLayout(_player.Time, null, viewport)
+            var s = selected is null ? track.SampleLayout(_player.Time, null, viewport,
+                _project.Motion.ScreenSpringMass, _project.Motion.ScreenSpringStiffness, _project.Motion.ScreenSpringDamping)
                 : ScreenMotionTrack.TargetLayout(selected.Target, viewport);
             var mo = s.ManualOffset ?? new CompositionPoint(0, 0);
             var moBase = track.SampleLayout(-1, null, viewport).ManualOffset ?? new CompositionPoint(0, 0);
@@ -1116,7 +1137,8 @@ public partial class EditorWindow : Window
             var cameraAspect = _cameraMaskAspect ?? CameraSourceAspect;
             var canvasAspect = (double)_pvOutW / _pvOutH;
             var sample = selected is null
-                ? (_cameraMotionTrack ??= new CameraMotionTrack(_project.CameraMotions)).Sample(_player.Time, camBase, cameraAspect, canvasAspect)
+                ? (_cameraMotionTrack ??= new CameraMotionTrack(_project.CameraMotions)).Sample(_player.Time, camBase, cameraAspect, canvasAspect,
+                    _project.Motion.ScreenSpringMass, _project.Motion.ScreenSpringStiffness, _project.Motion.ScreenSpringDamping)
                 : CameraMotionTrack.Resolve(selected.Target, cameraAspect, canvasAspect);
             var rect = MotionExport.CameraPixels(sample, _pvOutW, _pvOutH);
             CameraBubble.Visibility = Visibility.Visible;
@@ -1383,13 +1405,13 @@ public partial class EditorWindow : Window
     void Commit(bool rebuild = true)
     {
         ProjectFile.Normalize(_project);
+        if (_activeParameterReadout is null) RememberMotionEdit();
         _cursorTimeline = new CursorTimeline(_project);
         _stickerTrack = new StickerMotion.Track(_project.Canvas.Stickers);
         _screenMotionTrack = new ScreenMotionTrack(_project.ScreenMotions);
         _cameraMotionTrack = new CameraMotionTrack(_project.CameraMotions);
-        _pendingSave = true;
         _saveTimer.Stop();
-        _saveTimer.Start();
+        if (_activeParameterReadout is null) { _pendingSave = true; _saveTimer.Start(); }
         Timeline.Project = _project;
         UpdateTimelineLayout();
         _player.UpdateProject(_project);
@@ -1406,14 +1428,18 @@ public partial class EditorWindow : Window
 
     void FlushPendingSave()
     {
+        if (_activeParameterReadout is not null) return;
         _saveTimer.Stop();
         if (!_pendingSave) return;
         ProjectFile.Save(_directory, _project);
+        if (_pendingMotionPreferences) { SettingsStore.Save(); _pendingMotionPreferences = false; }
         _pendingSave = false;
     }
 
-    void Push(string? snapshot = null)
+    void Push(string? snapshot = null, bool captureMotion = true)
     {
+        _activeParameterReadout?.FinishEditing();
+        if (captureMotion) CaptureMotionEdit();
         _undo.Push(snapshot ?? JsonSerializer.Serialize(_project, ProjectSchema.Json));
         if (_undo.Count > 40)
         {
@@ -1430,6 +1456,7 @@ public partial class EditorWindow : Window
 
     void Restore(string json)
     {
+        _zoomStyleBefore = null; _screenStyleBefore = null;
         CancelOverlayGesture(); CancelRegionEditing();
         var previousRegions = _project.Canvas.SoftRegions.Select(r => r.Id).Concat(_project.Canvas.Stickers.Select(r => r.Id)).ToHashSet();
         _project = JsonSerializer.Deserialize<ProjectDocument>(json, ProjectSchema.Json) ?? _project;
@@ -1738,8 +1765,7 @@ public partial class EditorWindow : Window
 
     void PaintTimelineView()
     {
-        ControlAppearance.SelectSegment(VideoViewButton, !Timeline.ShowWaveform);
-        ControlAppearance.SelectSegment(WaveformViewButton, Timeline.ShowWaveform);
+        _timelineViewChoices.Select(Timeline.ShowWaveform ? 1 : 0);
     }
 
     void MarkersToggle_Click(object sender, RoutedEventArgs e) => Timeline.ShowMarkers = MarkersToggle.IsChecked == true;

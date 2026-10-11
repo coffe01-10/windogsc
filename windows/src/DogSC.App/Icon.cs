@@ -4,6 +4,7 @@ public enum IconKind
 {
     Monitor,
     Window,
+    MacWindow,
     Region,
     Device,
     Mic,
@@ -62,11 +63,40 @@ public enum IconKind
     Bell,
     ExternalLink,
     RecordCircle,
+    MotionWave,
+    Bolt,
+    Wind,
+    DocumentUp,
+    DocumentDown,
+    Code,
+    Chat,
+    SceneStack,
+    CameraFilled,
+    SpeakerFilled,
+    Scope,
+    PhotoCamera,
+    Checkmark,
+    BlurDrop,
+    ClipboardDocument,
+    Pencil,
+    Waveform,
+    AspectRatio,
+    FitArrows,
+    Landscape,
+    Portrait,
+    Circle,
+    CheckCircle,
+    Refresh,
+    Counterclockwise,
+    InsetRectangleFilled,
+    PersonCropRectangle,
 }
 
 public sealed class Icon : FrameworkElement
 {
     static readonly Geometry OpeningSparkles = CreateGeometry("M7,2 L8.15,5.3 L11.5,6.4 L8.15,7.55 L7,10.9 L5.85,7.55 L2.5,6.4 L5.85,5.3 Z M17.2,2.1 L17.9,4.1 L19.9,4.8 L17.9,5.5 L17.2,7.5 L16.5,5.5 L14.5,4.8 L16.5,4.1 Z");
+    static readonly Geometry SpeakerBody = CreateGeometry("M4,9 H8 L13,5 V19 L8,15 H4 Q3,15 3,14 V10 Q3,9 4,9 Z");
+    static readonly Geometry PersonShoulders = CreateGeometry("M7,17 V16 C7,12 17,12 17,16 V17 Z");
 
     static Geometry CreateGeometry(string path)
     {
@@ -134,13 +164,23 @@ public sealed class Icon : FrameworkElement
         var scale = Math.Min(width, height) / 24;
         drawing.PushTransform(new TranslateTransform((width - 24 * scale) / 2, (height - 24 * scale) / 2));
         drawing.PushTransform(new ScaleTransform(scale, scale));
-        var filled = kind is IconKind.Play or IconKind.Pause or IconKind.Stop or IconKind.SkipStart or IconKind.SkipEnd;
+        var filled = kind is IconKind.Play or IconKind.Pause or IconKind.Stop or IconKind.SkipStart or IconKind.SkipEnd or IconKind.Bolt or IconKind.CameraFilled or IconKind.CheckCircle;
         var geometry = Geometries[kind];
         var bounds = geometry.Bounds;
         if (kind == IconKind.OpeningStack) bounds.Union(OpeningSparkles.Bounds);
+        if (kind == IconKind.SpeakerFilled) bounds.Union(SpeakerBody.Bounds);
         // 按图形的实际边界居中，麦克风、扬声器等非对称路径不再偏向画布一侧。
         drawing.PushTransform(new TranslateTransform(12 - (bounds.Left + bounds.Width / 2) + (kind == IconKind.Play ? 1 : 0), 12 - (bounds.Top + bounds.Height / 2)));
         drawing.DrawGeometry(filled ? brush : null, filled ? null : pen, geometry);
+        if (kind == IconKind.SpeakerFilled)
+            drawing.DrawGeometry(brush, null, SpeakerBody);
+        if (kind == IconKind.InsetRectangleFilled)
+            drawing.DrawRoundedRectangle(brush, null, new Rect(6, 7, 12, 10), .8, .8);
+        if (kind == IconKind.PersonCropRectangle)
+        {
+            drawing.DrawEllipse(brush, null, new Point(12, 9), 2.3, 2.3);
+            drawing.DrawGeometry(brush, null, PersonShoulders);
+        }
         if (kind == IconKind.RecordCircle) drawing.DrawEllipse(brush, null, new Point(12, 12), 3.2, 3.2);
         if (kind is IconKind.CanvasPicture or IconKind.Photo or IconKind.PhotoPlus)
             drawing.DrawEllipse(brush, null, kind == IconKind.CanvasPicture ? new Point(15.5, 9.2) : new Point(8, 8), 1.3, 1.3);
@@ -153,6 +193,33 @@ public sealed class Icon : FrameworkElement
 
     static string PathFor(IconKind kind) => kind switch
     {
+        IconKind.InsetRectangleFilled => "M4,4 H20 Q22,4 22,6 V18 Q22,20 20,20 H4 Q2,20 2,18 V6 Q2,4 4,4 Z",
+        IconKind.PersonCropRectangle => "M4,4 H20 Q22,4 22,6 V18 Q22,20 20,20 H4 Q2,20 2,18 V6 Q2,4 4,4 Z",
+        IconKind.MotionWave => "M2,12 H5 L8,6 L11,18 L15,5 L18,12 H22",
+        IconKind.Bolt => "M13.5,2 L5,13 H11 L10.5,22 L19,10 H13 Z",
+        IconKind.Wind => "M3,8 H16 C21,8 21,2 17,2 C15,2 14,3 14,4 M2,12 H20 C24,12 24,7 21,7 M3,16 H14 C19,16 19,22 15,22 C13,22 12,21 12,20",
+        IconKind.DocumentUp => "M5,3 H14 L19,8 V20 Q19,22 17,22 H5 Q3,22 3,20 V5 Q3,3 5,3 Z M14,3 V8 H19 M11,18 V10 M7.5,13.5 L11,10 L14.5,13.5",
+        IconKind.DocumentDown => "M5,3 H14 L19,8 V20 Q19,22 17,22 H5 Q3,22 3,20 V5 Q3,3 5,3 Z M14,3 V8 H19 M11,10 V18 M7.5,14.5 L11,18 L14.5,14.5",
+        IconKind.Code => "M7,6 L1,12 L7,18 M17,6 L23,12 L17,18 M14,3 L10,21",
+        IconKind.Chat => "M5,4 H19 Q22,4 22,7 V15 Q22,18 19,18 H10 L5,22 V18 Q2,18 2,15 V7 Q2,4 5,4 Z",
+        IconKind.SceneStack => "M7,3 H20 Q22,3 22,5 V15 Q22,17 20,17 H7 Q5,17 5,15 V5 Q5,3 7,3 Z M2,8 V19 Q2,21 4,21 H17 M5,8 H22 M9,8 V17",
+        IconKind.CameraFilled => "M5,6.5 H13 Q15,6.5 15,8.5 V15.5 Q15,17.5 13,17.5 H5 Q3,17.5 3,15.5 V8.5 Q3,6.5 5,6.5 Z M17,10 L21,7.5 V16.5 L17,14 Z",
+        IconKind.SpeakerFilled => "M16,9 C18,10.5 18,13.5 16,15 M18.5,6.5 C22,9.5 22,14.5 18.5,17.5",
+        IconKind.Scope => "M18.5,12 A6.5,6.5 0 1 0 5.5,12 A6.5,6.5 0 1 0 18.5,12 M12,2 V7 M12,17 V22 M2,12 H7 M17,12 H22",
+        IconKind.PhotoCamera => "M4,7 H7 L9,4 H15 L17,7 H20 Q22,7 22,9 V18 Q22,20 20,20 H4 Q2,20 2,18 V9 Q2,7 4,7 Z M16,13 A4,4 0 1 0 8,13 A4,4 0 1 0 16,13",
+        IconKind.Checkmark => "M5,12 L10,17 L20,6",
+        IconKind.BlurDrop => "M12,2 C10,6 5,10 5,15 A7,7 0 0 0 19,15 C19,10 14,6 12,2 Z M8,15 Q8,18 11,19",
+        IconKind.ClipboardDocument => "M6,5 H4 V22 H16 V19 M9,5 H18 V9 M8,3 H14 V7 H8 Z M10,10 H18 L21,13 V22 H10 Z M18,10 V13 H21 M13,16 H18 M13,19 H18",
+        IconKind.Pencil => "M4,17 L16,5 Q18,3 20,5 Q22,7 20,9 L8,21 L3,22 Z M14,7 L18,11 M4,17 L8,21",
+        IconKind.Waveform => "M2,10 V14 M5,7 V17 M8,4 V20 M11,8 V16 M14,2 V22 M17,6 V18 M20,9 V15 M23,10 V14",
+        IconKind.AspectRatio => "M4,5 H20 Q22,5 22,7 V17 Q22,19 20,19 H4 Q2,19 2,17 V7 Q2,5 4,5 Z M6,10 V8 H10 M18,14 V16 H14",
+        IconKind.FitArrows => "M3,9 V3 H9 M3,3 L10,10 M21,15 V21 H15 M21,21 L14,14",
+        IconKind.Landscape => "M4,5 H20 Q22,5 22,7 V17 Q22,19 20,19 H4 Q2,19 2,17 V7 Q2,5 4,5 Z",
+        IconKind.Portrait => "M7,2 H17 Q19,2 19,4 V20 Q19,22 17,22 H7 Q5,22 5,20 V4 Q5,2 7,2 Z",
+        IconKind.Circle => "M12,2 A10,10 0 1 1 11.99,2 Z",
+        IconKind.CheckCircle => "F0 M12,2 A10,10 0 1 1 11.99,2 Z M6,12 L10.5,16.5 L18,8.5 L16.5,7 L10.5,13.5 L7.5,10.5 Z",
+        IconKind.Refresh => "M20,9 A8,8 0 0 0 6,5 L3,8 M3,3 V8 H8 M4,15 A8,8 0 0 0 18,19 L21,16 M16,16 H21 V21",
+        IconKind.Counterclockwise => "M4,8 A8,8 0 1 1 4,16 M4,3 V8 H9",
         IconKind.RecordCircle => "M21,12 A9,9 0 1 0 3,12 A9,9 0 1 0 21,12",
         IconKind.Shield => "M12,2 L21,6 V12 C21,17 17,21 12,23 C7,21 3,17 3,12 V6 Z M9,12 V10 A3,3 0 0 1 15,10 V12 M8,12 H16 V18 H8 Z M12,14 V16",
         IconKind.Info => "M21,12 A9,9 0 1 0 3,12 A9,9 0 1 0 21,12 M12,7 V7.1 M10,11 H12 V17 M10,17 H14",
@@ -171,6 +238,7 @@ public sealed class Icon : FrameworkElement
         IconKind.Magnet => "M5,3 H9 V13 A3,3 0 0 0 15,13 V3 H19 V13 A7,7 0 0 1 5,13 Z M5,7 H9 M15,7 H19",
         IconKind.Monitor => "M5,5 H19 Q21,5 21,7 V15 Q21,17 19,17 H5 Q3,17 3,15 V7 Q3,5 5,5 Z M8,20 H16 M12,17 V20",
         IconKind.Window => "M6,4 H18 Q20,4 20,6 V18 Q20,20 18,20 H6 Q4,20 4,18 V6 Q4,4 6,4 Z M4,9 H20 M7,6.5 H7.1 M10,6.5 H10.1",
+        IconKind.MacWindow => "M4,4 H20 Q22,4 22,6 V18 Q22,20 20,20 H4 Q2,20 2,18 V6 Q2,4 4,4 Z M2,9 H22 M5,6.5 H5.1 M8,6.5 H8.1 M11,6.5 H11.1",
         IconKind.Region => "M9,4 H4 V9 M15,4 H20 V9 M20,15 V20 H15 M4,15 V20 H9",
         IconKind.Device => "M5,5 H19 Q21,5 21,7 V17 Q21,19 19,19 H5 Q3,19 3,17 V7 Q3,5 5,5 Z M7,9 H11 V15 H7 Z M15,9 H18 M15,12 H18 M15,15 H17",
         IconKind.Mic => "M9,6 C9,4.3 10.3,3 12,3 C13.7,3 15,4.3 15,6 V11 C15,12.7 13.7,14 12,14 C10.3,14 9,12.7 9,11 Z M8,11 C8,13.8 9.8,16 12,16 C14.2,16 16,13.8 16,11 M12,16 V19 M9,19 H15",
@@ -214,7 +282,7 @@ public sealed class Icon : FrameworkElement
         IconKind.Layers => "M12,3 L22,8 L12,13 L2,8 Z M3,12 L12,16.5 L21,12 M3,16 L12,20.5 L21,16",
         IconKind.InsetRectangle => "M4,5 H20 Q22,5 22,7 V17 Q22,19 20,19 H4 Q2,19 2,17 V7 Q2,5 4,5 Z M6,9 H18 V15 H6 Z",
         IconKind.Photo => "M4,4 H20 Q22,4 22,6 V18 Q22,20 20,20 H4 Q2,20 2,18 V6 Q2,4 4,4 Z M2,17 L8.5,10.5 L13,14.7 L16.7,11 L22,17",
-        IconKind.GridPattern => "M4,3 H20 Q21,3 21,4 V20 Q21,21 20,21 H4 Q3,21 3,20 V4 Q3,3 4,3 Z M9,3 V21 M15,3 V21 M3,9 H21 M3,15 H21",
+        IconKind.GridPattern => "M9,3 L6,21 M18,3 L15,21 M3,9 H22 M2,15 H21",
         IconKind.WaveformRectangle => "M4,4 H20 Q22,4 22,6 V18 Q22,20 20,20 H4 Q2,20 2,18 V6 Q2,4 4,4 Z M4,12 H7 L9,7 L12,17 L15,10 L17,12 H20",
         IconKind.PhotoPlus => "M4,4 H19 Q21,4 21,6 V11 M21,20 H4 Q2,20 2,18 V6 Q2,4 4,4 M2,17 L8.5,10.5 L13,14.7 L15.5,12.2 M19,13 V21 M15,17 H23",
         _ => "M4,4 H20 V20 H4 Z",

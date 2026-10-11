@@ -44,7 +44,9 @@ public partial class EditorWindow
         return button;
     }
 
-    void AddSticker() => PickDecoration((path, name) =>
+    void AddSticker() => PickDecoration(InsertSticker);
+
+    void InsertSticker(string path, string name)
     {
         CancelOverlayGesture(); CancelRegionEditing(); _cameraSelected = false;
         _player.Pause();
@@ -53,7 +55,42 @@ public partial class EditorWindow
         _tool = "effects";
         _expandedDetails.Add("贴图、柔化与聚光");
         ApplyTrackFlags(TrackFlags | 8);
-    });
+    }
+
+    static string? ClipboardImageFile() => Clipboard.ContainsFileDropList()
+        ? Clipboard.GetFileDropList().Cast<string>().FirstOrDefault(path => new[] { ".png", ".jpg", ".jpeg", ".bmp", ".webp" }.Contains(Path.GetExtension(path).ToLowerInvariant()))
+        : null;
+
+    static bool CanPasteSticker()
+    {
+        try { return Clipboard.ContainsImage() || ClipboardImageFile() is not null; }
+        catch (System.Runtime.InteropServices.ExternalException) { return false; } // Another application can briefly lock the clipboard.
+    }
+
+    void AddPastedSticker()
+    {
+        try
+        {
+            var image = Clipboard.GetImage();
+            var sourceFile = image is null ? ClipboardImageFile() : null;
+            if (image is null && sourceFile is null) return;
+            var folder = Path.Combine(_directory, "media", "decor"); Directory.CreateDirectory(folder);
+            var name = Guid.NewGuid().ToString("N") + (image is null ? Path.GetExtension(sourceFile) : ".png");
+            var output = Path.Combine(folder, name);
+            if (image is not null)
+            {
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
+                using var stream = File.Create(output); encoder.Save(stream);
+            }
+            else File.Copy(sourceFile!, output);
+            Push(); InsertSticker("media/decor/" + name, sourceFile is null ? "粘贴图片" : Path.GetFileName(sourceFile)); Commit();
+        }
+        catch (Exception error)
+        {
+            TimeLabel.Text = "粘贴图片失败：" + error.Message;
+        }
+    }
 
     void BuildDecorations()
     {
@@ -162,8 +199,7 @@ public partial class EditorWindow
             tips.ToolTip = "旋转时按住 Shift 吸附 15°；方向键移动 1 像素，Shift + 方向键移动 10 像素。"; management.Children.Add(tips);
             BuildStickerNumbers(management, sticker);
             section.Children.Add(SectionTitle("贴图布局"));
-            section.Children.Add(PadHeading("位置", "⌖ 居中", () => { Push(); sticker.X = sticker.Y = .5; Commit(); }));
-            section.Children.Add(VectorPad("贴图位置", sticker.X, sticker.Y, (x, y) => { sticker.X = x; sticker.Y = y; }));
+            section.Children.Add(VectorPad("贴图位置", sticker.X, sticker.Y, (x, y) => { sticker.X = x; sticker.Y = y; }, headingTitle: "位置"));
             Control("宽度", .02, 1, sticker.Width, x => sticker.Width = x);
             Control("旋转角度", -180, 180, sticker.Rotation, x => sticker.Rotation = x);
             Control("不透明度", 0, 1, sticker.Opacity, x => sticker.Opacity = x);
@@ -246,9 +282,9 @@ public partial class EditorWindow
             guidance.ToolTip = "方向键移动 1 像素，Shift + 方向键移动 10 像素。暂停时完整显示所选效果，播放时按时间线显示。";
             management.Children.Add(guidance);
             section.Children.Add(SectionTitle("位置与大小"));
-            section.Children.Add(PadHeading("位置", "⌖ 居中", () => { Push(); soft.X = .5 - soft.Width / 2; soft.Y = .5 - soft.Height / 2; Commit(); }));
             section.Children.Add(VectorPad("选区位置", soft.X + soft.Width / 2, soft.Y + soft.Height / 2,
-                (x, y) => { soft.X = Math.Clamp(x - soft.Width / 2, 0, 1 - soft.Width); soft.Y = Math.Clamp(y - soft.Height / 2, 0, 1 - soft.Height); }));
+                (x, y) => { soft.X = Math.Clamp(x - soft.Width / 2, 0, 1 - soft.Width); soft.Y = Math.Clamp(y - soft.Height / 2, 0, 1 - soft.Height); }, headingTitle: "位置",
+                readPoint: () => new Point(soft.X + soft.Width / 2, soft.Y + soft.Height / 2)));
             BuildRegionNumbers(management, soft);
             var details = management;
             var enabled = new CheckBox { Content = "启用效果", IsChecked = soft.Enabled, Style = (Style)FindResource("SwitchCheckBox"), Margin = new Thickness(0, 6, 0, 2) };

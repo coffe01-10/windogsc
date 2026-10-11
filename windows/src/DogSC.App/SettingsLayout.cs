@@ -19,7 +19,7 @@ public partial class SettingsWindow
     {
         var label = new TextBlock { Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
         label.SetResourceReference(TextBlock.ForegroundProperty, secondary ? "InkSecondaryBrush" : "InkBrush");
-        label.SetResourceReference(TextBlock.FontFamilyProperty, semi ? "FontSemi" : "FontRegular"); return label;
+        label.SetResourceReference(TextBlock.FontFamilyProperty, semi ? "FontSemi" : "FontRegular"); label.FontWeight = semi ? FontWeights.SemiBold : FontWeights.Normal; return label;
     }
     Button ActionButton(string title, RoutedEventHandler action)
     {
@@ -39,7 +39,7 @@ public partial class SettingsWindow
     }
     StackPanel Card(StackPanel page, string title)
     {
-        var content = new StackPanel(); var heading = Text(title, 14, semi: true); heading.Margin = new Thickness(0, 0, 0, 14); content.Children.Add(heading);
+        var content = new StackPanel(); var heading = Text(title, 14, semi: true); heading.Margin = new Thickness(0, 0, 0, 8); content.Children.Add(heading);
         var card = new Border { Child = content, CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(.75), Padding = new Thickness(16), Margin = new Thickness(0, 22, 0, 0) };
         card.SetResourceReference(Border.BackgroundProperty, "SettingsCardBrush"); card.SetResourceReference(Border.BorderBrushProperty, "LineBrush"); page.Children.Add(card); return content;
     }
@@ -53,7 +53,8 @@ public partial class SettingsWindow
         row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var symbol = new Icon { Kind = icon, Width = 20, Height = 20, VerticalAlignment = VerticalAlignment.Center }; symbol.SetResourceReference(DogSC.Icon.ForegroundProperty, "InkSecondaryBrush"); row.Children.Add(symbol);
         var labels = new StackPanel { Margin = new Thickness(12, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
-        labels.Children.Add(Text(title, 13, semi: true)); helper = Text(description, 12, true); helper.Margin = new Thickness(0, 3, 0, 0); labels.Children.Add(helper);
+        var titleLabel = Text(title, 13); titleLabel.SetResourceReference(TextBlock.FontFamilyProperty, "FontMedium"); titleLabel.FontWeight = FontWeights.Medium;
+        labels.Children.Add(titleLabel); helper = Text(description, 12, true); helper.Margin = new Thickness(0, 3, 0, 0); labels.Children.Add(helper);
         Grid.SetColumn(labels, 1); row.Children.Add(labels); Grid.SetColumn(accessory, 2); row.Children.Add(accessory); panel.Children.Add(row);
     }
     Border ChoiceWell(FluidSegments segments)
@@ -71,7 +72,8 @@ public partial class SettingsWindow
             ("recording", "录制", IconKind.RecordCircle), ("permissions", "权限", IconKind.Shield), ("about", "关于", IconKind.Info) })
         {
             var content = new StackPanel { Orientation = Orientation.Horizontal };
-            content.Children.Add(new Icon { Kind = icon, Width = 20, Height = 20, Margin = new Thickness(0, 0, 10, 0) }); content.Children.Add(Text(title, 13, semi: true));
+            content.Children.Add(new Border { Width = 20, Margin = new Thickness(0, 0, 10, 0), Child = new Icon { Kind = icon, Width = 16, Height = 16 } });
+            var label = Text(title, 13); label.SetResourceReference(TextBlock.FontFamilyProperty, "FontMedium"); label.FontWeight = FontWeights.Medium; content.Children.Add(label);
             var button = new Button { Content = content, Tag = key, Height = 40, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(0, 0, 0, 5),
                 Style = (Style)FindResource("QuietButton"), HorizontalContentAlignment = HorizontalAlignment.Left };
             System.Windows.Automation.AutomationProperties.SetName(button, "设置：" + title); button.Click += (_, _) => SelectSettingsSection(key);
@@ -93,11 +95,16 @@ public partial class SettingsWindow
         var sounds = Card(general, "提示与声音");
         _soundToggle = Switch("导出完成后播放提示音", SettingsStore.Current.ExportCompletionSoundEnabled,
             (_, _) => Set(() => SettingsStore.Current.ExportCompletionSoundEnabled = _soundToggle.IsChecked == true));
-        var soundActions = new StackPanel { Orientation = Orientation.Horizontal }; soundActions.Children.Add(ActionButton("▷ 试听", (_, _) => System.Media.SystemSounds.Asterisk.Play())); soundActions.Children.Add(_soundToggle);
+        var soundActions = new StackPanel { Orientation = Orientation.Horizontal };
+        var previewSound = ActionButton("试听", (_, _) => System.Media.SystemSounds.Asterisk.Play());
+        var soundLabel = new StackPanel { Orientation = Orientation.Horizontal };
+        soundLabel.Children.Add(new Icon { Kind = IconKind.Play, Width = 11, Height = 11, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center });
+        soundLabel.Children.Add(Text("试听", 12)); previewSound.Content = soundLabel;
+        soundActions.Children.Add(previewSound); soundActions.Children.Add(_soundToggle);
         Row(sounds, IconKind.Speaker, "导出完成后播放提示音", "仅在成功导出后播放", soundActions, out _);
         var locations = Card(general, "存储位置");
-        Row(locations, IconKind.Folder, "项目位置", "", ActionButton("更改…", (_, _) => ChangeDirectory(true)), out _projectsPath); Divider(locations);
-        Row(locations, IconKind.Share, "导出位置", "", ActionButton("更改…", (_, _) => ChangeDirectory(false)), out _exportPath);
+        Row(locations, IconKind.DocumentUp, "项目位置", "", ActionButton("更改…", (_, _) => ChangeDirectory(true)), out _projectsPath); Divider(locations);
+        Row(locations, IconKind.DocumentDown, "导出位置", "", ActionButton("更改…", (_, _) => ChangeDirectory(false)), out _exportPath);
 
         var editor = Page("editor", "编辑器", "预览与编辑工作区"); var preview = Card(editor, "画布与预览");
         QualityLow = Choice("清晰预览", QualityLow_Click); QualityFull = Choice("完整分辨率", QualityFull_Click);
@@ -105,7 +112,7 @@ public partial class SettingsWindow
         var quality = ChoiceWell(_qualityChoices); quality.Width = 200;
         Row(preview, IconKind.Monitor, "预览画质", "清晰预览更流畅，完整分辨率保留细节；导出画质不受影响。", quality, out _);
         var layout = Card(editor, "窗口与界面状态");
-        Row(layout, IconKind.Undo, "重置编辑窗口布局", "恢复默认轨道显示、时间线缩放及面板大小。", ActionButton("重置布局", ResetLayout_Click), out ResetDone);
+        Row(layout, IconKind.Window, "重置编辑窗口布局", "恢复默认轨道显示、时间线缩放及面板大小。", ActionButton("重置布局", ResetLayout_Click), out ResetDone);
         var advanced = new StackPanel { Margin = new Thickness(0, 6, 0, 8) };
         Row(advanced, IconKind.Folder, "ffmpeg", "", ActionButton("浏览…", BrowseFfmpeg_Click), out FfmpegLabel);
         editor.Children.Add(new Expander { Header = "导出工具", Content = advanced, Margin = new Thickness(0, 22, 0, 0) });
@@ -128,7 +135,7 @@ public partial class SettingsWindow
         var permissions = Page("permissions", "权限", "管理录制所需的系统权限"); var access = Card(permissions, "Windows 隐私与设备访问");
         Row(access, IconKind.Monitor, "屏幕录制", "使用 Windows 桌面采集；窗口遮挡会影响画面。", Status("桌面采集", "SuccessBrush"), out _); Divider(access);
         Row(access, IconKind.CursorMotion, "光标记录", "记录鼠标移动与点击，生成可编辑的光标轨道。", Status("应用内记录", "SuccessBrush"), out _); Divider(access);
-        Row(access, IconKind.Camera, "摄像头", "画中画人像出镜与外接相机输入。", Status("由系统管理", "InkSecondaryBrush"), out _); Divider(access);
+        Row(access, IconKind.PhotoCamera, "摄像头", "画中画人像出镜与外接相机输入。", Status("由系统管理", "InkSecondaryBrush"), out _); Divider(access);
         Row(access, IconKind.Mic, "麦克风", "人声解说录音与音频设备采集。", Status("由系统管理", "InkSecondaryBrush"), out _); Divider(access);
         Row(access, IconKind.Shield, "设备不可用时", "请检查设备连接和 Windows 隐私设置。", ActionButton("打开系统设置 ↗", OpenPrivacy_Click), out _);
 
@@ -138,8 +145,8 @@ public partial class SettingsWindow
         DockPanel.SetDock(appIcon, Dock.Left); identity.Children.Add(appIcon);
         var appName = new StackPanel { VerticalAlignment = VerticalAlignment.Center }; appName.Children.Add(Text("DogSC", 18, semi: true)); UpdateLabel = Text("", 12, true); UpdateLabel.Margin = new Thickness(0, 6, 0, 0); appName.Children.Add(UpdateLabel); identity.Children.Add(appName); about.Children.Add(identity);
         Divider(about);
-        Link(about, "查看源码", "https://github.com/coffe01-10/windogsc", IconKind.Layers);
-        Link(about, "反馈建议", "https://github.com/coffe01-10/windogsc/issues", IconKind.Info);
+        Link(about, "查看源码", "https://github.com/coffe01-10/windogsc", IconKind.Code);
+        Link(about, "反馈建议", "https://github.com/coffe01-10/windogsc/issues", IconKind.Chat);
         Link(about, "macOS 原版", "https://github.com/laogou717/dogsc", IconKind.ExternalLink);
         Divider(about); about.Children.Add(Text("免费开源。Windows 版的录制设备与系统权限使用本机能力。", 12, true));
     }
@@ -190,8 +197,12 @@ public partial class SettingsWindow
     }
     UIElement CameraShapeTile(string shape, string title)
     {
-        var stack = new StackPanel { Margin = new Thickness(0, 8, 0, 8) };
-        stack.Children.Add(new Border { Width = shape == "rounded" ? 36 : 28, Height = 28, CornerRadius = new CornerRadius(shape == "circle" ? 14 : 7), Background = Brushes.DimGray, Margin = new Thickness(0, 0, 0, 8), Child = new Icon { Kind = IconKind.Camera, Width = 16, Height = 16, Foreground = Brushes.White } });
+        var stack = new StackPanel { Margin = new Thickness(0, 10, 0, 10) };
+        var silhouette = new Border { Width = shape == "rounded" ? 26 : 20, Height = shape == "rounded" ? 16 : 20,
+            CornerRadius = new CornerRadius(shape == "circle" ? 10 : shape == "rounded" ? 3 : 4), Margin = new Thickness(0, 0, 0, 12) };
+        silhouette.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding(nameof(Control.Foreground))
+            { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(Button), 1) });
+        stack.Children.Add(silhouette);
         var label = Text(title, 12); label.HorizontalAlignment = HorizontalAlignment.Center; stack.Children.Add(label); return stack;
     }
     Border AppearanceMiniature(string key)

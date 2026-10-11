@@ -11,7 +11,7 @@
         <Border x:Name="BackgroundLayer" Margin="-14" Background="{DynamicResource CardBrush}" CornerRadius="18" IsHitTestVisible="False"/>
         <DockPanel>
             <DockPanel DockPanel.Dock="Top" LastChildFill="False" Background="Transparent" Cursor="SizeAll" Margin="0,0,0,8" MouseLeftButtonDown="Drag" ToolTip="拖动备忘录">
-                <TextBlock DockPanel.Dock="Left" Text="备忘录" VerticalAlignment="Center" FontFamily="{DynamicResource FontSemi}" FontSize="14"/>
+                <TextBlock DockPanel.Dock="Left" Text="备忘录" VerticalAlignment="Center" FontFamily="{DynamicResource FontSemi}" FontWeight="SemiBold" FontSize="14"/>
                 <Button DockPanel.Dock="Right" Cursor="Hand" Style="{StaticResource QuietButton}" Click="Close_Click" Content="×" AutomationProperties.Name="关闭备忘录" Padding="8,4"/>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" Margin="0,0,6,0">
                     <Button x:Name="EditModeButton" Content="编辑" Style="{StaticResource ChipButton}" Click="EditMode_Click" Padding="8,4"/>

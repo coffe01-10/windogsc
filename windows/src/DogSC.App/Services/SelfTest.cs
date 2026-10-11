@@ -483,24 +483,16 @@ public static partial class SelfTest
         }
         finally { ProjectFile.Save(root, original); }
 
-        var settings = SettingsStore.Current;
-        var oldShape = settings.CameraDefaultShape;
-        var oldPreset = settings.DefaultScenePresetId;
-        try
+        foreach (var shape in new[] { "circle", "square", "rounded" })
         {
-            settings.DefaultScenePresetId = null;
-            foreach (var shape in new[] { "circle", "square", "rounded" })
-            {
-                settings.CameraDefaultShape = shape;
-                var recording = new ProjectDocument();
-                ScenePresets.ApplyDefault(recording, root);
-                ProjectFile.Normalize(recording);
-                if (recording.Camera.Shape != (shape == "rounded" ? "square" : shape)
-                    || Math.Abs(recording.Camera.Corner - (shape == "square" ? 0 : .18)) > .001)
-                    throw new InvalidOperationException("摄像头默认形状没有应用：" + shape);
-            }
+            var settings = new AppSettings { CameraDefaultShape = shape };
+            var recording = new ProjectDocument();
+            ScenePresets.ApplyDefault(recording, root, settings);
+            ProjectFile.Normalize(recording);
+            if (recording.Camera.Shape != (shape == "rounded" ? "square" : shape)
+                || Math.Abs(recording.Camera.Corner - (shape == "square" ? 0 : .18)) > .001)
+                throw new InvalidOperationException("摄像头默认形状没有应用：" + shape);
         }
-        finally { settings.CameraDefaultShape = oldShape; settings.DefaultScenePresetId = oldPreset; }
         Console.WriteLine("SELFTEST_COMPLETION_OK thumbnail source, cancellation, camera defaults");
     }
 
