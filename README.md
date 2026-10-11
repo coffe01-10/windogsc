@@ -2,6 +2,7 @@
   <img src="Resources/AppIconMaster.png" width="112" alt="DogSC 应用图标">
 </p>
 <h1 align="center">WinDogSC</h1>
+<p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 <p align="center">把屏幕操作，变成讲得清楚的视频。</p>
 <p align="center">DogSC 的 Windows 桌面版 · 录制、剪辑、运镜与导出</p>
 <p align="center">
@@ -16,11 +17,17 @@
   <a href="https://github.com/coffe01-10/windogsc/issues">反馈问题</a>
 </p>
 
-![Windows 编辑器：浮动导航、背景素材卡片、画面预览与独立效果轨道](docs/images/windows/editor.png)
+![Windows 中文编辑器：浮动导航、背景素材卡片、画面预览与独立效果轨道](docs/images/windows/zh-CN/editor.png)
 
 WinDogSC 面向产品演示、操作教程和问题复现：录下操作，去掉等待，把镜头引向重点，再导出成片。它基于 [laogou717/DogSC](https://github.com/laogou717/dogsc) 的产品设计，使用 .NET 8 / WPF 实现 Windows 桌面流程。
 
-本页截图于 **2026-10-11** 从当前 Windows 程序重新采集；画面中的 NORTH 客户工作台是虚构演示数据。应用窗口和可执行文件仍使用 **DogSC** 名称。
+本页截图于 **2026-10-11** 从当前 Windows 程序以 **2× 像素密度、无损 PNG** 重新采集，点击图片可查看原图；画面中的 NORTH 客户工作台是虚构演示数据。应用窗口和可执行文件仍使用 **DogSC** 名称。在「设置 → 通用 → 语言」中可切换中文 / English。
+
+## 宣传视频
+
+[![DogSC 宣传片：把屏幕操作，变成讲得清楚的视频](docs/videos/dogsc-launch-poster.png)](docs/videos/dogsc-launch.mp4?raw=1)
+
+**[观看或下载宣传片](docs/videos/dogsc-launch.mp4?raw=1)** · 62 秒 · 1080p / 60 FPS · 中文原片
 
 ## 录制：从一个悬浮工具条开始
 
@@ -41,13 +48,13 @@ WinDogSC 面向产品演示、操作教程和问题复现：录下操作，去�
 
 「画面」分为**背景 / 布局 / 外框**：壁纸、五种网格、三种动态背景和自定义图片 / 视频；留白、二维位置、内容倍率、圆角、阴影和描边；浅 / 深色窗口、浏览器及手机 / 平板外框。顶部比例卡片支持横竖预设与自定义宽高，原画面裁切支持八个手柄和四边像素输入。
 
-![Windows 运镜：选中缩放片段，调整自动跟随、目标构图、倍率与焦点](docs/images/windows/motion.png)
+![Windows 中文运镜：选中缩放片段，调整自动跟随、目标构图、倍率与焦点](docs/images/windows/zh-CN/motion.png)
 
 **按点击自动运镜**会把连续操作组织成镜头：附近点击保持构图，跨区域时平滑移动，持续操作延长停留。重新生成自动镜头会保留手动镜头；也可以手动设置焦点、倍数、进入与退出时长，选择线性、平滑、弹簧、二次、三次或自定义贝塞尔曲线。
 
 在「运镜」页切换**缩放 / 屏幕 3D**，两类片段可以同时存在。屏幕 3D 可调整位置、目标大小、二维倾斜、平面旋转与透视，以及清晰带的范围、羽化、强度和方向。暂停选中片段时显示目标构图，播放时按时间线呈现。
 
-![Windows 屏幕 3D：倾斜预览、构图与空间姿态控制](docs/images/windows/screen3d.png)
+![Windows 中文屏幕 3D：倾斜预览、构图与空间姿态控制](docs/images/windows/zh-CN/screen3d.png)
 
 「开场」提供聚拢、侧滑、轻 3D，支持节奏、时长、元素间隔与参与顺序。光标支持系统样式、触点或隐藏，以及动态点击预览、点击反馈、静止隐藏和时间校准。摄像头画中画可直接移动、缩放，调整形状、内部构图、镜像和进出动画，并设置全片偏移与分段同步点。
 
@@ -55,7 +62,7 @@ WinDogSC 面向产品演示、操作教程和问题复现：录下操作，去�
 
 ## 局部效果：遮住信息，突出重点
 
-![Windows 局部柔化：在预览中选中邮箱区域，拖动边角调整范围](docs/images/windows/effects.png)
+![Windows 中文局部柔化：在预览中选中邮箱区域，拖动边角调整范围](docs/images/windows/zh-CN/effects.png)
 
 点击预览顶部「＋」→「柔化或突出」框选区域，再在属性卡片切换柔化 / 聚光；贴图可通过「导入贴图…」或「粘贴图片」加入。选中时间线上的对应片段即可重新编辑。
 
@@ -65,7 +72,7 @@ WinDogSC 面向产品演示、操作教程和问题复现：录下操作，去�
 
 ## 导出：交付视频或音频
 
-![Windows 导出：成片预览、视频与音频切换、分辨率和帧率设置](docs/images/windows/export.png)
+![Windows 中文导出：成片预览、视频与音频切换、分辨率和帧率设置](docs/images/windows/zh-CN/export.png)
 
 | 内容 | 可选设置 |
 | --- | --- |
