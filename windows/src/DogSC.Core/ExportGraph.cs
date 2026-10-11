@@ -502,7 +502,8 @@ public static class ExportGraph
                     var endFrame = frameCount * (i + 1) / segCount;
                     var mid = Math.Min((firstFrame + endFrame) / (2.0 * fps), duration - 0.0001);
                     var corners = MotionExport.ScreenCorners(
-                        screenTrack.SampleLayout(mid, null, viewport), baseSample,
+                        screenTrack.SampleLayout(mid, null, viewport, project.Motion.ScreenSpringMass,
+                            project.Motion.ScreenSpringStiffness, project.Motion.ScreenSpringDamping), baseSample,
                         canvasWidth, canvasHeight, placement.X, placement.Y, placement.Width, placement.Height,
                         OpeningMotion.Sample(project, "screen", mid, canvasWidth, canvasHeight));
                     var focus = project.ScreenMotions.LastOrDefault(c => c.LinearBlur && c.LinearBlurStrength > .001
@@ -699,7 +700,8 @@ public static class ExportGraph
                             var endFrame = firstCameraFrame + (lastCameraFrame - firstCameraFrame) * (i + 1) / segCount;
                             var sampleTime = (firstFrame + endFrame) / (2.0 * fps);
                             var frame = OpeningMotion.CameraFrame(MotionExport.CameraPixels(
-                                camTrack.Sample(sampleTime, camBase, media.CameraAspect, (double)canvasWidth / canvasHeight), canvasWidth, canvasHeight),
+                                camTrack.Sample(sampleTime, camBase, media.CameraAspect, (double)canvasWidth / canvasHeight,
+                                    project.Motion.ScreenSpringMass, project.Motion.ScreenSpringStiffness, project.Motion.ScreenSpringDamping), canvasWidth, canvasHeight),
                                 OpeningMotion.Sample(project, "camera", sampleTime, canvasWidth, canvasHeight));
                             var camp = openingActive ? CanvasLayout.OpeningProgress(project.Canvas, sampleTime, 1) : 1;
                             var suffix = cam.Index + "_" + i;

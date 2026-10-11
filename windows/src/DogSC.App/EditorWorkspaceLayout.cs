@@ -1,4 +1,4 @@
-﻿using System.Windows.Controls.Primitives;
+using System.Windows.Controls.Primitives;
 
 namespace DogSC;
 
@@ -26,10 +26,10 @@ public partial class EditorWindow
         }
         if (!_workspaceInitialized)
         {
-            VideoViewButton.Content = IconLabel(IconKind.InsetRectangle, "视频");
-            WaveformViewButton.Content = IconLabel(IconKind.WaveformRectangle, "波形");
-            MarkersToggle.Content = IconLabel(IconKind.Bookmark, "标记");
-            SnapToggle.Content = IconLabel(IconKind.Magnet, "吸附");
+            VideoViewButton.Content = IconLabel(IconKind.InsetRectangle, L.Text("视频"));
+            WaveformViewButton.Content = IconLabel(IconKind.WaveformRectangle, L.Text("波形"));
+            MarkersToggle.Content = IconLabel(IconKind.Bookmark, L.Text("标记"));
+            SnapToggle.Content = IconLabel(IconKind.Magnet, L.Text("吸附"));
             Timeline.TrackMenuRequested += (_, _) => TrackMenu_Click(Timeline, new RoutedEventArgs());
             Timeline.TrackHidden += (_, bit) => ApplyTrackFlags(TrackFlags & ~bit);
             _workspaceInitialized = true;
@@ -51,7 +51,7 @@ public partial class EditorWindow
     void PreviewMenu_Click(object sender, RoutedEventArgs e)
     {
         var menu = new ContextMenu { PlacementTarget = (Button)sender };
-        foreach (var (title, key) in new[] { ("完整分辨率 · 保留源素材细节", "full"), ("流畅预览 · 更顺畅地播放", "low") })
+        foreach (var (title, key) in new[] { (L.Text("完整分辨率 · 保留源素材细节"), "full"), (L.Text("流畅预览 · 更顺畅地播放"), "low") })
         {
             var item = new MenuItem { Header = title, IsCheckable = true, IsChecked = _player.Quality == key };
             item.Click += (_, _) => { SettingsStore.Current.PreviewQuality = key; SettingsStore.Save(); foreach (var editor in Application.Current.Windows.OfType<EditorWindow>()) editor.SyncPreviewQuality(); };

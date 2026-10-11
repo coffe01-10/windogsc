@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text.Json;
 using DogSC.Core;
 
@@ -26,7 +26,7 @@ public partial class EditorWindow
         {
             _regionToolbarId = region.Id; _regionToolbarStyle = region.Style;
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            foreach (var (name, style) in new[] { ("柔化", "blur"), ("聚光", "spotlight") })
+            foreach (var (name, style) in new[] { (L.Text("柔化"), "blur"), (L.Text("聚光"), "spotlight") })
             {
                 var button = DecorationButton(name, () => { Push(); region.Style = style; Commit(); });
                 button.Style = (Style)FindResource("SegmentButton"); button.FontSize = 11; button.Padding = new Thickness(7, 4, 7, 4); button.MinHeight = 24;
@@ -37,15 +37,15 @@ public partial class EditorWindow
                 var group = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 0, 4, 0) };
                 group.Children.Add(new TextBlock { Text = name, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
                 var slider = Slider(0, 1, value, assign);
-                System.Windows.Automation.AutomationProperties.SetName(slider, "选区" + name);
+                System.Windows.Automation.AutomationProperties.SetName(slider, L.Text("选区") + name);
                 slider.Width = 60; slider.VerticalAlignment = VerticalAlignment.Center; slider.Margin = new Thickness(0);
                 group.Children.Add(slider); row.Children.Add(group);
                 // Rebuild the toolbar after inspector changes so both controls agree.
                 slider.PreviewMouseLeftButtonUp += (_, _) => { _regionToolbarId = null; RebuildInspector(); };
             }
-            Control("强度", region.Style == "spotlight" ? region.Dimming : region.Strength,
+            Control(L.Text("强度"), region.Style == "spotlight" ? region.Dimming : region.Strength,
                 v => { if (region.Style == "spotlight") region.Dimming = v; else region.Strength = v; });
-            Control("圆角", region.Corner, v => region.Corner = v);
+            Control(L.Text("圆角"), region.Corner, v => region.Corner = v);
             RegionToolbar.Child = row;
         }
         RegionToolbar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -163,14 +163,14 @@ public partial class EditorWindow
         }
         if (_regionDrawingStyle is not null)
         {
-            var text = new FormattedText($"拖动框选{(_regionDrawingStyle == "blur" ? "柔化" : "聚光")}区域 · Esc 取消",
+            var text = new FormattedText(L.Format("拖动框选{0}区域 · Esc 取消", L.Text(_regionDrawingStyle == "blur" ? "柔化" : "聚光")),
                 CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface(FontFamily.Source), 12, Brushes.White, VisualTreeHelper.GetDpi(this).PixelsPerDip);
             dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(225, 28, 32, 40)), null, new(8, 8, text.Width + 20, 28), 6, 6);
             dc.DrawText(text, new(18, 14));
         }
         else if (_project.Canvas.SoftRegions.FirstOrDefault(r => r.Id == _selectedDecoration) is { } selectedRegion)
         {
-            var text = new FormattedText($"{(selectedRegion.Style == "spotlight" ? "聚光" : "柔化")} · 编辑预览{(selectedRegion.Enabled ? "" : " · 已停用")}",
+            var text = new FormattedText(L.Text(selectedRegion.Style == "spotlight" ? "聚光" : "柔化") + L.Text(" · 编辑预览") + (selectedRegion.Enabled ? "" : L.Text(" · 已停用")),
                 CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface(FontFamily.Source), 12, Brushes.White, VisualTreeHelper.GetDpi(this).PixelsPerDip);
             dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(225, 28, 32, 40)), null, new(8, 8, text.Width + 20, 28), 6, 6);
             dc.DrawText(text, new(18, 14));
@@ -313,11 +313,11 @@ public partial class EditorWindow
     {
         var (w, h) = region.CoordinateSpace == "source" ? (_project.Width, _project.Height)
             : CanvasLayout.OutputSize(_project.Width, _project.Height, _project.Canvas.Aspect, "source");
-        panel.Children.Add(Caption($"位置与大小（{(region.CoordinateSpace == "source" ? "原画面" : "画布")}像素）"));
+        panel.Children.Add(Caption(L.Format("位置与大小（{0}像素）", L.Text(region.CoordinateSpace == "source" ? "原画面" : "画布"))));
         var grid = new Grid { Margin = new Thickness(0, 2, 0, 0) };
         grid.ColumnDefinitions.Add(new()); grid.ColumnDefinitions.Add(new());
         grid.RowDefinitions.Add(new()); grid.RowDefinitions.Add(new());
-        var values = new[] { ("左侧", region.X * w), ("顶部", region.Y * h), ("宽度", region.Width * w), ("高度", region.Height * h) };
+        var values = new[] { (L.Text("左侧"), region.X * w), (L.Text("顶部"), region.Y * h), (L.Text("宽度"), region.Width * w), (L.Text("高度"), region.Height * h) };
         for (var i = 0; i < values.Length; i++)
         {
             var index = i; var (name, value) = values[i];
@@ -325,7 +325,7 @@ public partial class EditorWindow
             group.Children.Add(Caption(name));
             var initial = value.ToString("0.#", CultureInfo.CurrentCulture);
             var box = new TextBox { Text = initial, Padding = new Thickness(6, 3, 6, 3), MinWidth = 65 };
-            System.Windows.Automation.AutomationProperties.SetName(box, name + "像素");
+            System.Windows.Automation.AutomationProperties.SetName(box, name + L.Text("像素"));
             bool submitted = false;
             void Submit()
             {

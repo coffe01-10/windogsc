@@ -80,6 +80,44 @@ public class VideoReferenceTests
     }
 
     [Fact]
+    public void FullScenePresetAppliesGlobalAudioButKeepsClipAudioAndTimedEdits()
+    {
+        var source = Project(); source.MicrophoneGain = .4; source.MicrophoneEnabled = false;
+        source.SystemGain = 1.3; source.SystemEnabled = true;
+        var preset = ScenePreset.Capture(source, "全套场景", "retained-id");
+        var target = Project(); target.Clips[0].MicrophoneGain = .8; target.Clips[0].SystemEnabled = false;
+        target.Zooms.Add(new ZoomSpan { Scale = 2, Start = .2 }); target.ScreenMotions.Add(new ScreenMotionClip());
+        var clips = target.Clips; var zooms = target.Zooms; var motions = target.ScreenMotions;
+        preset.Apply(target);
+        Assert.Equal("retained-id", preset.Id);
+        Assert.Equal(.4, target.MicrophoneGain); Assert.False(target.MicrophoneEnabled);
+        Assert.Equal(1.3, target.SystemGain); Assert.True(target.SystemEnabled);
+        Assert.Equal(.8, target.Clips[0].MicrophoneGain); Assert.False(target.Clips[0].SystemEnabled);
+        Assert.Same(clips, target.Clips); Assert.Same(zooms, target.Zooms); Assert.Same(motions, target.ScreenMotions);
+    }
+
+    [Fact]
+    public void OldSceneWithoutAudioKeepsCurrentGlobalAudio()
+    {
+        var target = Project(); target.SystemGain = .2; target.MicrophoneEnabled = false;
+        new ScenePreset { Audio = null }.Apply(target);
+        Assert.Equal(.2, target.SystemGain); Assert.False(target.MicrophoneEnabled);
+    }
+
+    [Fact]
+    public void SceneModificationIndicatorTracksConfigurationAndIgnoresTimedContentAndSync()
+    {
+        var project = Project(); var snapshot = ScenePreset.Capture(project, "已保存");
+        project.Canvas.Stickers.Add(new StickerImage()); project.Canvas.SoftRegions.Add(new SoftRegion());
+        project.Canvas.Cursor.TimingAdvance = .2; project.Camera.TimingAdvance = .5;
+        project.Clips[0].SystemGain = .4; project.Zooms.Add(new ZoomSpan { Scale = 3 });
+        Assert.True(snapshot.MatchesConfiguration(project));
+        project.SystemGain = .3; Assert.False(snapshot.MatchesConfiguration(project));
+        project.SystemGain = snapshot.Audio!.SystemGain;
+        project.Canvas.CenterX = .7; Assert.False(snapshot.MatchesConfiguration(project));
+    }
+
+    [Fact]
     public void LinearFocusHasAClearBandAndFollowsItsAngleAndTransition()
     {
         var clip = new ScreenMotionClip { LinearBlur = true, LinearBlurSize = .3, LinearBlurSoftness = .5,

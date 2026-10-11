@@ -63,7 +63,7 @@ public sealed class ZoomMotion
             if (time >= motion.Span.Start && time < motion.Span.Start + motion.Span.Duration)
             {
                 var local = time - motion.Span.Start;
-                return new(Math.Clamp(motion.Scale.At(local), 1, 4), Math.Clamp(motion.X.At(local), 0, 1), Math.Clamp(motion.Y.At(local), 0, 1));
+                return new(Math.Clamp(motion.Scale.At(local), 1, 6), Math.Clamp(motion.X.At(local), 0, 1), Math.Clamp(motion.Y.At(local), 0, 1));
             }
         return ZoomPose.Rest;
     }
@@ -93,7 +93,7 @@ public sealed class ZoomMotion
             x = "if(" + active + "," + motion.X.Expression(local) + "," + x + ")";
             y = "if(" + active + "," + motion.Y.Expression(local) + "," + y + ")";
         }
-        return ("clip(" + scale + ",1,4)", "clip(" + x + ",0,1)", "clip(" + y + ",0,1)");
+        return ("clip(" + scale + ",1,6)", "clip(" + x + ",0,1)", "clip(" + y + ",0,1)");
     }
 
     public static List<(double Time, double X, double Y, bool Click)> Events(ProjectDocument project)

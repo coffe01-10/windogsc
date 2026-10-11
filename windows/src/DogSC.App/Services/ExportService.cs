@@ -25,7 +25,7 @@ public sealed class ExportService
         var partial = Path.Combine(Path.GetDirectoryName(outputPath)!, ".DogSC-" + Guid.NewGuid().ToString("N") + Path.GetExtension(outputPath));
         try
         {
-            Stage?.Invoke("正在准备光标和效果…");
+            Stage?.Invoke(L.Text("正在准备光标和效果…"));
             resolved.CursorCommands = Path.Combine(temp, "cursor.commands");
             var plan = ExportGraph.Build(project, options, resolved);
             await CursorExport.PrepareAsync(_ffmpeg, project, plan, temp, cancellation);
@@ -154,12 +154,12 @@ public sealed class ExportService
             }
             else if (options.AudioOnly)
             {
-                throw new InvalidOperationException("这个项目没有可导出的声音。");
+                throw new InvalidOperationException(L.Text("这个项目没有可导出的声音。"));
             }
 
             args.AddRange(["-movflags", "+faststart", partial]);
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-            Stage?.Invoke("正在渲染成片…");
+            Stage?.Invoke(L.Text("正在渲染成片…"));
             _process = FfmpegProcess.Start(_ffmpeg, args);
             _process.Progress += seconds =>
             {
@@ -173,7 +173,7 @@ public sealed class ExportService
             var error = _process.ErrorText();
             if (code != 0 || !File.Exists(partial) || new FileInfo(partial).Length < 128)
             {
-                throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "导出失败。" : error.Trim());
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? L.Text("导出失败。") : error.Trim());
             }
 
             File.Move(partial, outputPath, overwrite: true);

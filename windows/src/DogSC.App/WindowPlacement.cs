@@ -119,7 +119,7 @@ static class WindowPlacement
         }
     }
 
-    public static void Exclude(Window window) =>
+    public static bool Exclude(Window window) =>
         Native.ExcludeFromCapture(new WindowInteropHelper(window).Handle);
 
     [DllImport("user32.dll")]

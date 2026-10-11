@@ -111,10 +111,10 @@ public static class MacProjectImporter
             MapAudio(root, project);
             MapZooms(timeline, project);
             MapMotionClips(timeline, project);
+            MapMotionDefaults(root, project, r.DroppedFields);
             MapOverlays(timeline, project, r.MediaReferences, r.DroppedFields);
             MapCursor(root, project, r.DroppedFields);
             MapOpening(root, project);
-            CollectUnmappedEffects(root, r.DroppedFields);
             if (Arr(root, "recordingMarkers") is { } markers)
                 foreach (var marker in markers.EnumerateArray())
                     project.Markers.Add(new SourceMarker { AssetId = asset.Id, SourceTime = Num(marker, "sourceTime"), Note = "标记 " + Num(marker, "number", 1) });
@@ -179,8 +179,16 @@ public static class MacProjectImporter
             "1:2.39" => "1:2.39",
             _ => "source",
         };
-        if (aspect is "自定义" or "custom" && Obj(c, "customAspectRatio") is { } custom)
-            project.Canvas.Aspect = Num(custom, "width", 16).ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + Num(custom, "height", 9).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (Obj(c, "customAspectRatio") is { } custom)
+        {
+            project.Canvas.CustomAspectWidth = Num(custom, "width", 16);
+            project.Canvas.CustomAspectHeight = Num(custom, "height", 9);
+            if (aspect is "自定义" or "custom")
+            {
+                project.Canvas.AspectIsCustom = true;
+                project.Canvas.Aspect = project.Canvas.CustomAspectWidth.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + project.Canvas.CustomAspectHeight.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
         if (Obj(c, "crop") is { } crop)
             project.Canvas.Crop = new SourceCrop { X = Num(crop, "x"), Y = Num(crop, "y"), Width = Num(crop, "width", 1), Height = Num(crop, "height", 1) };
         project.Canvas.Padding = Num(c, "padding", 100) / 1080.0 * 100; // 参考宽 1080 → 归一到 Windows 的 0..240 直觉值
@@ -234,6 +242,8 @@ public static class MacProjectImporter
         }
         project.Canvas.ScreenFrameScale = Num(c, "screenFrameScale", 1);
         project.Canvas.ScreenFrameToolbarScale = Num(c, "screenFrameToolbarScale", 1);
+        project.Canvas.ScreenFrameOuterCornerRadius = c.TryGetProperty("screenFrameOuterCornerRadius", out var frameOuter) && frameOuter.ValueKind == JsonValueKind.Number ? frameOuter.GetDouble() : null;
+        project.Canvas.ScreenFrameContentCornerRadius = c.TryGetProperty("screenFrameContentCornerRadius", out var frameContent) && frameContent.ValueKind == JsonValueKind.Number ? frameContent.GetDouble() : null;
         project.Canvas.ScreenFrameTitle = Text(c, "screenFrameTitle") ?? "";
         project.Canvas.ScreenFrameAddress = Text(c, "screenFrameBrowserAddress") ?? "";
 
@@ -368,6 +378,8 @@ public static class MacProjectImporter
             custom = pts.EnumerateArray().Select(NumOf).Take(4).ToArray();
         else if (Arr(v, "customCurve") is { } flat)
             custom = flat.EnumerateArray().Select(NumOf).Take(4).ToArray();
+        else if (Obj(v, "customCurve") is { ValueKind: JsonValueKind.Object } bezier)
+            custom = [Num(bezier, "x1", .65), Num(bezier, "y1"), Num(bezier, "x2", .35), Num(bezier, "y2", 1)];
         return new TransitionTiming
         {
             StartTime = Num(v, "startTime"),
@@ -551,14 +563,61 @@ public static class MacProjectImporter
         if (Arr(opening, "includedElements") is { } included) canvas.OpeningIncluded = included.EnumerateArray().Select(e => Element(e.GetString())).ToList();
     }
 
-    static void CollectUnmappedEffects(JsonElement root, List<string> dropped)
+    static void MapMotionDefaults(JsonElement root, ProjectDocument project, List<string> dropped)
     {
-        foreach (var key in new[] { "motion" })
+        if (Obj(root, "motion") is not { } value) return;
+        project.Motion = new MotionDefaults
         {
-            if (root.TryGetProperty(key, out _))
+            DefaultZoomScale = value.TryGetProperty("defaultZoomScale", out var scale) && scale.ValueKind == JsonValueKind.Number ? scale.GetDouble() : null,
+            DefaultZoomEasing = Text(value, "defaultZoomEasing") switch
             {
-                dropped.Add(key);
-            }
+                "线性" => "linear", "二次方缓动" => "quadratic", "三次方缓动" => "cubic",
+                "五次平滑" or "quintic" => "smooth", "自定义曲线" => "custom", "弹簧" => "spring",
+                { } easing => easing, _ => "spring",
+            },
+            DefaultZoomTransitionDuration = Num(value, "defaultZoomTransitionDuration", .7),
+            ScreenSpringMass = Num(value, "screenSpringMass", 2.4), ScreenSpringStiffness = Num(value, "screenSpringStiffness", 210),
+            ScreenSpringDamping = Num(value, "screenSpringDamping", 42),
+        };
+        if (Obj(value, "defaultScreenMotion") is { ValueKind: JsonValueKind.Object } style)
+        {
+            var target = Obj(style, "target"); var position = target is { } t ? Obj(t, "position") : null;
+            var focus = Obj(style, "focusEffect"); var curve = Obj(style, "customCurve");
+            project.Motion.DefaultScreenMotion = new ScreenMotionCreationStyle
+            {
+                Target = new ScreenMotionState
+                {
+                    X = position is { } p ? Num(p, "x", .5) : .5, Y = position is { } py ? Num(py, "y", .5) : .5,
+                    Scale = target is { } s ? Num(s, "scale", 1) : 1,
+                    RotationX = target is { } rx ? Num(rx, "rotationX") : 0,
+                    RotationY = target is { } ry ? Num(ry, "rotationY") : 0,
+                    RotationZ = target is { } rz ? Num(rz, "rotationZ") : 0,
+                    Perspective = target is { } pe ? Num(pe, "perspective", .65) : .65,
+                },
+                Easing = Text(style, "easing") switch
+                {
+                    "线性" => "linear", "二次方缓动" => "quadratic", "三次方缓动" => "cubic",
+                    "五次平滑" => "quintic", "自定义曲线" => "custom", "弹簧" => "spring",
+                    { } easing => easing, _ => "spring",
+                },
+                CustomCurve = curve is { ValueKind: JsonValueKind.Object } c
+                    ? [Num(c, "x1", .65), Num(c, "y1"), Num(c, "x2", .35), Num(c, "y2", 1)] : null,
+                LeadInDuration = Num(style, "leadInDuration", .7), ReturnDuration = Num(style, "returnDuration", .7),
+                LinearBlur = focus is { } f && Text(f, "shape") == "linear",
+                LinearBlurSize = focus is { } fs ? Num(fs, "size", .32) : .32,
+                LinearBlurSoftness = focus is { } ff ? Num(ff, "softness", .5) : .5,
+                LinearBlurStrength = focus is { } fb ? Num(fb, "blur", .35) : .35,
+                LinearBlurAngle = focus is { } fa ? Num(fa, "angleDegrees") : 0,
+            };
+            if (focus is { ValueKind: JsonValueKind.Object } unsupported && Text(unsupported, "shape") != "linear")
+                dropped.Add("motion.defaultScreenMotion.focusEffect（非线性聚焦）");
+        }
+        foreach (var key in new[] { "screen", "cursor", "cursorSpringMass", "cursorSpringStiffness", "cursorSpringDamping" })
+            if (value.TryGetProperty(key, out _)) dropped.Add("motion." + key);
+        foreach (var zoom in project.Zooms)
+        {
+            zoom.SpringMass = project.Motion.ScreenSpringMass; zoom.SpringStiffness = project.Motion.ScreenSpringStiffness;
+            zoom.SpringDamping = project.Motion.ScreenSpringDamping;
         }
 
     }

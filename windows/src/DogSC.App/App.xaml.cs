@@ -6,6 +6,8 @@ public partial class App : Application
     {
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnLastWindowClose;
+        EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
+            new RoutedEventHandler((sender, _) => ThemeService.ApplyWindowFrame((Window)sender)));
         DispatcherUnhandledException += (_, args) =>
         {
             AppPaths.Log(args.Exception.ToString());
@@ -13,7 +15,7 @@ public partial class App : Application
             args.Handled = true;
         };
         SettingsStore.Load();
-        ThemeService.Apply(SettingsStore.Current.Theme);
+        ThemeService.Apply(SettingsStore.Current.AppearancePreference ?? SettingsStore.Current.Theme);
         if (e.Args.Any(arg => arg == "--self-test"))
         {
             var code = await SelfTest.RunAsync();
