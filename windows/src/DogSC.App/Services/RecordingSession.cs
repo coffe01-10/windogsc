@@ -20,6 +20,8 @@ public sealed record CaptureTarget(CaptureKind Kind, string Label, int X, int Y,
 public sealed class RecordingOptions
 {
     public int FrameRate { get; init; } = 30;
+    public bool RecordCursor { get; init; } = true;
+    public string Quality { get; init; } = "standard";
     public bool Microphone { get; init; }
     public string? MicrophoneId { get; init; }
     public bool SystemAudio { get; init; }
@@ -32,21 +34,21 @@ public sealed class RecordingSession : IAsyncDisposable
 {
     readonly string _ffmpeg;
     readonly string _ffprobe;
-    readonly CaptureTarget _target;
+    CaptureTarget _target;
     readonly RecordingOptions _options;
     readonly string _directory;
     readonly List<Take> _takes = [];
     readonly DateTime _startedUtc = DateTime.UtcNow;
     Take? _current;
     FfmpegProcess? _video;
+    NativeWindowCapture? _windowCapture;
     FfmpegProcess? _camera;
     WavRecorder? _microphone;
     WavRecorder? _system;
     readonly System.Diagnostics.Stopwatch _clock = new();
     Timer? _follower;
     Timer? _cursorTimer;
-    CaptureRegion.Box _followMonitor;
-    CaptureRegion.Box _followCrop;
+    MouseClickHook? _clickHook;
     bool _followLost;
     int _index;
 
@@ -60,6 +62,7 @@ public sealed class RecordingSession : IAsyncDisposable
     }
 
     public bool IsRunning => _clock.IsRunning;
+    public event Action<int, int>? PointerClicked;
     public int MarkerCount => _takes.Sum(t => t.Marks.Count) + (_current?.Marks.Count ?? 0);
     public bool HasMicrophone => _microphone is not null;
     public bool MicrophoneMuted { get; private set; }
@@ -101,6 +104,15 @@ public sealed class RecordingSession : IAsyncDisposable
 
     public async Task ResumeAsync() => await BeginTakeAsync();
 
+    public async Task SwitchTargetAsync(CaptureTarget target)
+    {
+        var running = _current is not null;
+        if (running) await EndTakeAsync();
+        var previous = _target; _target = target;
+        try { if (running) await BeginTakeAsync(); }
+        catch { _target = previous; throw; } // Retained takes remain usable; resume the previous target.
+    }
+
     public async Task<ProjectDocument> FinishAsync()
     {
         if (_current is not null)
@@ -128,7 +140,7 @@ public sealed class RecordingSession : IAsyncDisposable
             Width = first?.Width > 0 ? first.Width : _target.Width,
             Height = first?.Height > 0 ? first.Height : _target.Height,
             FrameRate = _options.FrameRate,
-            SourceLabel = _target.Label,
+            SourceLabel = usable[0].TargetLabel,
         };
         if (project.Width <= 0 || project.Height <= 0)
         {
@@ -142,6 +154,7 @@ public sealed class RecordingSession : IAsyncDisposable
             var asset = new MediaAsset
             {
                 Id = take.AssetId,
+                SourceLabel = take.TargetLabel,
                 Video = "media/" + Path.GetFileName(take.VideoPath),
                 Microphone = take.MicrophonePath is null ? null : "media/" + Path.GetFileName(take.MicrophonePath),
                 SystemAudio = take.SystemPath is null ? null : "media/" + Path.GetFileName(take.SystemPath),
@@ -205,13 +218,14 @@ public sealed class RecordingSession : IAsyncDisposable
                 {
                     Token = take.Token,
                     AssetId = take.AssetId,
+                    TargetLabel = take.TargetLabel,
                     Duration = take == _current ? _clock.Elapsed.TotalSeconds : take.Duration,
                     Marks = take.Marks.Select(m => new JournalMark { Time = m.Time, Note = m.Note }).ToList(),
                 }).ToList();
             var journal = new RecoveryJournal
             {
                 StartedUtc = _startedUtc,
-                TargetLabel = _target.Label,
+                TargetLabel = _takes.FirstOrDefault()?.TargetLabel ?? _current?.TargetLabel ?? _target.Label,
                 Kind = _target.Kind.ToString(),
                 FrameRate = _options.FrameRate,
                 Takes = takes,
@@ -237,8 +251,22 @@ public sealed class RecordingSession : IAsyncDisposable
 
     async Task BeginTakeAsync()
     {
+        try { await BeginTakeCoreAsync(); }
+        catch
+        {
+            _current = null;
+            _clock.Reset();
+            await StopProcessesAsync(graceful: false);
+            throw;
+        }
+    }
+
+    async Task BeginTakeCoreAsync()
+    {
+        _followLost = false;
         _index++;
         var take = new Take("media-" + _index.ToString("00"));
+        take.TargetLabel = _target.Label;
         var media = Path.Combine(_directory, "media");
         take.VideoPath = Path.Combine(media, take.Token + ".mp4");
         var videoArgs = new List<string> { "-y", "-hide_banner", "-loglevel", "warning" };
@@ -250,35 +278,16 @@ public sealed class RecordingSession : IAsyncDisposable
                 "-i", "video=" + (_target.DeviceName ?? ""),
             ]);
         }
-        else if (_target.Kind == CaptureKind.Window && _target.WindowHandle != IntPtr.Zero)
+        else if (_target.Kind == CaptureKind.Window)
         {
-            // 录窗口所在的整个监视器，再用 crop@pos 裁到窗口矩形；
-            // 窗口移动时通过 stdin 命令改 crop 参数实现跟随。
-            var monitors = Native.Monitors()
-                .Select(m => new CaptureRegion.Box(m.Left, m.Top, m.Width, m.Height))
-                .ToList();
+            _windowCapture = new NativeWindowCapture(_target.WindowHandle, _options.FrameRate);
+            try { await _windowCapture.ReadyAsync(); }
+            catch { await _windowCapture.DisposeAsync(); _windowCapture = null; throw; }
             var live = Native.WindowRect(_target.WindowHandle);
-            var windowBox = live is null
-                ? new CaptureRegion.Box(_target.X, _target.Y, _target.Width, _target.Height)
-                : new CaptureRegion.Box(live.Left, live.Top, live.Width, live.Height);
-            var monitor = CaptureRegion.MonitorFor(windowBox, monitors) ?? monitors[0];
-            var crop = CaptureRegion.Crop(windowBox, monitor);
-            _followMonitor = monitor;
-            _followCrop = crop;
-            _followLost = false;
-            // 视频帧内容在屏幕上的物理矩形（光标归一化基准）。
-            take.Area = new CaptureRegion.Box(monitor.X + crop.X, monitor.Y + crop.Y, crop.Width, crop.Height);
-            videoArgs.AddRange([
-                "-f", "gdigrab",
-                "-framerate", _options.FrameRate.ToString(),
-                // 不录系统光标：轨迹已单独记录，编辑期按 CursorFx 重绘。
-                "-draw_mouse", "0",
-                "-offset_x", monitor.X.ToString(),
-                "-offset_y", monitor.Y.ToString(),
-                "-video_size", monitor.Width + "x" + monitor.Height,
-                "-i", "desktop",
-                "-vf", "crop@pos=" + crop.Width + ":" + crop.Height + ":" + crop.X + ":" + crop.Y,
-            ]);
+            take.Area = live is null ? new(_target.X, _target.Y, _target.Width, _target.Height)
+                : new(live.Left, live.Top, live.Width, live.Height);
+            videoArgs.AddRange(["-f", "rawvideo", "-pixel_format", "bgra", "-video_size",
+                _windowCapture.Width + "x" + _windowCapture.Height, "-framerate", _options.FrameRate.ToString(), "-i", "pipe:0"]);
         }
         else
         {
@@ -296,7 +305,8 @@ public sealed class RecordingSession : IAsyncDisposable
         }
 
         // 每秒提交并写出分片，避免短录制在首个关键帧间隔内崩溃时只留下 MP4 文件头。
-        videoArgs.AddRange(["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+        var crf = _options.Quality switch { "high" => "18", "compact" => "24", _ => "20" };
+        videoArgs.AddRange(["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", crf, "-pix_fmt", "yuv420p",
             "-movflags", "+frag_keyframe+empty_moov", "-frag_duration", "1000000", "-flush_packets", "1", take.VideoPath]);
         _video = FfmpegProcess.Start(_ffmpeg, videoArgs);
         if (_options.Camera && !string.IsNullOrWhiteSpace(_options.CameraName) &&
@@ -358,10 +368,11 @@ public sealed class RecordingSession : IAsyncDisposable
         _current = take;
         SaveJournal();
         _clock.Restart();
+        _windowCapture?.StartFrames(_video);
         await Task.Delay(350);
-        if (_video is { HasExited: true })
+        if (_video is { HasExited: true } || _windowCapture?.Error is not null)
         {
-            var error = _video.ErrorText();
+            var error = _windowCapture?.Error?.Message ?? _video!.ErrorText();
             await StopProcessesAsync(graceful: false);
             _current = null;
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "画面录制没有开始。" : Tail(error));
@@ -372,11 +383,27 @@ public sealed class RecordingSession : IAsyncDisposable
             _follower = new Timer(FollowWindow, null, TimeSpan.FromMilliseconds(120), TimeSpan.FromMilliseconds(120));
         }
 
-        // 低频记录光标位置与点击，供编辑器自动运镜。
-        _cursorTimer = new Timer(SampleCursor, null, TimeSpan.FromMilliseconds(80), TimeSpan.FromMilliseconds(80));
+        var samplePeriod = TimeSpan.FromSeconds(1d / _options.FrameRate);
+        _cursorTimer = new Timer(SampleCursor, null, samplePeriod, samplePeriod);
+        if (_target.Kind != CaptureKind.Device && Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
+        {
+            try { _clickHook = new MouseClickHook((x, y) => RecordPointer(x, y, click: true)); }
+            catch (Exception ex) { AppPaths.Log("鼠标事件监听未启动，使用帧率取样：" + ex.Message); }
+        }
     }
 
     void SampleCursor(object? state)
+    {
+        var take = _current;
+        if (take is null) return;
+        var (x, y) = Native.CursorPos();
+        var down = Native.LeftButtonDown();
+        var click = _clickHook is null && down && !take.ButtonWasDown;
+        take.ButtonWasDown = down;
+        RecordPointer(x, y, click);
+    }
+
+    void RecordPointer(int x, int y, bool click)
     {
         var take = _current;
         if (take is null || take.Area.Width < 2 || take.Area.Height < 2)
@@ -384,71 +411,63 @@ public sealed class RecordingSession : IAsyncDisposable
             return;
         }
 
-        var (x, y) = Native.CursorPos();
-        var nx = Math.Clamp((x - take.Area.X) / (double)take.Area.Width, 0, 1);
-        var ny = Math.Clamp((y - take.Area.Y) / (double)take.Area.Height, 0, 1);
-        var down = Native.LeftButtonDown();
-        var click = down && !take.ButtonWasDown;
-        take.ButtonWasDown = down;
-        var last = take.Cursor.LastOrDefault();
-        var cursor = Native.CursorAssetId();
-        // 位置没变且没点击就不重复存，省点体积。
-        if (!click && last is not null &&
-            Math.Abs(last.X - nx) < 0.004 && Math.Abs(last.Y - ny) < 0.004 && last.Cursor == cursor)
+        lock (take.Cursor)
         {
-            return;
+            var last = take.Cursor.LastOrDefault();
+            var area = take.Area;
+            var visible = x >= area.X && y >= area.Y && x < area.X + area.Width && y < area.Y + area.Height;
+            if (_windowCapture is not null)
+            {
+                var live = Native.WindowRect(_target.WindowHandle);
+                visible = live is not null && Native.PointerOverWindow(_target.WindowHandle, x, y);
+                if (live is not null) area = new(live.Left, live.Top, live.Width, live.Height);
+            }
+            if (!visible)
+            {
+                if (_options.RecordCursor && last?.Cursor != "system.hidden")
+                    take.Cursor.Add(new CursorPoint { Time = _clock.Elapsed.TotalSeconds,
+                        X = last?.X ?? .5, Y = last?.Y ?? .5, Cursor = "system.hidden" });
+                return;
+            }
+            if (_options.RecordCursor)
+            {
+                var nx = Math.Clamp((x - area.X) / (double)area.Width, 0, 1);
+                var ny = Math.Clamp((y - area.Y) / (double)area.Height, 0, 1);
+                if (_windowCapture is { } native)
+                {
+                    var content = native.Content;
+                    nx = (content.X + nx * content.Width) / native.Width;
+                    ny = (content.Y + ny * content.Height) / native.Height;
+                }
+                var cursor = Native.CursorAssetId();
+                // Deduplicate stationary samples without dropping small pixel moves.
+                if (!click && last is not null && last.X == nx && last.Y == ny && last.Cursor == cursor) return;
+                take.Cursor.Add(new CursorPoint { Time = _clock.Elapsed.TotalSeconds,
+                    X = nx, Y = ny, Click = click, Cursor = cursor });
+            }
         }
-
-        take.Cursor.Add(new CursorPoint
-        {
-            Time = _clock.Elapsed.TotalSeconds,
-            X = nx,
-            Y = ny,
-            Click = click,
-            Cursor = cursor,
-        });
+        if (click) PointerClicked?.Invoke(x, y);
     }
 
-    /// <summary>
-    /// 间歇跟随目标窗口：矩形变了就更新 crop；窗口最小化或消失时在
-    /// 时间线上打一个标记，画面停在最后位置继续录（那块桌面）。
-    /// </summary>
+    // Native capture follows the HWND independently of desktop position. This
+    // timer only updates pointer coordinates and records unavailable targets.
     void FollowWindow(object? state)
     {
-        var video = _video;
         var take = _current;
-        if (video is null || take is null || video.HasExited)
-        {
-            return;
-        }
-
+        if (take is null) return;
         var rect = Native.WindowRect(_target.WindowHandle);
-        if (rect is null)
+        if (rect is null || _windowCapture?.TargetClosed == true)
         {
             if (!_followLost)
             {
                 _followLost = true;
-                take.Marks.Add((_clock.Elapsed.TotalSeconds, "目标窗口已最小化或关闭"));
+                take.Marks.Add((_clock.Elapsed.TotalSeconds, "目标窗口已最小化或关闭，保留最后画面"));
+                SaveJournal();
             }
-
             return;
         }
-
         _followLost = false;
-        var box = new CaptureRegion.Box(rect.Left, rect.Top, rect.Width, rect.Height);
-        var crop = CaptureRegion.Crop(box, _followMonitor);
-        if (crop == _followCrop)
-        {
-            return;
-        }
-
-        _followCrop = crop;
-        // 窗口移动后，画面矩形变了：回写 Area，让之后采样的光标按新矩形归一化。
-        take.Area = new CaptureRegion.Box(_followMonitor.X + crop.X, _followMonitor.Y + crop.Y, crop.Width, crop.Height);
-        video.SendFilterCommand("crop@pos", "x", crop.X.ToString());
-        video.SendFilterCommand("crop@pos", "y", crop.Y.ToString());
-        video.SendFilterCommand("crop@pos", "w", crop.Width.ToString());
-        video.SendFilterCommand("crop@pos", "h", crop.Height.ToString());
+        take.Area = new(rect.Left, rect.Top, rect.Width, rect.Height);
     }
 
     static string Tail(string error)
@@ -478,6 +497,7 @@ public sealed class RecordingSession : IAsyncDisposable
 
     async Task StopProcessesAsync(bool graceful)
     {
+        _clickHook?.Dispose(); _clickHook = null;
         var follower = _follower;
         _follower = null;
         if (follower is not null)
@@ -492,6 +512,8 @@ public sealed class RecordingSession : IAsyncDisposable
             await cursorTimer.DisposeAsync();
         }
 
+        var capture = _windowCapture; _windowCapture = null;
+        if (capture is not null) await capture.DisposeAsync();
         var video = _video;
         var camera = _camera;
         _video = null;
@@ -524,6 +546,7 @@ public sealed class RecordingSession : IAsyncDisposable
     {
         public string Token { get; set; } = "";
         public string AssetId { get; set; } = "";
+        public string TargetLabel { get; set; } = "";
         public double Duration { get; set; }
         public List<JournalMark> Marks { get; set; } = [];
     }
@@ -540,6 +563,7 @@ public sealed class RecordingSession : IAsyncDisposable
     public sealed class JournalTakeInfo
     {
         public string AssetId { get; set; } = "";
+        public string TargetLabel { get; set; } = "";
         public List<(double Time, string? Note)> Marks { get; set; } = [];
     }
 
@@ -572,6 +596,7 @@ public sealed class RecordingSession : IAsyncDisposable
                 take => new JournalTakeInfo
                 {
                     AssetId = take.AssetId,
+                    TargetLabel = take.TargetLabel,
                     Marks = take.Marks.Select(m => (m.Time, m.Note)).ToList(),
                 }),
             };
@@ -586,6 +611,7 @@ public sealed class RecordingSession : IAsyncDisposable
     {
         public string Token { get; } = token;
         public string AssetId { get; } = Guid.NewGuid().ToString("N");
+        public string TargetLabel { get; set; } = "";
         public string VideoPath { get; set; } = "";
         public string? MicrophonePath { get; set; }
         public string? SystemPath { get; set; }

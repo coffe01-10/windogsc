@@ -64,7 +64,7 @@ public partial class EditorWindow : Window
         SetToolContent(ToolCursor, IconKind.CursorMotion, L.Text("光标"));
         SetToolContent(ToolCamera, IconKind.CameraFilled, L.Text("摄像头"));
         SetToolContent(ToolAudio, IconKind.SpeakerFilled, L.Text("声音"));
-        Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/AppIconMaster.png"));
+        Icon = BitmapFrame.Create(new Uri("pack://application:,,,/DogSC;component/Assets/AppIconMaster.png"));
         PaintTimelineView();
         SyncScenePresetLabel();
         FrameRect.Fill = new DrawingBrush { Drawing = _player.ScreenDrawing, Stretch = Stretch.Fill };
@@ -75,7 +75,7 @@ public partial class EditorWindow : Window
             SpeedBox.Items.Add(speed.ToString("0.##", CultureInfo.InvariantCulture) + "×");
         }
 
-        _player.MediaGeometryChanged += () => Dispatcher.Invoke(() => { _cameraMaskAspect ??= CameraSourceAspect; LayoutPreview(); });
+        _player.MediaGeometryChanged += () => Dispatcher.Invoke(() => { _cameraMaskAspect = CameraSourceAspect; LayoutPreview(); });
         _player.Changed += () => Dispatcher.Invoke(SyncPlayback);
         _player.Failed += message => Dispatcher.Invoke(() => TimeLabel.Text = L.Text("预览失败：") + message);
         Timeline.SeekRequested += (_, time) => _player.Scrub(time);
@@ -267,6 +267,7 @@ public partial class EditorWindow : Window
         _backgroundTab = _project.Canvas.Wallpaper?.StartsWith("pattern:") == true ? "grid"
             : _project.Canvas.Wallpaper?.StartsWith("flow:") == true ? "motion" : "wallpaper";
         _cursorTimeline = new CursorTimeline(_project);
+        _focusTrack = new FocusTrack(_project);
         _stickerTrack = new StickerMotion.Track(_project.Canvas.Stickers);
         _screenMotionTrack = new ScreenMotionTrack(_project.ScreenMotions);
         _cameraMotionTrack = new CameraMotionTrack(_project.CameraMotions);
@@ -695,6 +696,13 @@ public partial class EditorWindow : Window
             Commit();
         };
         var zoom = _project.Zooms.FirstOrDefault(item => item.Id == _selectedZoom);
+        if (zoom is null || zoom.Origin == "automatic")
+        {
+            Inspector.Children.Add(Caption(L.Text("自动跟随方式")));
+            Inspector.Children.Add(Segments([(L.Text("连续指针"), "pointer"), (L.Text("点击分组"), "clicks")], _project.Motion.AutomaticFollow,
+                value => { Push(); _project.Motion.AutomaticFollow = value; Commit(); }));
+            Inspector.Children.Add(Caption(L.Text("指针在中央区域内移动时保持构图，越界后平滑跟随。")));
+        }
         if (zoom is null) Inspector.Children.Add(auto);
         var add = new Button { Content = L.Text("在播放头添加缩放"), Style = (Style)FindResource("QuietButton"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
         add.Click += (_, _) =>
@@ -720,6 +728,7 @@ public partial class EditorWindow : Window
         }
 
         BuildZoomTargetControls(zoom);
+        BuildFocusControls(Inspector, () => zoom.FocusEffect, value => zoom.FocusEffect = value, linear: false);
         Inspector.Children.Add(Caption(L.Text("片段不足以容纳两段过渡时，按比例缩短；相邻镜头直接衔接。")));
         var curves = new WrapPanel();
         foreach (var (label, curve) in new[] { (L.Text("弹簧"), "spring"), (L.Text("平滑"), "smooth"), (L.Text("线性"), "linear"),
@@ -959,6 +968,7 @@ public partial class EditorWindow : Window
         PreviewCanvas.Clip = new RectangleGeometry(new Rect(0, 0, viewWidth, viewHeight), 12, 12);
         InspectorSurface.Height = viewHeight / _chromeScale;
         SceneCanvas.Width = viewWidth;
+        BaseScene.Width = viewWidth; BaseScene.Height = viewHeight;
         SceneCanvas.Height = viewHeight;
         StageRect.Width = viewWidth;
         StageRect.Height = viewHeight;
@@ -1057,7 +1067,6 @@ public partial class EditorWindow : Window
 
         _zoomTransform.ScaleX = _zoomTransform.ScaleY = scale;
         SourceEffects.RenderTransform = scale > 1.001 ? _zoomTransform : Transform.Identity;
-        UpdateLinearFocus();
         CursorLayer.RenderTransform = SourceEffects.RenderTransform;
         CursorLayer.RenderTransformOrigin = SourceEffects.RenderTransformOrigin;
 
@@ -1105,6 +1114,7 @@ public partial class EditorWindow : Window
         RegionEditor.Width = PreviewCanvas.Width; RegionEditor.Height = PreviewCanvas.Height;
         RegionEditor.Visibility = EditingRegions ? Visibility.Visible : Visibility.Collapsed;
         RegionEditor.InvalidateVisual();
+        UpdateSpatialFocus(new ZoomPose(scale, fx, fy), editingTarget);
         UpdateOverlayEditor();
         UpdateRegionToolbar();
     }
@@ -1439,6 +1449,7 @@ public partial class EditorWindow : Window
         ProjectFile.Normalize(_project);
         if (_activeParameterReadout is null) RememberMotionEdit();
         _cursorTimeline = new CursorTimeline(_project);
+        _focusTrack = new FocusTrack(_project);
         _stickerTrack = new StickerMotion.Track(_project.Canvas.Stickers);
         _screenMotionTrack = new ScreenMotionTrack(_project.ScreenMotions);
         _cameraMotionTrack = new CameraMotionTrack(_project.CameraMotions);

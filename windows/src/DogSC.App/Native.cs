@@ -82,12 +82,24 @@ public static class Native
     /// <summary>当前光标的物理屏幕坐标。</summary>
     public static (int X, int Y) CursorPos()
     {
-        GetCursorPos(out var point);
+        GetPhysicalCursorPos(out var point);
         return (point.X, point.Y);
     }
 
     /// <summary>鼠标左键此刻是否按着（录制轮询用）。</summary>
     public static bool LeftButtonDown() => (GetAsyncKeyState(0x01) & 0x8000) != 0;
+
+    public static bool PointerOverWindow(IntPtr window, int x, int y) =>
+        GetAncestor(WindowFromPhysicalPoint(new PointData { X = x, Y = y }), 2) == window;
+
+    [DllImport("user32.dll")]
+    static extern IntPtr WindowFromPhysicalPoint(PointData point);
+
+    [DllImport("user32.dll")]
+    static extern bool GetPhysicalCursorPos(out PointData point);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetAncestor(IntPtr window, uint flags);
 
     /// <summary>
     /// 当前系统光标对应的样式 id（system.*）。标准 IDC_* 光标句柄是系统共享的，
@@ -100,6 +112,8 @@ public static class Native
         {
             return null;
         }
+
+        if ((info.flags & 1) == 0) return "system.hidden";
 
         return info.hCursor switch
         {

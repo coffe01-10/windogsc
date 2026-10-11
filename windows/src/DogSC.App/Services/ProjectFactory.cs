@@ -163,6 +163,7 @@ public static class ProjectFactory
                     journal.Takes.TryGetValue(token!, out var entry);
                     var asset = new MediaAsset
                     {
+                        SourceLabel = entry?.TargetLabel ?? journal.TargetLabel,
                         Id = string.IsNullOrEmpty(entry?.AssetId) ? Guid.NewGuid().ToString("N") : entry!.AssetId,
                         Video = "media/" + token + ".mp4",
                         Camera = recoveredCamera,

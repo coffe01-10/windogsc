@@ -131,7 +131,9 @@ public class OverlayParityTests
             Microphones = new Dictionary<string, string>(), Systems = new Dictionary<string, string>(), Cameras = new Dictionary<string, string>() };
         var plan = ExportGraph.Build(project, new(), media);
         Assert.Equal(2, plan.RegionMasks.Count);
-        Assert.True(plan.FilterScript.IndexOf("maskedmerge", StringComparison.Ordinal) < plan.FilterScript.IndexOf("crop=", StringComparison.Ordinal));
+        // Inspect the source-effect output itself. Looking for the first maskedmerge
+        // used to pass when that filter was absent (IndexOf returned -1).
+        Assert.Contains($"[region{plan.RegionMasks[0].Index}_0out]crop=", plan.FilterScript);
         Assert.Contains("(T+3)", plan.FilterScript);
         Assert.Contains("(255-p(X,Y))", plan.FilterScript);
         Assert.Empty(ExportGraph.Build(project, new() { AudioOnly = true }, media).RegionMasks);

@@ -234,6 +234,7 @@ public static class TimelineEdits
                 Start = Math.Max(0, zoom.Start - placed.Start),
                 Duration = Math.Min(zoom.Start + zoom.Duration, placed.End) - Math.Max(zoom.Start, placed.Start),
                 Scale = zoom.Scale,
+                FocusEffect = zoom.FocusEffect is null ? null : ScenePreset.Clone(zoom.FocusEffect),
                 FocusX = zoom.FocusX,
                 FocusY = zoom.FocusY,
                 Origin = zoom.Origin, Easing = zoom.Easing, EnterDuration = zoom.EnterDuration, ExitDuration = zoom.ExitDuration,
@@ -324,6 +325,7 @@ public static class TimelineEdits
                 Start = placed.Start + start,
                 Duration = end - start,
                 Scale = zoom.Scale,
+                FocusEffect = zoom.FocusEffect is null ? null : ScenePreset.Clone(zoom.FocusEffect),
                 FocusX = zoom.FocusX,
                 FocusY = zoom.FocusY,
                 Origin = zoom.Origin, Easing = zoom.Easing, EnterDuration = zoom.EnterDuration, ExitDuration = zoom.ExitDuration,
@@ -345,6 +347,7 @@ public static class TimelineEdits
         Start = source.Start,
         Duration = source.Duration,
         Scale = source.Scale,
+        FocusEffect = source.FocusEffect is null ? null : ScenePreset.Clone(source.FocusEffect),
         FocusX = source.FocusX,
         FocusY = source.FocusY,
         Origin = source.Origin, Easing = source.Easing, EnterDuration = source.EnterDuration, ExitDuration = source.ExitDuration,
@@ -389,6 +392,7 @@ public static class TimelineEdits
             return false;
         }
         target.Scale = source.Scale;
+        target.FocusEffect = source.FocusEffect is null ? null : ScenePreset.Clone(source.FocusEffect);
         target.FocusX = source.FocusX;
         target.FocusY = source.FocusY;
         target.Origin = "manual";

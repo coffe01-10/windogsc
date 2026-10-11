@@ -5,6 +5,24 @@ namespace DogSC.Core.Tests;
 
 public class CursorMotionTests
 {
+    [Theory]
+    [InlineData("system.automatic")]
+    [InlineData("system.arrow")]
+    public void TargetWindowVisibilityAlsoAppliesToAuthoredCursorStyles(string asset)
+    {
+        var project = Sample();
+        project.Canvas.Cursor.Asset = asset;
+        project.Assets[0].Cursor = [new() { Time = 0, X = .25, Y = .25, Cursor = "system.arrow" },
+            new() { Time = 1, X = .25, Y = .25, Cursor = "system.hidden" },
+            new() { Time = 2, X = .25, Y = .25, Cursor = "system.arrow" }];
+        var timeline = new CursorTimeline(project);
+        Assert.NotNull(timeline.At(.5).Pointer);
+        Assert.Null(timeline.At(1.5).Pointer);
+        Assert.NotNull(timeline.At(2.5).Pointer);
+        // Invisible cursors can still drive a deliberately authored focus effect.
+        Assert.NotNull(timeline.PositionAt(1.5));
+    }
+
     [Fact]
     public void SpringResumesSmoothlyAfterAStationaryInterval()
     {

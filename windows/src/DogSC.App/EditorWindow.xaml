@@ -78,6 +78,7 @@
                     <Canvas ClipToBounds="True" x:Name="PreviewCanvas" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Grid x:Name="CanvasEffects">
                         <Canvas x:Name="SceneCanvas">
+                        <Canvas x:Name="BaseScene">
                         <Rectangle x:Name="StageRect" IsHitTestVisible="False"/>
                         <Canvas x:Name="ProceduralBackground" IsHitTestVisible="False" ClipToBounds="True"/>
                         <Image x:Name="WallpaperImage" Stretch="UniformToFill" Visibility="Collapsed" IsHitTestVisible="False">
@@ -93,9 +94,6 @@
                         <Canvas x:Name="FrameHost" Background="Transparent" ClipToBounds="True" Cursor="SizeAll" MouseLeftButtonDown="Frame_Down" MouseMove="Frame_Move" MouseLeftButtonUp="Frame_Up">
                           <Grid x:Name="ScreenTexture">
                             <Grid x:Name="SourceViewport" ClipToBounds="True"><Grid x:Name="SourceEffects"><Rectangle x:Name="FrameRect"/></Grid></Grid>
-                            <Rectangle x:Name="LinearFocusOverlay" IsHitTestVisible="False" Visibility="Collapsed">
-                                <Rectangle.Effect><BlurEffect x:Name="LinearFocusBlur"/></Rectangle.Effect>
-                            </Rectangle>
                             <Canvas x:Name="CursorLayer" IsHitTestVisible="False" ClipToBounds="True">
                                 <Ellipse x:Name="ClickRing" Visibility="Collapsed" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" Fill="Transparent"/>
                                 <Path x:Name="CursorShape" Data="M0,0 L0,17 L4.5,13 L7,19 L9.4,18 L7,12.4 L12,12 Z" Fill="White" Stroke="Black" StrokeThickness="1" Visibility="Collapsed"/>
@@ -108,7 +106,12 @@
                           <Image x:Name="FrameChrome" IsHitTestVisible="False"/>
                           <Viewport3D x:Name="ScreenPerspective" Visibility="Collapsed" IsHitTestVisible="False"/>
                         </Canvas>
-                        <Rectangle x:Name="CameraBubble" Visibility="Collapsed" IsHitTestVisible="False" StrokeThickness="2"/>
+                        </Canvas>
+                        <Grid x:Name="SpatialFocusLayer" IsHitTestVisible="False" Visibility="Collapsed">
+                            <Rectangle x:Name="SpatialFocusBlur"/>
+                            <Rectangle x:Name="SpatialFocusDim" Fill="Black"/>
+                        </Grid>
+                        <Rectangle x:Name="CameraBubble" Visibility="Collapsed" IsHitTestVisible="False" StrokeThickness="2" HorizontalAlignment="Left" VerticalAlignment="Top"/>
                         </Canvas>
                         </Grid>
                         <Canvas x:Name="StickerLayers" IsHitTestVisible="False"/>

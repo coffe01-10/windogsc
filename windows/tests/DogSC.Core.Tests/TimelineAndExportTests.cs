@@ -380,8 +380,8 @@ public class TimelineAndExportTests
         var zoom = Sample(4);
         zoom.Canvas.Intro = "zoom";
         var zoomPlan = ExportGraph.Build(zoom, new ExportOptions(), Media(zoom));
-        Assert.Contains("[ozp0]", zoomPlan.FilterScript, StringComparison.Ordinal);
-        Assert.Contains("color=0x00000000[ozp0]", zoomPlan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("sense=destination:eval=frame", zoomPlan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("[introzoom]", zoomPlan.FilterScript, StringComparison.Ordinal);
 
         var none = Sample(4);
         var nonePlan = ExportGraph.Build(none, new ExportOptions(), Media(none));
@@ -396,7 +396,7 @@ public class TimelineAndExportTests
         opening.Canvas.OpeningTiming = "smooth";
         var plan = ExportGraph.Build(opening, new ExportOptions(), Media(opening));
         // 卡片：lift = 轻微放大 + 上移（eased progress）。
-        Assert.Contains("[ozp0]", plan.FilterScript, StringComparison.Ordinal);
+        Assert.Contains("sense=destination:eval=frame", plan.FilterScript, StringComparison.Ordinal);
         Assert.Contains("alpha(X,Y)*", plan.FilterScript, StringComparison.Ordinal);
         // 摄像头延迟 Interval 的 geq 透明度在带摄像头样本上已实测（geq 时间变量是大写 T）。
     }

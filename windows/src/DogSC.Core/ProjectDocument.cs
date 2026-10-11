@@ -61,6 +61,7 @@ public sealed class ProjectDocument
 
 public sealed class MediaAsset
 {
+    public string SourceLabel { get; set; } = "";
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Video { get; set; } = "";
     public string? Microphone { get; set; }
@@ -120,6 +121,7 @@ public sealed class ZoomSpan
     public double SpringMass { get; set; } = 2.4;
     public double SpringStiffness { get; set; } = 210;
     public double SpringDamping { get; set; } = 42;
+    public FocusEffect? FocusEffect { get; set; }
 }
 
 public sealed class SourceMarker
@@ -272,6 +274,9 @@ public sealed class CursorFx
     public string? Asset { get; set; }
     /// <summary>指针运动平滑：smooth=弹簧 / medium=适中 / rapid=快速 / none=无。</summary>
     public string Motion { get; set; } = "smooth";
+    public double SpringMass { get; set; } = 2.8;
+    public double SpringStiffness { get; set; } = 450;
+    public double SpringDamping { get; set; } = 66;
     /// <summary>运动倾斜强度 0..4（0=关闭；Mac 默认 2）。</summary>
     public double MotionTilt { get; set; } = 2;
     /// <summary>点击效果：ripple/glow/pulse/burst/none；空=按 ClickRipple 映射。</summary>
@@ -402,6 +407,9 @@ public static class ProjectFile
         if (project.Canvas.Cursor.Asset is not null && CursorCatalog.Find(project.Canvas.Cursor.Asset) is null)
             project.Canvas.Cursor.Asset = null;
         project.Canvas.Cursor.Motion = project.Canvas.Cursor.Motion is "smooth" or "medium" or "rapid" or "none" ? project.Canvas.Cursor.Motion : "smooth";
+        project.Canvas.Cursor.SpringMass = Math.Clamp(project.Canvas.Cursor.SpringMass, .1, 10);
+        project.Canvas.Cursor.SpringStiffness = Math.Clamp(project.Canvas.Cursor.SpringStiffness, 10, 1000);
+        project.Canvas.Cursor.SpringDamping = Math.Clamp(project.Canvas.Cursor.SpringDamping, 1, 150);
         project.Canvas.Cursor.MotionTilt = Math.Clamp(project.Canvas.Cursor.MotionTilt, 0, 4);
         if (project.Canvas.Cursor.ClickStyle is { Length: 0 }) project.Canvas.Cursor.ClickStyle = null;
         if (project.Canvas.Cursor.ClickStyle is not null && CursorCatalog.ClickStyles.All(s => s.Id != project.Canvas.Cursor.ClickStyle))

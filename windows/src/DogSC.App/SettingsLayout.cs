@@ -11,7 +11,9 @@ public partial class SettingsWindow
     string _section = "";
     Button Fps30 = null!, Fps60 = null!, QualityLow = null!, QualityFull = null!;
     Button CamCircle = null!, CamSquare = null!, CamRounded = null!, Cd0 = null!, Cd3 = null!, Cd5 = null!;
-    CheckBox MicDefaultBox = null!, SysAudioDefaultBox = null!, _soundToggle = null!;
+    CheckBox MicDefaultBox = null!, SysAudioDefaultBox = null!, _soundToggle = null!, _recordCursor = null!, _liveTouches = null!;
+    Button _recordCompact = null!, _recordStandard = null!, _recordHigh = null!;
+    FluidSegments _recordQualityChoices = null!;
     TextBlock FfmpegLabel = null!, UpdateLabel = null!, ResetDone = null!, _projectsPath = null!, _exportPath = null!;
     FluidSegments _qualityChoices = null!, _cameraChoices = null!, _fpsChoices = null!, _countdownChoices = null!;
     FluidSegments _languageChoices = null!;
@@ -142,11 +144,20 @@ public partial class SettingsWindow
         Cd0 = Choice("关闭", Cd0_Click); Cd3 = Choice("3 秒", Cd3_Click); Cd5 = Choice("5 秒", Cd5_Click); _countdownChoices = new FluidSegments([Cd0, Cd3, Cd5], 1);
         var defaults = new StackPanel { Margin = new Thickness(0, 6, 0, 8) }; defaults.Children.Add(Text("录制帧率", 12)); defaults.Children.Add(ChoiceWell(_fpsChoices));
         var cdTitle = Text("录制倒计时", 12); cdTitle.Margin = new Thickness(0, 14, 0, 6); defaults.Children.Add(cdTitle); defaults.Children.Add(ChoiceWell(_countdownChoices));
+        _recordCompact = Choice("体积优先", (_, _) => Set(() => SettingsStore.Current.RecordingQuality = "compact"));
+        _recordStandard = Choice("标准", (_, _) => Set(() => SettingsStore.Current.RecordingQuality = "standard"));
+        _recordHigh = Choice("高清", (_, _) => Set(() => SettingsStore.Current.RecordingQuality = "high"));
+        _recordQualityChoices = new FluidSegments([_recordCompact, _recordStandard, _recordHigh], 1);
+        defaults.Children.Add(Text("录制画质", 12)); defaults.Children.Add(ChoiceWell(_recordQualityChoices));
+        _recordCursor = Switch("记录鼠标轨迹", true, (_, _) => Set(() => SettingsStore.Current.RecordCursor = _recordCursor.IsChecked == true));
+        _liveTouches = Switch("实时触点提示", false, (_, _) => Set(() => SettingsStore.Current.ShowLiveTouches = _liveTouches.IsChecked == true));
+        Row(defaults, IconKind.CursorMotion, "记录鼠标轨迹", "关闭后，成片不显示光标，也不能按点击自动运镜。", _recordCursor, out _);
+        Row(defaults, IconKind.CursorMotion, "实时触点提示", "录制时提示点击位置，不进入录制画面。", _liveTouches, out _);
         var recordingDefaults = new Expander { Content = defaults, Margin = new Thickness(0, 22, 0, 0) };
         L.Bind(recordingDefaults, HeaderedContentControl.HeaderProperty, "帧率与倒计时"); recording.Children.Add(recordingDefaults);
 
         var permissions = Page("permissions", "权限", "管理录制所需的系统权限"); var access = Card(permissions, "Windows 隐私与设备访问");
-        Row(access, IconKind.Monitor, "屏幕录制", "使用 Windows 桌面采集；窗口遮挡会影响画面。", Status("桌面采集", "SuccessBrush"), out _); Divider(access);
+        Row(access, IconKind.Monitor, "屏幕录制", "窗口使用原生采集；显示器和区域录制桌面画面。", Status("可用", "SuccessBrush"), out _); Divider(access);
         Row(access, IconKind.CursorMotion, "光标记录", "记录鼠标移动与点击，生成可编辑的光标轨道。", Status("应用内记录", "SuccessBrush"), out _); Divider(access);
         Row(access, IconKind.PhotoCamera, "摄像头", "画中画人像出镜与外接相机输入。", Status("由系统管理", "InkSecondaryBrush"), out _); Divider(access);
         Row(access, IconKind.Mic, "麦克风", "人声解说录音与音频设备采集。", Status("由系统管理", "InkSecondaryBrush"), out _); Divider(access);

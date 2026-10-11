@@ -15,6 +15,9 @@ public sealed class AppSettings
     public bool RecordMicrophone { get; set; }
     public bool RecordSystemAudio { get; set; } = true;
     public bool RecordCamera { get; set; }
+    public bool ShowLiveTouches { get; set; }
+    public bool RecordCursor { get; set; } = true;
+    public string RecordingQuality { get; set; } = "standard";
     public string? MicrophoneId { get; set; }
     public string? PlaybackDeviceId { get; set; }
     public string? CameraName { get; set; }
@@ -23,6 +26,7 @@ public sealed class AppSettings
     public string? AppearancePreference { get; set; }
     public bool ExportCompletionSoundEnabled { get; set; } = true;
     public List<string> RecentProjects { get; set; } = [];
+    public List<RecentCaptureTarget> RecentCaptureTargets { get; set; } = [];
     [JsonConverter(typeof(NonFiniteToNullConverter))]
     public double BarLeft { get; set; } = double.NaN;
     [JsonConverter(typeof(NonFiniteToNullConverter))]
@@ -123,6 +127,8 @@ public static class SettingsFile
         settings.ProjectsDirectory ??= defaults.ProjectsDirectory;
         settings.Theme = settings.Theme == "dark" ? "dark" : "light";
         settings.FrameRate = settings.FrameRate >= 60 ? 60 : 30;
+        settings.RecentCaptureTargets ??= [];
+        settings.RecordingQuality = settings.RecordingQuality is "high" or "compact" ? settings.RecordingQuality : "standard";
         settings.RecentProjects ??= [];
         settings.ScenePresets ??= [];
         // 坐标字段 NaN 是合法哨兵（未存过位置），Infinity 没有语义、回到 NaN。

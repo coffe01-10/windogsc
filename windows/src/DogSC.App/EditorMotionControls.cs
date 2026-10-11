@@ -99,46 +99,9 @@ public partial class EditorWindow
         var rotation = Disclosure(L.Text("平面旋转与透视"), () => L.Format("Z {0:0.0}° · 透视 {1:0.00}", s.RotationZ, s.Perspective));
         rotation.Children.Add(InlineValueSlider(L.Text("平面旋转"), -30, 30, s.RotationZ, v => s.RotationZ = v, v => $"{v:0.0}°"));
         rotation.Children.Add(InlineValueSlider(L.Text("透视强度"), 0, 2, s.Perspective, v => s.Perspective = v, v => $"{v:0.00}"));
-        AddToggle(section, L.Text("线性柔化"), screen.LinearBlur, v => { screen.LinearBlur = v; RebuildInspector(); });
-        if (screen.LinearBlur) BuildLinearFocusControls(section, screen);
+        BuildFocusControls(section, () => FocusTrack.EffectOf(screen), value => { screen.LinearBlur = false; screen.FocusEffect = value; }, linear: true);
         var anchor = Disclosure(L.Text("聚焦锚点"));
         anchor.Children.Add(VectorPad(L.Text("屏幕投影锚点"), s.AnchorX, s.AnchorY, (x, y) => { s.AnchorX = x; s.AnchorY = y; }));
     }
 
-    void BuildLinearFocusControls(Panel section, ScreenMotionClip clip)
-    {
-        section.Children.Add(Caption(L.Text("清晰带 · 向两侧逐渐柔化")));
-        section.Children.Add(ValueSlider(L.Text("清晰范围"), .1, 1, clip.LinearBlurSize, v => clip.LinearBlurSize = v, Percent));
-        section.Children.Add(ValueSlider(L.Text("柔化强度"), 0, 1, clip.LinearBlurStrength, v => clip.LinearBlurStrength = v, Percent));
-        section.Children.Add(ValueSlider(L.Text("羽化"), 0, 1, clip.LinearBlurSoftness, v => clip.LinearBlurSoftness = v, Percent));
-        section.Children.Add(ValueSlider(L.Text("方向"), 0, 360, clip.LinearBlurAngle, v => clip.LinearBlurAngle = v, v => $"{v:0}°"));
-    }
-
-    void UpdateLinearFocus()
-    {
-        var selected = !_player.IsPlaying ? _project.ScreenMotions.FirstOrDefault(c => c.Id == _selectedDecoration && c.LinearBlur && c.LinearBlurStrength > .001) : null;
-        var clip = selected ?? _project.ScreenMotions.LastOrDefault(c => c.LinearBlur && c.LinearBlurStrength > .001 && _player.Time >= c.Timing.StartTime && LinearFocus.Progress(c, _player.Time) > .001);
-        LinearFocusOverlay.Visibility = clip is null ? Visibility.Collapsed : Visibility.Visible;
-        if (clip is null) return;
-        var width = FrameHost.Width; var height = FrameHost.Height;
-        if (LinearFocusOverlay.Fill is not VisualBrush focusBrush)
-            LinearFocusOverlay.Fill = focusBrush = new VisualBrush(SourceViewport) { Stretch = Stretch.Fill, ViewboxUnits = BrushMappingMode.Absolute };
-        focusBrush.Viewbox = new Rect(0, 0, width, height);
-        LinearFocusOverlay.Width = width; LinearFocusOverlay.Height = height;
-        LinearFocusOverlay.RenderTransform = Transform.Identity;
-        LinearFocusOverlay.Opacity = selected is not null ? 1 : LinearFocus.Progress(clip, _player.Time);
-        LinearFocusBlur.Radius = (clip.LinearBlurStrength * 36) * _pvFrameScale;
-        var angle = clip.LinearBlurAngle * Math.PI / 180; var dx = -Math.Sin(angle); var dy = Math.Cos(angle);
-        var span = Math.Max(width, height); var shortEdge = Math.Min(width, height);
-        var half = shortEdge * clip.LinearBlurSize / 2 / (2 * span);
-        var feather = Math.Max(1, shortEdge * clip.LinearBlurSoftness * .4) / (2 * span);
-        LinearFocusOverlay.OpacityMask = new LinearGradientBrush
-        {
-            MappingMode = BrushMappingMode.Absolute,
-            StartPoint = new(width / 2 - dx * span, height / 2 - dy * span),
-            EndPoint = new(width / 2 + dx * span, height / 2 + dy * span),
-            GradientStops = new() { new(Colors.White, .5 - half - feather), new(Colors.Transparent, .5 - half),
-                new(Colors.Transparent, .5 + half), new(Colors.White, .5 + half + feather) },
-        };
-    }
 }

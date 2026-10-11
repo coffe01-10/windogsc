@@ -39,6 +39,9 @@ public partial class SettingsWindow : Window
         Chip(Cd0, s.RecordCountdownSeconds <= 0); Chip(Cd3, s.RecordCountdownSeconds == 3); Chip(Cd5, s.RecordCountdownSeconds >= 5);
         MicDefaultBox.IsChecked = s.RecordMicrophone;
         SysAudioDefaultBox.IsChecked = s.RecordSystemAudio;
+        _recordCursor.IsChecked = s.RecordCursor;
+        _liveTouches.IsChecked = s.ShowLiveTouches;
+        _recordQualityChoices.Select(s.RecordingQuality == "compact" ? 0 : s.RecordingQuality == "high" ? 2 : 1);
         FfmpegLabel.Text = FfmpegTools.LocateFfmpeg() ?? L.Text("未找到");
         UpdateLabel.Text = L.Text("当前版本 ") + AppVersion.Current;
         ResetDone.Text = L.Text("恢复默认轨道显示、时间线缩放及面板大小。");

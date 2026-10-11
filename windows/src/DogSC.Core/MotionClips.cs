@@ -67,6 +67,7 @@ public sealed class ScreenMotionClip
     public double LinearBlurSoftness { get; set; } = .5;
     public double LinearBlurStrength { get; set; } = .35;
     public double LinearBlurAngle { get; set; }
+    public FocusEffect? FocusEffect { get; set; }
     /// <summary>组合布局预设插入的跨轨道配对 ID。</summary>
     public string? GroupId { get; set; }
 }

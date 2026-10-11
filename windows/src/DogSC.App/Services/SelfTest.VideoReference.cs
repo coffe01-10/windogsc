@@ -4,7 +4,7 @@ namespace DogSC;
 
 public static partial class SelfTest
 {
-    static async Task CheckVideoReferenceAsync(string ffmpeg, string ffprobe, string root)
+    internal static async Task CheckVideoReferenceAsync(string ffmpeg, string ffprobe, string root)
     {
         var source = Path.Combine(root, "checker.mp4"); var audio = Path.Combine(root, "tone.wav");
         async Task Run(params string[] args)

@@ -24,14 +24,38 @@ internal static class Program
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(app.Dispatcher));
         var reportExport = args.Length == 2 && args[0] == "--report-export";
         var recovery = args.Length == 1 && args[0] == "--recording-recovery";
-        var task = recovery ? RecordingRecoveryChecks.RunAsync() : reportExport ? ReportExportCheck.RunAsync(args[1]) : CheckAsync(host, args.Length > 0 ? System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(args[0])) : null);
+        var focus = args.Length == 1 && args[0] == "--focus-parity";
+        var nativeWindow = args.Length == 1 && args[0] == "--native-window";
+        var pointerFollow = args.Length == 1 && args[0] == "--pointer-follow";
+        var liveTouch = args.Length == 1 && args[0] == "--live-touch";
+        var captureTargets = args.Length == 1 && args[0] == "--capture-targets";
+        if (args.Length == 1 && (args[0] is "--motion-frames" or "--camera-morph"))
+        {
+            var motionTask = args[0] == "--camera-morph" ? CameraMorphChecks.RunAsync(host) : MotionFrameChecks.RunAsync();
+            motionTask.ContinueWith(_ => app.Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background));
+            Dispatcher.Run();
+            try { motionTask.GetAwaiter().GetResult(); return 0; }
+            catch (Exception error) { Console.Error.WriteLine("UI_FAIL " + error); return 1; }
+        }
+        var task = captureTargets ? CaptureTargetChecks.RunAsync() : liveTouch ? LiveTouchChecks.RunAsync() : pointerFollow ? PointerFollowChecks.RunAsync() : nativeWindow ? NativeWindowCaptureChecks.RunAsync() : focus ? FocusParityChecks.RunAsync(host) : recovery ? RecordingRecoveryChecks.RunAsync() : reportExport ? ReportExportCheck.RunAsync(args[1]) : CheckWithoutChangingSettingsAsync(host, args.Length > 0 ? System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(args[0])) : null);
         task.ContinueWith(_ => app.Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background));
         Dispatcher.Run();
-        try { task.GetAwaiter().GetResult(); if (!reportExport && !recovery && args.Length > 0) RenderSymbols(args[0]); return 0; }
+        try { task.GetAwaiter().GetResult(); if (!reportExport && !recovery && !focus && !nativeWindow && !pointerFollow && !liveTouch && !captureTargets && args.Length > 0) RenderSymbols(args[0]); return 0; }
         catch (Exception error) { Console.Error.WriteLine("UI_FAIL " + error); return 1; }
     }
 
     static Button[] Options() => [new Button { Content = "背景" }, new Button { Content = "布局" }, new Button { Content = "外框" }];
+    static async Task CheckWithoutChangingSettingsAsync(Grid host, string? reviewDirectory)
+    {
+        var path = AppPaths.SettingsFile;
+        var bytes = System.IO.File.Exists(path) ? System.IO.File.ReadAllBytes(path) : null;
+        try { await CheckAsync(host, reviewDirectory); }
+        finally
+        {
+            if (bytes is null) System.IO.File.Delete(path);
+            else System.IO.File.WriteAllBytes(path, bytes);
+        }
+    }
     static Border Indicator(FluidSegments segments) => (Border)segments.Children[0];
     static double Position(FluidSegments segments) => ((TranslateTransform)Indicator(segments).RenderTransform).X;
     static void Require(bool condition, string issue) { if (!condition) throw new InvalidOperationException(issue); }
@@ -563,6 +587,14 @@ internal static class Program
                 var gap = buttons[1].TranslatePoint(new Point(), camera).X - buttons[0].TranslatePoint(new Point(buttons[0].ActualWidth, 0), camera).X;
                 Require(Math.Abs(gap - 12) <= 1 / VisualTreeHelper.GetDpi(root).DpiScaleX + .01,
                     $"Camera shapes have merged into a continuous segmented well: gap={gap:0.000}.");
+                Descendants<Expander>(root).Single().IsExpanded = true;
+                await Task.Delay(400); host.UpdateLayout();
+                var recordingQuality = Descendants<FluidSegments>(root).Single(selector => selector.Buttons.Any(button => Equals(button.Content, L.Text("体积优先"))));
+                foreach (var button in recordingQuality.Buttons)
+                {
+                    var text = Descendants<TextBlock>(button).First(); text.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    Require(button.ActualWidth >= text.DesiredSize.Width + 24, "Translated recording quality labels are clipped.");
+                }
                 if (reviewDirectory is not null) SaveVisual(root, System.IO.Path.Combine(reviewDirectory, "windows-settings-recording-" + locale + ".png"));
             }
             Console.WriteLine("UI_OK settings: continuous miniature, bilingual navigation/quality fit, separate camera tiles");

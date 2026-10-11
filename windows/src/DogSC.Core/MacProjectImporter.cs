@@ -329,6 +329,7 @@ public static class MacProjectImporter
                 Start = start,
                 Duration = Math.Max(0.12, end - start),
                 Scale = Num(clip, "scale", 1.45),
+                FocusEffect = MapFocus(Obj(clip, "focusEffect")),
                 FocusX = focus is { } f ? Num(f, "x", 0.5) : 0.5,
                 FocusY = focus is { } f2 ? Num(f2, "y", 0.5) : 0.5,
             };
@@ -406,6 +407,7 @@ public static class MacProjectImporter
                 var pos = target is { } t2 ? Obj(t2, "position") : null;
                 project.ScreenMotions.Add(new ScreenMotionClip
                 {
+                    FocusEffect = MapFocus(Obj(clip, "focusEffect"), linearDefault: true),
                     Id = Text(clip, "id") ?? Guid.NewGuid().ToString("N"),
                     Timing = MapTiming(clip),
                     Target = new ScreenMotionState
@@ -568,6 +570,7 @@ public static class MacProjectImporter
         if (Obj(root, "motion") is not { } value) return;
         project.Motion = new MotionDefaults
         {
+            AutomaticFollow = "pointer",
             DefaultZoomScale = value.TryGetProperty("defaultZoomScale", out var scale) && scale.ValueKind == JsonValueKind.Number ? scale.GetDouble() : null,
             DefaultZoomEasing = Text(value, "defaultZoomEasing") switch
             {
@@ -608,18 +611,38 @@ public static class MacProjectImporter
                 LinearBlurSoftness = focus is { } ff ? Num(ff, "softness", .5) : .5,
                 LinearBlurStrength = focus is { } fb ? Num(fb, "blur", .35) : .35,
                 LinearBlurAngle = focus is { } fa ? Num(fa, "angleDegrees") : 0,
+                FocusEffect = MapFocus(focus, linearDefault: true),
             };
-            if (focus is { ValueKind: JsonValueKind.Object } unsupported && Text(unsupported, "shape") != "linear")
-                dropped.Add("motion.defaultScreenMotion.focusEffect（非线性聚焦）");
         }
-        foreach (var key in new[] { "screen", "cursor", "cursorSpringMass", "cursorSpringStiffness", "cursorSpringDamping" })
-            if (value.TryGetProperty(key, out _)) dropped.Add("motion." + key);
+        if (Text(value, "cursor") is { } cursor)
+            project.Canvas.Cursor.Motion = cursor switch { "平滑" => "smooth", "适中" => "medium", "快速" => "rapid", "无" => "none", _ => cursor };
+        project.Canvas.Cursor.SpringMass = Num(value, "cursorSpringMass", 2.8);
+        project.Canvas.Cursor.SpringStiffness = Num(value, "cursorSpringStiffness", 450);
+        project.Canvas.Cursor.SpringDamping = Num(value, "cursorSpringDamping", 66);
+        // The legacy global screen style also controls Mac keyframe animation.
+        // Preserve the explicit warning until that legacy track is supported.
+        if (value.TryGetProperty("screen", out _)) dropped.Add("motion.screen");
         foreach (var zoom in project.Zooms)
         {
             zoom.SpringMass = project.Motion.ScreenSpringMass; zoom.SpringStiffness = project.Motion.ScreenSpringStiffness;
             zoom.SpringDamping = project.Motion.ScreenSpringDamping;
         }
 
+    }
+
+    static FocusEffect? MapFocus(JsonElement? value, bool linearDefault = false)
+    {
+        if (value is not { ValueKind: JsonValueKind.Object } focus) return null;
+        var linear = Text(focus, "shape") == "linear" || (Text(focus, "shape") is null && linearDefault);
+        var center = Obj(focus, "center");
+        return new FocusEffect
+        {
+            Shape = linear ? "linear" : "radial", Target = Text(focus, "target") ?? (linear ? "fixed" : "animation"),
+            Center = new(center is { } x ? Num(x, "x", .5) : .5, center is { } y ? Num(y, "y", .5) : .5),
+            Size = Num(focus, "size", linear ? .32 : .45), Blur = Num(focus, "blur", .35),
+            Softness = Num(focus, "softness", .5), Dimming = Num(focus, "dimming", linear ? 0 : .18),
+            AngleDegrees = Num(focus, "angleDegrees"),
+        };
     }
 
     public static List<CursorPoint> ImportPointerEvents(IEnumerable<string> lines, double advance)

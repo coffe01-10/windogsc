@@ -1,15 +1,14 @@
 using System.Globalization;
-using System.Text;
 
 namespace DogSC.Core;
 
-/// <summary>把运动轨道采样成分段线性 ffmpeg 表达式（eval=frame 用 t）。</summary>
+/// <summary>把共享运动姿态转换成逐帧 FFmpeg 表达式。</summary>
 public static class MotionExport
 {
     private static string F(double value) => value.ToString("0.#########", CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// 把采样点连成 if(lt(t,T),lerp...) 嵌套表达式；空采样返回 outsideValue，
+    /// 把采样点连成平衡分段线性表达式；空采样返回 outsideValue，
     /// 首样本前取首值、末样本后取末值。
     /// </summary>
     public static string Piecewise(
@@ -18,28 +17,68 @@ public static class MotionExport
     {
         if (samples.Count == 0) return outsideValue;
         var comma = escapeCommas ? "\\," : ",";
-        var sb = new StringBuilder("if(lt(").Append(timeVar).Append(comma).Append(F(samples[0].Time)).Append(")")
-            .Append(comma).Append(F(samples[0].Value)).Append(comma);
-        for (var i = 1; i < samples.Count; i++)
+        // Drop only points on the same line; values at output frame timestamps stay exact.
+        var points = new List<(double Time, double Value)>();
+        foreach (var point in samples) AddPoint(points, point);
+        if (points.Count == 1) return F(points[0].Value);
+        string Between(int first, int last)
         {
-            var (t0, v0) = samples[i - 1];
-            var (t1, v1) = samples[i];
-            var dt = t1 - t0;
-            sb.Append("if(lt(").Append(timeVar).Append(comma).Append(F(t1)).Append(")").Append(comma);
-            if (dt <= 0.000_001 || Math.Abs(v1 - v0) < 0.000_001)
+            if (last - first == 1)
             {
-                sb.Append(F(v1));
+                var a = points[first]; var b = points[last];
+                if (Math.Abs(a.Value - b.Value) < 1e-8) return F(a.Value);
+                return "(" + F(a.Value) + "+" + F(b.Value - a.Value) + "*(" + timeVar + "-" + F(a.Time) + ")/" + F(b.Time - a.Time) + ")";
             }
-            else
-            {
-                sb.Append('(').Append(F(v0)).Append('+').Append(F(v1 - v0)).Append('*')
-                    .Append("((").Append(timeVar).Append('-').Append(F(t0)).Append(")/").Append(F(dt)).Append("))");
-            }
-            sb.Append(comma);
+            var mid = (first + last) / 2;
+            return "if(lt(" + timeVar + comma + F(points[mid].Time) + ")" + comma + Between(first, mid) + comma + Between(mid, last) + ")";
         }
-        sb.Append(F(samples[^1].Value));
-        for (var i = 0; i < samples.Count; i++) sb.Append(')');
-        return sb.ToString();
+        // A balanced tree also handles long animated tracks without FFmpeg's parser depth limit.
+        return "if(lte(" + timeVar + comma + F(points[0].Time) + ")" + comma + F(points[0].Value)
+            + comma + "if(gte(" + timeVar + comma + F(points[^1].Time) + ")" + comma + F(points[^1].Value)
+            + comma + Between(0, points.Count - 1) + "))";
+    }
+
+    static void AddPoint(List<(double Time, double Value)> points, (double Time, double Value) point)
+    {
+        while (points.Count > 1)
+        {
+            var a = points[^2]; var b = points[^1];
+            var span = point.Time - a.Time;
+            if (span <= 0 || Math.Abs(b.Value - (a.Value + (point.Value - a.Value) * (b.Time - a.Time) / span)) > 1e-8) break;
+            points.RemoveAt(points.Count - 1);
+        }
+        points.Add(point);
+    }
+
+    /// <summary>Fixed-size transparent projection, evaluated at every output frame.</summary>
+    public static string Projection(int width, int height, double duration, int fps,
+        Func<double, (double X, double Y)[]> cornersAt, Func<double, double>? opacityAt = null)
+    {
+        var count = Math.Max(1, (int)Math.Ceiling(duration * fps - .0001));
+        var coordinates = Enumerable.Range(0, 8).Select(_ => new List<(double, double)>()).ToArray();
+        var opacity = new List<(double, double)>();
+        var source = new[] { (0d, 0d), ((double)width, 0d), (0d, (double)height), ((double)width, (double)height) };
+        // Perspective clamps source coordinates. A transparent one-pixel rim prevents
+        // the outermost coloured pixel from smearing across an opening's empty space.
+        var rim = new[] { (-1d, -1d), (width + 1d, -1d), (-1d, height + 1d), (width + 1d, height + 1d) };
+        for (var frame = 0; frame < count; frame++)
+        {
+            var time = frame / (double)fps;
+            var matrix = Homography.FromQuad(source, cornersAt(time));
+            for (var corner = 0; corner < 4; corner++)
+            {
+                var p = matrix.Apply(rim[corner].Item1, rim[corner].Item2);
+                AddPoint(coordinates[corner * 2], (frame, p.X));
+                AddPoint(coordinates[corner * 2 + 1], (frame, p.Y));
+            }
+            if (opacityAt is not null) AddPoint(opacity, (frame, opacityAt(time)));
+        }
+        var result = "pad=" + (width + 2) + ":" + (height + 2) + ":1:1:color=black@0,format=gbrap,perspective="
+            + string.Join(":", coordinates.Select(points => "'" + Piecewise(points, "0", "(in-1)") + "'"))
+            + ":sense=destination:eval=frame,crop=" + width + ":" + height + ":0:0,format=rgba";
+        if (opacityAt is not null && opacity.Any(p => p.Item2 < .999999))
+            result += ",geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*(" + Piecewise(opacity, "1", "N") + ")'";
+        return result;
     }
 
     /// <summary>轨道按帧率等距采样（两端裁到 [start,end)）。</summary>

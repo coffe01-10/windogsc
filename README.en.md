@@ -84,7 +84,7 @@ Export options are saved with the project. An existing file is replaced only aft
 
 ## Get started
 
-The current entry point is **running from source**; the repository does not yet provide a release package. The Windows build target is `win-x64`.
+The current entry point is **running from source**; the repository does not yet provide a release package. Windows 10 version 2004 or later is supported. The build target is `win-x64`.
 
 Install the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) and [FFmpeg](https://ffmpeg.org/download.html). Both `ffmpeg.exe` and `ffprobe.exe` are required. Add their directory to `PATH`, or select `ffmpeg.exe` in the app settings after launch.
 
@@ -113,9 +113,9 @@ The recording toolbar offers **Import macOS Project…**. It converts screen, au
 
 Some differences remain:
 
-- Window recording captures a screen rectangle, so moving or obscuring a window behaves differently from native Mac window capture.
-- Independent screen and camera motion tracks, custom Bézier easing, and motion-clip copying are implemented. Exported motion currently uses 15 Hz segments; camera corner masks do not yet deform continuously with the layout. Continuous pointer boundary following and complex linked layouts are not fully ported.
-- Sticker appearance and animation, camera sync anchors, recovery of cut gaps, and interrupted-recording recovery are implemented. Recovery journals preserve clip identities, markers, sources, and frame rate; segmented recordings can recover media already written to disk. Some focus shapes and iOS device mirroring remain incomplete.
+- Window recording uses native Windows capture and follows obscured, moved, and resized windows. Minimizing or closing the target retains its last frame.
+- Independent screen and camera motion tracks, custom Bézier easing, and motion-clip copying are implemented. Screen 3D and opening scale now evaluate at the output frame rate. Camera motion still uses 15 Hz segments, and its corner masks do not yet deform continuously with the layout. Continuous pointer following is implemented; complex linked layouts are still being refined.
+- Sticker appearance and animation, camera sync anchors, recovery of cut gaps, and interrupted-recording recovery are implemented. Recovery journals preserve clip identities, markers, sources, and frame rate; segmented recordings can recover media already written to disk. Radial focus, dimming, and pointer, motion, or fixed focus targets are implemented; direct canvas editing is still being refined. Native iPhone/iPad capture is outside the port's scope.
 - Complex Mac projects cannot be migrated fully. WPF preview and FFmpeg export may still differ in antialiasing, blur, and shadow details.
 
 See the [Windows/macOS feature comparison](windows/MAC_PARITY.md) for implementation status and remaining work, and the [video feature notes](windows/VIDEO_PARITY.md) and [layout review](windows/VIDEO_LAYOUT.md) for recent interaction and UI checks. These detailed documents are in Chinese.

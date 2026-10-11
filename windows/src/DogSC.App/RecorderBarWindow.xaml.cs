@@ -19,7 +19,7 @@ public partial class RecorderBarWindow : Window
     readonly HwndSourceHook _hook;
     RecordingSession? _session;
     string? _directory;
-    CaptureTarget? _lastTarget;
+    LiveTouchWindow? _liveTouch;
     bool _paused;
     bool _busy;
     bool _closing;
@@ -514,6 +514,7 @@ public partial class RecorderBarWindow : Window
     {
         var items = new List<(string Title, string Detail, Action Run)>
         {
+            (L.Text(_session is null ? "最近录制目标" : "切换录制目标"), L.Text("显示器、窗口、区域或视频设备"), ShowCaptureTargets),
             (L.Text("导入视频"), L.Text("做成可剪辑的项目"), () => _ = ImportAsync()),
             (L.Text("导入 macOS 项目"), L.Text("打开 Mac 版 .dogscproject 包"), () => _ = ImportMacAsync()),
             (L.Text("打开项目"), L.Text("打开 .dogscproject 文件夹"), () => OpenProject()),
@@ -531,6 +532,11 @@ public partial class RecorderBarWindow : Window
                 PaintToggles();
             }),
         };
+        items.Add((L.Text("实时触点提示"), L.Text(SettingsStore.Current.ShowLiveTouches ? "已开启" : "已关闭"), () =>
+        {
+            SettingsStore.Current.ShowLiveTouches = !SettingsStore.Current.ShowLiveTouches;
+            SettingsStore.Save(); SyncLiveTouches();
+        }));
         foreach (var recent in SettingsStore.Current.RecentProjects.Where(Directory.Exists).Take(5))
         {
             var path = recent;
@@ -574,6 +580,7 @@ public partial class RecorderBarWindow : Window
             }
             PaintElapsedTime();
             PaintPauseState();
+            SyncLiveTouches();
         }
         catch (Exception ex)
         {
@@ -612,8 +619,22 @@ public partial class RecorderBarWindow : Window
 
     async Task BeginAsync(CaptureTarget target)
     {
-        if (_session is not null || _busy)
+        if (_busy)
         {
+            return;
+        }
+
+        if (_session is not null)
+        {
+            _busy = true;
+            try
+            {
+                await _session.SwitchTargetAsync(target);
+                RecordingLabel.Text = target.Label;
+                CaptureTargetHistory.Remember(SettingsStore.Current, target); SettingsStore.Save();
+            }
+            catch (Exception ex) { _paused = !_session.IsRunning; ShowError(L.Text("目标切换失败，现有录制已暂停。") + " " + FirstLine(ex.Message)); }
+            finally { _busy = false; PaintPauseState(); SyncLiveTouches(); if (!_paused) _timer.Start(); else _timer.Stop(); }
             return;
         }
 
@@ -627,7 +648,6 @@ public partial class RecorderBarWindow : Window
         }
 
         _busy = true;
-        _lastTarget = target;
         string? directory = null;
         try
         {
@@ -636,6 +656,8 @@ public partial class RecorderBarWindow : Window
             var options = new RecordingOptions
             {
                 FrameRate = SettingsStore.Current.FrameRate >= 60 ? 60 : 30,
+                Quality = SettingsStore.Current.RecordingQuality,
+                RecordCursor = SettingsStore.Current.RecordCursor,
                 Microphone = SettingsStore.Current.RecordMicrophone,
                 MicrophoneId = SettingsStore.Current.MicrophoneId,
                 SystemAudio = SettingsStore.Current.RecordSystemAudio,
@@ -646,6 +668,8 @@ public partial class RecorderBarWindow : Window
             var session = new RecordingSession(ffmpeg, ffprobe, target, options, directory);
             await session.StartAsync();
             _session = session;
+            CaptureTargetHistory.Remember(SettingsStore.Current, target); SettingsStore.Save();
+            SyncLiveTouches();
             _directory = directory;
             _paused = false;
             PaintPauseState();
@@ -719,6 +743,7 @@ public partial class RecorderBarWindow : Window
         }
         finally
         {
+            _liveTouch?.Close(); _liveTouch = null;
             await session.DisposeAsync();
             _session = null;
             _directory = null;
@@ -727,6 +752,34 @@ public partial class RecorderBarWindow : Window
             ApplyBarLayout(true);
         }
     }
+
+    void SyncLiveTouches()
+    {
+        _liveTouch?.Close(); _liveTouch = null;
+        if (SettingsStore.Current.ShowLiveTouches && _session is { IsRunning: true })
+            _liveTouch = new LiveTouchWindow(_session);
+    }
+
+    void ShowCaptureTargets()
+    {
+        var anchor = _collapsed ? CompactMenu : MainMenuButton;
+        var items = new List<(string Title, string Detail, Action Run)>();
+        foreach (var recent in SettingsStore.Current.RecentCaptureTargets)
+            items.Add((recent.Label, L.Text("最近录制目标"), () =>
+            {
+                var target = CaptureTargetHistory.Resolve(recent, _cameras);
+                if (target is not null) _ = BeginAsync(target);
+                else ShowError(L.Text("目标已不可用，请重新选择。"));
+            }));
+        items.Add((L.Text("显示器"), "", () => Display_Click(anchor, new())));
+        items.Add((L.Text("窗口"), "", () => Window_Click(anchor, new())));
+        items.Add((L.Text("自选区域"), "", () => Region_Click(anchor, new())));
+        items.Add((L.Text("视频设备"), "", () => Device_Click(anchor, new())));
+        items.Add((L.Text("刷新设备"), "", () => _ = RefreshCaptureTargetsAsync()));
+        ShowList(anchor, items);
+    }
+
+    async Task RefreshCaptureTargetsAsync() { await LoadDevicesAsync(); ShowCaptureTargets(); }
 
     async Task ImportAsync()
     {

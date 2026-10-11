@@ -4,6 +4,8 @@ namespace DogSC.Core;
 
 public sealed class MotionDefaults
 {
+    /// <summary>pointer = 原版中央稳定区域跟随；clicks = 旧版按点击分组。</summary>
+    public string AutomaticFollow { get; set; } = "pointer";
     public double? DefaultZoomScale { get; set; }
     public string DefaultZoomEasing { get; set; } = "spring";
     public double DefaultZoomTransitionDuration { get; set; } = .7;
@@ -22,6 +24,7 @@ public sealed class ScreenMotionCreationStyle
     public double LinearBlurSoftness { get; set; } = .5;
     public double LinearBlurStrength { get; set; } = .35;
     public double LinearBlurAngle { get; set; }
+    public FocusEffect? FocusEffect { get; set; }
     public string Easing { get; set; } = "spring";
     public double[]? CustomCurve { get; set; }
     public double LeadInDuration { get; set; } = .7;
@@ -32,6 +35,7 @@ public sealed class ScreenMotionCreationStyle
         Target = ScenePreset.Clone(clip.Target), LinearBlur = clip.LinearBlur,
         LinearBlurSize = clip.LinearBlurSize, LinearBlurSoftness = clip.LinearBlurSoftness,
         LinearBlurStrength = clip.LinearBlurStrength, LinearBlurAngle = clip.LinearBlurAngle,
+        FocusEffect = clip.FocusEffect is null ? null : ScenePreset.Clone(clip.FocusEffect),
         Easing = clip.Timing.Easing, CustomCurve = clip.Timing.CustomCurve?.ToArray(),
         LeadInDuration = clip.Timing.PreferredLeadInDuration ?? clip.Timing.LeadInDuration,
         ReturnDuration = clip.Timing.PreferredReturnDuration
@@ -53,6 +57,7 @@ public sealed class ScreenMotionCreationStyle
             Timing = timing, Target = ScenePreset.Clone(Target), LinearBlur = LinearBlur,
             LinearBlurSize = LinearBlurSize, LinearBlurSoftness = LinearBlurSoftness,
             LinearBlurStrength = LinearBlurStrength, LinearBlurAngle = LinearBlurAngle,
+            FocusEffect = FocusEffect is null ? null : ScenePreset.Clone(FocusEffect),
         };
     }
 }

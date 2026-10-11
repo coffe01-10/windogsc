@@ -40,10 +40,9 @@ public partial class EditorWindow
         if (CameraBubble.Fill is not DrawingBrush brush || CameraBubble.Width <= 0 || CameraBubble.Height <= 0) return;
         var camera = _project.Camera;
         var aspect = CameraBubble.Width / CameraBubble.Height;
-        var w = Math.Min(1, aspect / CameraSourceAspect) / camera.ContentScale;
-        var h = Math.Min(1, CameraSourceAspect / aspect) / camera.ContentScale;
+        var visible = CameraContentFill.Visible(CameraSourceAspect, aspect, camera);
         brush.ViewboxUnits = BrushMappingMode.RelativeToBoundingBox;
-        brush.Viewbox = new Rect((1 - w) * (camera.Mirrored ? 1 - camera.ContentX : camera.ContentX), (1 - h) * camera.ContentY, w, h);
+        brush.Viewbox = new Rect(visible.X, visible.Y, visible.Width, visible.Height);
         brush.RelativeTransform = camera.Mirrored ? new ScaleTransform(-1, 1, .5, .5) : Transform.Identity;
     }
 
@@ -161,7 +160,7 @@ public partial class EditorWindow
         if (_overlayId == "camera" && _cameraContentEditing && _overlayHandle == -1)
         {
             var c = _project.Camera; var original = _cameraOriginal!; var box = _overlayOriginal;
-            var sourceWidth = Math.Max(box.Width, box.Height * CameraSourceAspect) * c.ContentScale;
+            var sourceWidth = Math.Max(box.Width, box.Height * CameraSourceAspect) * c.ContentScale * CameraContentFill.EdgeOverscan;
             var sourceHeight = sourceWidth / CameraSourceAspect;
             // Content controls follow the final mirrored visual direction, as on macOS.
             if (sourceWidth - box.Width > .1) c.ContentX = Math.Clamp(original.ContentX - delta.X / (sourceWidth - box.Width), 0, 1);

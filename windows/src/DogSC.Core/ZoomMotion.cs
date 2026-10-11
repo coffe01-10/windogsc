@@ -10,7 +10,7 @@ public readonly record struct ZoomPose(double Scale, double X, double Y)
 /// <summary>一次编辑后编译运动轨迹；随机定位、预览、光标和 ffmpeg 使用相同多项式。</summary>
 public sealed class ZoomMotion
 {
-    readonly List<(ZoomSpan Span, Track Scale, Track X, Track Y)> _spans = [];
+    readonly List<(ZoomSpan Span, Track Scale, Track X, Track Y, AutomaticFocusTrack? Follow, double Enter, double HoldEnd)> _spans = [];
 
     public ZoomMotion(ProjectDocument project)
     {
@@ -28,10 +28,13 @@ public sealed class ZoomMotion
             var y = new Track(start.Y, span);
             var (enter, exit) = Windows(span, joinedAfter);
             var endHold = span.Duration - exit;
-            var focuses = span.Origin == "automatic"
+            var follow = span.Origin == "automatic" && project.Motion.AutomaticFollow == "pointer"
+                ? new AutomaticFocusTrack(project, span, enter, endHold) : null;
+            var focuses = span.Origin == "automatic" && follow is null
                 ? FocusGroups(clicks.Where(p => p.Time >= span.Start && p.Time < span.Start + endHold), span.Scale, project.Canvas.Crop)
                 : [];
-            var first = focuses.Count > 0 ? focuses[0] : (Time: span.Start, X: span.FocusX, Y: span.FocusY);
+            var first = follow is not null ? (Time: span.Start, X: follow.Initial.X, Y: follow.Initial.Y)
+                : focuses.Count > 0 ? focuses[0] : (Time: span.Start, X: span.FocusX, Y: span.FocusY);
             scale.To(0, enter, span.Scale, span.Easing);
             x.To(0, enter, first.X, span.Easing);
             y.To(0, enter, first.Y, span.Easing);
@@ -46,14 +49,16 @@ public sealed class ZoomMotion
                 y.To(at, duration, focus.Y, span.Easing);
                 previousClick = focus.Time - span.Start;
             }
-            previousTarget = new(span.Scale, x.At(endHold), y.At(endHold));
+            var held = follow?.At(endHold) ?? (x.At(endHold), y.At(endHold));
+            if (follow is not null) { x.To(endHold, 0, held.Item1, span.Easing); y.To(endHold, 0, held.Item2, span.Easing); }
+            previousTarget = new(span.Scale, held.Item1, held.Item2);
             if (exit > 0)
             {
                 scale.To(endHold, exit, 1, span.Easing);
                 x.To(endHold, exit, .5, span.Easing);
                 y.To(endHold, exit, .5, span.Easing);
             }
-            _spans.Add((span, scale, x, y));
+            _spans.Add((span, scale, x, y, follow, enter, endHold));
         }
     }
 
@@ -63,7 +68,9 @@ public sealed class ZoomMotion
             if (time >= motion.Span.Start && time < motion.Span.Start + motion.Span.Duration)
             {
                 var local = time - motion.Span.Start;
-                return new(Math.Clamp(motion.Scale.At(local), 1, 6), Math.Clamp(motion.X.At(local), 0, 1), Math.Clamp(motion.Y.At(local), 0, 1));
+                var focus = local >= motion.Enter && local <= motion.HoldEnd && motion.Follow is not null
+                    ? motion.Follow.At(local) : (motion.X.At(local), motion.Y.At(local));
+                return new(Math.Clamp(motion.Scale.At(local), 1, 6), Math.Clamp(focus.Item1, 0, 1), Math.Clamp(focus.Item2, 0, 1));
             }
         return ZoomPose.Rest;
     }
@@ -75,13 +82,14 @@ public sealed class ZoomMotion
         var joined = _spans.Any(m => m.Span.Id != span.Id && Math.Abs(m.Span.Start - span.Start - span.Duration) < .001);
         var (enter, exit) = Windows(span, joined);
         var local = Math.Clamp(time - span.Start, enter, span.Duration - exit);
-        return new(span.Scale, Math.Clamp(motion.X.At(local), 0, 1), Math.Clamp(motion.Y.At(local), 0, 1));
+        var focus = motion.Follow?.At(local) ?? (motion.X.At(local), motion.Y.At(local));
+        return new(span.Scale, Math.Clamp(focus.Item1, 0, 1), Math.Clamp(focus.Item2, 0, 1));
     }
 
     public bool HasMotion(double start, double duration) => _spans.Any(m => m.Span.Scale > 1.01
         && m.Span.Start < start + duration && m.Span.Start + m.Span.Duration > start);
 
-    public (string Scale, string X, string Y) Expressions(double start, double duration, string time)
+    public (string Scale, string X, string Y) Expressions(double start, double duration, string time, int fps = 60)
     {
         string scale = "1", x = "0.5", y = "0.5";
         foreach (var motion in _spans.Where(m => m.Span.Start < start + duration && m.Span.Start + m.Span.Duration > start))
@@ -90,10 +98,40 @@ public sealed class ZoomMotion
             var local = "(" + time + "-" + F(span.Start) + ")";
             var active = "gte(" + time + "," + F(span.Start) + ")*lt(" + time + "," + F(span.Start + span.Duration) + ")";
             scale = "if(" + active + "," + motion.Scale.Expression(local) + "," + scale + ")";
-            x = "if(" + active + "," + motion.X.Expression(local) + "," + x + ")";
-            y = "if(" + active + "," + motion.Y.Expression(local) + "," + y + ")";
+            var fx = motion.X.Expression(local); var fy = motion.Y.Expression(local);
+            if (motion.Follow is not null)
+            {
+                var from = Math.Max(start, span.Start); var to = Math.Min(start + duration, span.Start + span.Duration);
+                var times = new List<double> { from };
+                // Match this source slice's output-frame clock, including cuts
+                // whose start is not an integer multiple of the export cadence.
+                for (var frame = (int)Math.Floor((from - start) * fps) + 1; start + frame / (double)fps < to; frame++)
+                    times.Add(start + frame / (double)fps);
+                times.Add(to);
+                var poses = times.Select(t => At(Math.Min(t, span.Start + span.Duration - 1e-9))).ToArray();
+                fx = SampleExpression(times, poses.Select(p => p.X).ToArray(), time);
+                fy = SampleExpression(times, poses.Select(p => p.Y).ToArray(), time);
+            }
+            x = "if(" + active + "," + fx + "," + x + ")";
+            y = "if(" + active + "," + fy + "," + y + ")";
         }
         return ("clip(" + scale + ",1,6)", "clip(" + x + ",0,1)", "clip(" + y + ",0,1)");
+    }
+
+    // A balanced selection tree avoids FFmpeg's nested-expression limit on
+    // long trajectories. Each leaf interpolates two actual shared motion poses.
+    static string SampleExpression(IReadOnlyList<double> times, double[] values, string time)
+    {
+        string Range(int left, int right)
+        {
+            if (values.Skip(left).Take(right - left + 1).All(v => Math.Abs(v - values[left]) < 1e-10)) return F(values[left]);
+            if (right - left == 1)
+                return "(" + F(values[left]) + "+" + F((values[right] - values[left]) / (times[right] - times[left]))
+                    + "*(" + time + "-" + F(times[left]) + "))";
+            var mid = (left + right) / 2;
+            return "if(lt(" + time + "," + F(times[mid]) + ")," + Range(left, mid) + "," + Range(mid, right) + ")";
+        }
+        return Range(0, times.Count - 1);
     }
 
     public static List<(double Time, double X, double Y, bool Click)> Events(ProjectDocument project)

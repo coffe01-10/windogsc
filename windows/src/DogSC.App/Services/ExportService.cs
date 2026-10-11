@@ -17,9 +17,17 @@ public sealed class ExportService
     public async Task<string> ExportAsync(ProjectDocument project, string projectDirectory, ExportOptions options, string outputPath, CancellationToken cancellation)
     {
         var resolved = await Resolve(project, projectDirectory, options);
-        if (project.Camera.Shape == "original" && project.Clips.Select(c => resolved.Cameras.GetValueOrDefault(c.AssetId)).FirstOrDefault(path => path is not null) is { } cameraPath
-            && FfmpegTools.LocateFfprobe(_ffmpeg) is { } probe && await FfmpegTools.Probe(probe, cameraPath) is { } info)
-            resolved.CameraAspect = info.Width / (double)info.Height;
+        if (!options.AudioOnly && FfmpegTools.LocateFfprobe(_ffmpeg) is { } probe)
+        {
+            var aspects = new Dictionary<string, double>();
+            foreach (var cameraPath in resolved.Cameras.Values.Distinct())
+            {
+                if (!aspects.TryGetValue(cameraPath, out var aspect) && await FfmpegTools.Probe(probe, cameraPath) is { Width: > 0, Height: > 0 } info)
+                    aspects[cameraPath] = aspect = info.Width / (double)info.Height;
+                if (aspect > 0) resolved.CameraAspects[cameraPath] = aspect;
+            }
+            resolved.CameraAspect = resolved.CameraAspects.Values.FirstOrDefault(a => a > 0, resolved.CameraAspect);
+        }
         var temp = Path.Combine(Path.GetTempPath(), "DogSC", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temp);
         var partial = Path.Combine(Path.GetDirectoryName(outputPath)!, ".DogSC-" + Guid.NewGuid().ToString("N") + Path.GetExtension(outputPath));
@@ -28,6 +36,7 @@ public sealed class ExportService
             Stage?.Invoke(L.Text("正在准备光标和效果…"));
             resolved.CursorCommands = Path.Combine(temp, "cursor.commands");
             var plan = ExportGraph.Build(project, options, resolved);
+            await SpatialFocusExport.PrepareAsync(_ffmpeg, project, plan, temp, cancellation);
             await CursorExport.PrepareAsync(_ffmpeg, project, plan, temp, cancellation);
             await StickerBackdropExport.PrepareAsync(_ffmpeg, project, plan, temp, cancellation);
             if (plan.StickerAnimIndex >= 0

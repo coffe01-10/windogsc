@@ -39,10 +39,23 @@ public sealed class CursorTimeline
                 .Select(p => new PointerTrack.Knot(p.Eff,
                     Math.Clamp(p.Point.X, 0, 1), Math.Clamp(p.Point.Y, 0, 1), p.Point.Click, p.Point.Cursor))
                 .ToArray();
-            var track = knots.Length == 0 ? null : new PointerTrack.Track(knots, fx.Motion);
+            var track = knots.Length == 0 ? null : new PointerTrack.Track(knots, fx.Motion, fx.SpringMass, fx.SpringStiffness, fx.SpringDamping);
             tracks[clip.Asset] = track;
             return track;
         }).ToArray();
+    }
+
+    // Focus follows the recorded pointer even when its visible sprite is hidden.
+    public NormalizedPoint? PositionAt(double time)
+    {
+        for (var i = 0; i < _clips.Count; i++)
+        {
+            var clip = _clips[i];
+            if (_tracks[i] is not { } track || time < clip.Start || time >= clip.End) continue;
+            var p = track.AnchoredPositionAt(clip.Clip.SourceStart + (time - clip.Start) * clip.Clip.Speed);
+            return new(p.X, p.Y);
+        }
+        return null;
     }
 
     public CursorFrame At(double time)
@@ -63,6 +76,9 @@ public sealed class CursorTimeline
             // 静止隐藏：source 时刻距最近一个轨迹点的空闲时长超过 IdleDelay。
             var idx = UpperBound(knots, source);
             var before = knots[idx - 1];
+            // A recorded hidden point also marks leaving or obscuring the target
+            // window. Authored cursor styles must respect that visibility.
+            if (before.Cursor == "system.hidden") break;
             var idleFor = Math.Max(0, source - before.Time);
             if (fx.IdleHide && idleFor / clip.Clip.Speed > fx.IdleDelay) break;
             var pos = track.AnchoredPositionAt(source);

@@ -8,7 +8,8 @@ public class ZoomMotionTests
     static ProjectDocument Project(params CursorPoint[] points)
     {
         var asset = new MediaAsset { Duration = 10, Width = 640, Height = 360, Video = "media/screen.mp4", Cursor = points.ToList() };
-        return new() { Width = 640, Height = 360, Assets = [asset], Clips = [new() { AssetId = asset.Id, SourceEnd = 10 }] };
+        return new() { Width = 640, Height = 360, Assets = [asset], Clips = [new() { AssetId = asset.Id, SourceEnd = 10 }],
+            Motion = new() { AutomaticFollow = "clicks" } };
     }
     static CursorPoint Click(double t, double x, double y = .5) => new() { Time = t, X = x, Y = y, Click = true };
 
