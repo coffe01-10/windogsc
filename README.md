@@ -25,9 +25,9 @@ WinDogSC 面向产品演示、操作教程和问题复现：录下操作，去�
 
 ## 宣传视频
 
-[![DogSC 宣传片：把屏幕操作，变成讲得清楚的视频](docs/videos/dogsc-launch-poster.png)](docs/videos/dogsc-launch.mp4?raw=1)
+https://github.com/user-attachments/assets/3c5d73f9-e42f-4c88-be03-00b7a0ee2208
 
-**[观看或下载宣传片](docs/videos/dogsc-launch.mp4?raw=1)** · 62 秒 · 1080p / 60 FPS · 中文原片
+62 秒 · 1080p / 60 FPS · 中文原片
 
 ## 录制：从一个悬浮工具条开始
 

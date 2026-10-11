@@ -25,9 +25,9 @@ These screenshots were captured from the current Windows app on **2026-10-11** a
 
 ## Launch film
 
-[![DogSC launch film: turn screen actions into videos that explain](docs/videos/dogsc-launch-poster.en.svg)](docs/videos/dogsc-launch.mp4?raw=1)
+https://github.com/user-attachments/assets/3c5d73f9-e42f-4c88-be03-00b7a0ee2208
 
-**[Watch or download the launch film](docs/videos/dogsc-launch.mp4?raw=1)** · 62 seconds · 1080p / 60 FPS · Original Chinese film
+62 seconds · 1080p / 60 FPS · Original Chinese film
 
 ## Recording starts with a floating toolbar
 
