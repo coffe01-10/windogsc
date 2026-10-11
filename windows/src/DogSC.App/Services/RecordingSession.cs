@@ -36,6 +36,7 @@ public sealed class RecordingSession : IAsyncDisposable
     readonly RecordingOptions _options;
     readonly string _directory;
     readonly List<Take> _takes = [];
+    readonly DateTime _startedUtc = DateTime.UtcNow;
     Take? _current;
     FfmpegProcess? _video;
     FfmpegProcess? _camera;
@@ -111,6 +112,13 @@ public sealed class RecordingSession : IAsyncDisposable
         if (usable.Count == 0)
         {
             throw new InvalidOperationException("录制太短，没有保存。");
+        }
+
+        foreach (var take in usable)
+        {
+            await FfmpegTools.FinalizeRecordingAsync(_ffmpeg, take.VideoPath);
+            if (take.CameraPath is not null && !await FfmpegTools.FinalizeCameraRecordingAsync(_ffmpeg, take.CameraPath))
+                take.CameraPath = null;
         }
 
         var first = await FfmpegTools.Probe(_ffprobe, usable[0].VideoPath);
@@ -189,6 +197,7 @@ public sealed class RecordingSession : IAsyncDisposable
 
     void SaveJournal(Take? finished = null)
     {
+        var temporary = JournalPath() + ".tmp";
         try
         {
             var takes = _takes.Concat(_current is null ? [] : [_current]).Concat(finished is null || _takes.Contains(finished) || _current == finished ? [] : [finished])
@@ -201,17 +210,23 @@ public sealed class RecordingSession : IAsyncDisposable
                 }).ToList();
             var journal = new RecoveryJournal
             {
-                StartedUtc = DateTime.UtcNow,
+                StartedUtc = _startedUtc,
                 TargetLabel = _target.Label,
                 Kind = _target.Kind.ToString(),
                 FrameRate = _options.FrameRate,
                 Takes = takes,
             };
-            File.WriteAllText(JournalPath(), JsonSerializer.Serialize(journal));
+            File.WriteAllText(temporary, JsonSerializer.Serialize(journal));
+            File.Move(temporary, JournalPath(), overwrite: true);
         }
-        catch
+        catch (Exception ex)
         {
-            // 日志是恢复辅助，写失败不能影响录制。
+            AppPaths.Log("录制恢复日志保存失败：" + ex.Message);
+        }
+        finally
+        {
+            try { File.Delete(temporary); }
+            catch { /* A failed cleanup must not interrupt the recording. */ }
         }
     }
 
@@ -280,9 +295,9 @@ public sealed class RecordingSession : IAsyncDisposable
             ]);
         }
 
-        // frag_keyframe+empty_moov：进程被硬杀也能得到可探测的 mp4，恢复日志才有意义。
+        // 每秒提交并写出分片，避免短录制在首个关键帧间隔内崩溃时只留下 MP4 文件头。
         videoArgs.AddRange(["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-            "-movflags", "+frag_keyframe+empty_moov", take.VideoPath]);
+            "-movflags", "+frag_keyframe+empty_moov", "-frag_duration", "1000000", "-flush_packets", "1", take.VideoPath]);
         _video = FfmpegProcess.Start(_ffmpeg, videoArgs);
         if (_options.Camera && !string.IsNullOrWhiteSpace(_options.CameraName) &&
             !string.Equals(_options.CameraName, _target.DeviceName, StringComparison.Ordinal))
@@ -295,7 +310,7 @@ public sealed class RecordingSession : IAsyncDisposable
                     "-f", "dshow", "-framerate", "30",
                     "-i", "video=" + _options.CameraName,
                     "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
-                    "-movflags", "+frag_keyframe+empty_moov", take.CameraPath,
+                    "-movflags", "+frag_keyframe+empty_moov", "-frag_duration", "1000000", "-flush_packets", "1", take.CameraPath,
                 ]);
             }
             catch (Exception ex)
@@ -528,29 +543,42 @@ public sealed class RecordingSession : IAsyncDisposable
         public List<(double Time, string? Note)> Marks { get; set; } = [];
     }
 
-    /// <summary>恢复流程用：读目录里的 journal.json，返回 token → take 信息；没有或损坏返回空。</summary>
-    public static IReadOnlyDictionary<string, JournalTakeInfo> ReadJournal(string directory)
+    public sealed class JournalInfo
+    {
+        public string TargetLabel { get; init; } = "";
+        public int FrameRate { get; init; } = 30;
+        public IReadOnlyDictionary<string, JournalTakeInfo> Takes { get; init; } = new Dictionary<string, JournalTakeInfo>();
+    }
+
+    /// <summary>读取录制来源、帧率和 token → take 信息；没有或损坏的日志退回默认值。</summary>
+    public static JournalInfo ReadJournal(string directory)
     {
         try
         {
             var path = Path.Combine(directory, "journal.json");
             if (!File.Exists(path))
             {
-                return new Dictionary<string, JournalTakeInfo>();
+                return new JournalInfo();
             }
 
             var journal = JsonSerializer.Deserialize<RecoveryJournal>(File.ReadAllText(path));
-            return journal?.Takes.ToDictionary(
+            if (journal is null) return new JournalInfo();
+            return new JournalInfo
+            {
+                TargetLabel = journal.TargetLabel,
+                FrameRate = journal.FrameRate > 0 ? journal.FrameRate : 30,
+                Takes = journal.Takes.ToDictionary(
                 take => take.Token,
                 take => new JournalTakeInfo
                 {
                     AssetId = take.AssetId,
                     Marks = take.Marks.Select(m => (m.Time, m.Note)).ToList(),
-                }) ?? new Dictionary<string, JournalTakeInfo>();
+                }),
+            };
         }
         catch
         {
-            return new Dictionary<string, JournalTakeInfo>();
+            return new JournalInfo();
         }
     }
 

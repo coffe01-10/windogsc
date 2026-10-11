@@ -51,6 +51,8 @@ Windows 桌面版。录制屏幕、剪辑、自动运镜与屏幕 3D、导出 MP
 
 逐项差异、源码证据及建议补齐顺序见 [Windows 与 macOS 功能核对](MAC_PARITY.md)。
 
+录制过程中保存恢复日志，并每秒写出视频分片。程序被强制结束后，启动时会扫描中断项目，恢复已提交的画面与标记，并保留录制来源和帧率；最后尚未提交的短片段可能丢失。正常停止和恢复时均无损整理视频封装，以便编辑器预览与跳转。
+
 ## 效果复用与快捷键
 
 选中缩放段后，`Ctrl+C` 复制其倍数、焦点、时长、曲线和过渡参数，`Ctrl+V` 创建独立副本。鼠标在时间线上时优先粘到鼠标位置，离开时间线时使用播放头；靠近其他缩放的边缘会吸附。空白不足或位置已被占用时会显示提示，原有缩放保持不变。缩放副本可跨编辑窗口粘贴。
@@ -91,6 +93,12 @@ dotnet run --project windows/src/DogSC.App -- --self-test
 
 ```powershell
 dotnet test windows/tests/DogSC.Core.Tests
+```
+
+录制恢复回归检查会短暂采集桌面左上角 320×180 区域，测试暂停 / 继续、强制结束后的 FFmpeg 清理、标记恢复及预览；所有录制文件在结束后删除，设置恢复原值：
+
+```powershell
+dotnet run --project windows/tests/DogSC.UiChecks -- --recording-recovery
 ```
 
 ## 发布
