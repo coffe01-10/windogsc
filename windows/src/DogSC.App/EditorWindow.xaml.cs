@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text.Json;
 using System.Windows.Media.Effects;
 using DogSC.Core;
@@ -58,12 +58,12 @@ public partial class EditorWindow : Window
                 Dispatcher.BeginInvoke(() => Keyboard.Focus(TourNext), DispatcherPriority.ContextIdle);
         };
         Closing += (_, _) => { _activeParameterReadout?.FinishEditing(); FinishCropGesture(true); CancelOverlayGesture(); CancelRegionEditing(); FlushPendingSave(); ScenePresets.RememberLastUsed(_project); };
-        SetToolContent(ToolLayout, IconKind.CanvasPicture, "画面");
-        SetToolContent(ToolZoom, IconKind.MotionViewfinder, "运镜");
-        SetToolContent(ToolOpening, IconKind.OpeningStack, "开场");
-        SetToolContent(ToolCursor, IconKind.CursorMotion, "光标");
-        SetToolContent(ToolCamera, IconKind.CameraFilled, "摄像头");
-        SetToolContent(ToolAudio, IconKind.SpeakerFilled, "声音");
+        SetToolContent(ToolLayout, IconKind.CanvasPicture, L.Text("画面"));
+        SetToolContent(ToolZoom, IconKind.MotionViewfinder, L.Text("运镜"));
+        SetToolContent(ToolOpening, IconKind.OpeningStack, L.Text("开场"));
+        SetToolContent(ToolCursor, IconKind.CursorMotion, L.Text("光标"));
+        SetToolContent(ToolCamera, IconKind.CameraFilled, L.Text("摄像头"));
+        SetToolContent(ToolAudio, IconKind.SpeakerFilled, L.Text("声音"));
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/AppIconMaster.png"));
         PaintTimelineView();
         SyncScenePresetLabel();
@@ -77,7 +77,7 @@ public partial class EditorWindow : Window
 
         _player.MediaGeometryChanged += () => Dispatcher.Invoke(() => { _cameraMaskAspect ??= CameraSourceAspect; LayoutPreview(); });
         _player.Changed += () => Dispatcher.Invoke(SyncPlayback);
-        _player.Failed += message => Dispatcher.Invoke(() => TimeLabel.Text = "预览失败：" + message);
+        _player.Failed += message => Dispatcher.Invoke(() => TimeLabel.Text = L.Text("预览失败：") + message);
         Timeline.SeekRequested += (_, time) => _player.Scrub(time);
         Timeline.SeekFinished += (_, _) => _player.FlushScrub();
         Timeline.InteractionStarted += (_, _) => { if (_player.IsPlaying) _player.Pause(); };
@@ -149,6 +149,16 @@ public partial class EditorWindow : Window
     {
         try
         {
+            directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+            var existing = Application.Current.Windows.OfType<EditorWindow>().FirstOrDefault(window =>
+                string.Equals(Path.TrimEndingDirectorySeparator(window._directory), directory, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null)
+            {
+                if (existing.WindowState == WindowState.Minimized) existing.WindowState = WindowState.Normal;
+                existing.Show();
+                existing.Activate();
+                return;
+            }
             var window = new EditorWindow();
             window.Load(directory);
             window.Show();
@@ -160,6 +170,28 @@ public partial class EditorWindow : Window
     }
 
     int _tourStep;
+    internal void RefreshLanguage()
+    {
+        SetToolContent(ToolLayout, IconKind.CanvasPicture, L.Text("画面"));
+        SetToolContent(ToolZoom, IconKind.MotionViewfinder, L.Text("运镜"));
+        SetToolContent(ToolOpening, IconKind.OpeningStack, L.Text("开场"));
+        SetToolContent(ToolCursor, IconKind.CursorMotion, L.Text("光标"));
+        SetToolContent(ToolCamera, IconKind.CameraFilled, L.Text("摄像头"));
+        SetToolContent(ToolAudio, IconKind.SpeakerFilled, L.Text("声音"));
+        VideoViewButton.Content = IconLabel(IconKind.InsetRectangle, L.Text("视频"));
+        WaveformViewButton.Content = IconLabel(IconKind.WaveformRectangle, L.Text("波形"));
+        MarkersToggle.Content = IconLabel(IconKind.Bookmark, L.Text("标记"));
+        SnapToggle.Content = IconLabel(IconKind.Magnet, L.Text("吸附"));
+        PaintTools();
+        SyncScenePresetLabel();
+        UpdateThemeButton();
+        SyncPlayback();
+        BuildMonitorToolbar();
+        RebuildInspector();
+        SyncPreviewQuality();
+        Timeline.InvalidateVisual();
+        if (TourOverlay.Visibility == Visibility.Visible) ShowTour(_tourStep);
+    }
     static readonly (string Title, string Body)[] TourSteps =
     [
         ("画面与效果", "左侧依次是画面、开场、运镜、光标、摄像头和声音。上方「＋」添加缩放、屏幕 3D、贴图、柔化或聚光；选中对应片段即可调整参数。"),
@@ -180,8 +212,8 @@ public partial class EditorWindow : Window
         }
         _tourStep = Math.Clamp(step, 0, TourSteps.Length - 1);
         var (title, body) = TourSteps[_tourStep];
-        TourTitle.Text = title;
-        TourBody.Text = body;
+        TourTitle.Text = L.Text(title);
+        TourBody.Text = L.Text(body);
         TourStep.Text = $"{_tourStep + 1} / {TourSteps.Length}";
         TourCard.HorizontalAlignment = _tourStep == 2 ? HorizontalAlignment.Right : HorizontalAlignment.Left;
         TourCard.VerticalAlignment = _tourStep == 1 ? VerticalAlignment.Bottom : VerticalAlignment.Top;
@@ -192,7 +224,7 @@ public partial class EditorWindow : Window
             _ => new Thickness(20, 78, 25, 20),
         };
         TourPrev.IsEnabled = _tourStep > 0;
-        TourNext.Content = _tourStep == TourSteps.Length - 1 ? "完成" : "下一步";
+        TourNext.Content = _tourStep == TourSteps.Length - 1 ? L.Text("完成") : L.Text("下一步");
         TourOverlay.Visibility = Visibility.Visible;
         if (opening)
         {
@@ -271,9 +303,9 @@ public partial class EditorWindow : Window
         ToolCamera.IsEnabled = _project.HasCamera;
         ToolCursor.IsEnabled = _project.Assets.Any(a => a.Cursor.Count > 0);
         ToolAudio.IsEnabled = _project.Assets.Any(a => !string.IsNullOrWhiteSpace(a.Microphone) || !string.IsNullOrWhiteSpace(a.SystemAudio));
-        ToolCamera.ToolTip = ToolCamera.IsEnabled ? "摄像头" : "当前项目没有摄像头素材";
-        ToolCursor.ToolTip = ToolCursor.IsEnabled ? "光标" : "当前项目没有记录鼠标事件";
-        ToolAudio.ToolTip = ToolAudio.IsEnabled ? "声音" : "当前项目没有系统声音或麦克风素材";
+        ToolCamera.ToolTip = ToolCamera.IsEnabled ? L.Text("摄像头") : L.Text("当前项目没有摄像头素材");
+        ToolCursor.ToolTip = ToolCursor.IsEnabled ? L.Text("光标") : L.Text("当前项目没有记录鼠标事件");
+        ToolAudio.ToolTip = ToolAudio.IsEnabled ? L.Text("声音") : L.Text("当前项目没有系统声音或麦克风素材");
         var selectedTool = _cameraSelected || _project.CameraMotions.Any(c => c.Id == _selectedDecoration)
             ? "camera" : _tool == "effects" ? "layout" : _tool;
         foreach (var button in new[] { ToolLayout, ToolOpening, ToolZoom, ToolCursor, ToolCamera, ToolAudio })
@@ -323,7 +355,7 @@ public partial class EditorWindow : Window
     {
         var dark = SettingsStore.Current.Theme == "dark";
         ThemeIcon.Kind = dark ? IconKind.Sun : IconKind.Moon;
-        ThemeButton.ToolTip = dark ? "切换到浅色主题" : "切换到深色主题";
+        ThemeButton.ToolTip = dark ? L.Text("切换到浅色主题") : L.Text("切换到深色主题");
     }
 
     internal void SyncAppearance() { UpdateThemeButton(); RebuildInspector(); BuildMonitorToolbar(); }
@@ -348,7 +380,7 @@ public partial class EditorWindow : Window
             var camera = _project.CameraMotions.FirstOrDefault(c => c.Id == _selectedDecoration);
             if (screen is not null || camera is not null)
             {
-                InspectorHeader(camera is null ? "运镜" : "摄像头", camera is null ? "屏幕 3D 片段" : "所选片段");
+                InspectorHeader(camera is null ? L.Text("运镜") : L.Text("摄像头"), camera is null ? L.Text("屏幕 3D 片段") : L.Text("所选片段"));
                 BuildMotionInspector(Inspector, screen, camera);
             }
             else if (_motionMode == "screen3d" && _selectedZoom is null) BuildScreenMotionCreation();
@@ -377,13 +409,13 @@ public partial class EditorWindow : Window
 
     void BuildCameraInspector()
     {
-        InspectorHeader("摄像头", "整个项目");
-        if (!_project.HasCamera) { Inspector.Children.Add(Caption("此项目没有摄像头素材。")); return; }
+        InspectorHeader(L.Text("摄像头"), L.Text("整个项目"));
+        if (!_project.HasCamera) { Inspector.Children.Add(Caption(L.Text("此项目没有摄像头素材。"))); return; }
         BuildCameraDetails();
         BuildCameraContentControls();
-        Inspector.Children.Add(Caption("形状"));
+        Inspector.Children.Add(Caption(L.Text("形状")));
         var shapes = new WrapPanel();
-        foreach (var (name, key) in new[] { ("圆形", "circle"), ("方形", "square"), ("横向", "horizontal"), ("纵向", "vertical"), ("原比例", "original"), ("直角", "none") })
+        foreach (var (name, key) in new[] { (L.Text("圆形"), "circle"), (L.Text("方形"), "square"), (L.Text("横向"), "horizontal"), (L.Text("纵向"), "vertical"), (L.Text("原比例"), "original"), (L.Text("直角"), "none") })
         {
             var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 0) };
             chip.Click += (_, _) => { Push(); _project.Camera.Shape = (string)chip.Tag; Commit(); };
@@ -392,26 +424,26 @@ public partial class EditorWindow : Window
         }
 
         Inspector.Children.Add(shapes);
-        Inspector.Children.Add(Caption("大小"));
+        Inspector.Children.Add(Caption(L.Text("大小")));
         Inspector.Children.Add(Slider(0.08, 0.46, _project.Camera.Size, value => _project.Camera.Size = value));
         if (_project.Camera.Shape != "circle" && _project.Camera.Shape != "none")
         {
-            Inspector.Children.Add(Caption("圆角"));
+            Inspector.Children.Add(Caption(L.Text("圆角")));
             Inspector.Children.Add(Slider(0, 0.5, _project.Camera.Corner, value => _project.Camera.Corner = value));
         }
 
-        Inspector.Children.Add(Caption("位置预设"));
+        Inspector.Children.Add(Caption(L.Text("位置预设")));
         var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Width = 108, HorizontalAlignment = HorizontalAlignment.Left };
-        foreach (var (cx, cy, angle, label) in new[] { (.12, .15, -45d, "左上"), (.5, .15, 0d, "上方居中"), (.88, .15, 45d, "右上"),
-            (.12, .5, -90d, "左侧居中"), (.5, .5, 0d, "居中"), (.88, .5, 90d, "右侧居中"),
-            (.12, .85, -135d, "左下"), (.5, .85, 180d, "下方居中"), (.88, .85, 135d, "右下") })
+        foreach (var (cx, cy, angle, label) in new[] { (.12, .15, -45d, L.Text("左上")), (.5, .15, 0d, L.Text("上方居中")), (.88, .15, 45d, L.Text("右上")),
+            (.12, .5, -90d, L.Text("左侧居中")), (.5, .5, 0d, L.Text("居中")), (.88, .5, 90d, L.Text("右侧居中")),
+            (.12, .85, -135d, L.Text("左下")), (.5, .85, 180d, L.Text("下方居中")), (.88, .85, 135d, L.Text("右下")) })
         {
             var center = cx == .5 && cy == .5;
             var symbol = new Icon { Kind = center ? IconKind.Record : IconKind.ArrowUp, Width = center ? 9 : 17, Height = center ? 9 : 17,
                 RenderTransformOrigin = new Point(.5, .5), RenderTransform = new RotateTransform(angle) };
             var cell = new Button { Content = symbol, ToolTip = label, Padding = new Thickness(0), Width = 30, Height = 30, Tag = (cx, cy), Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
             ControlAppearance.SelectChip(cell, Math.Abs(cx - _project.Camera.CenterX) < .001 && Math.Abs(cy - _project.Camera.CenterY) < .001);
-            System.Windows.Automation.AutomationProperties.SetName(cell, "摄像头位置：" + label);
+            System.Windows.Automation.AutomationProperties.SetName(cell, L.Text("摄像头位置：") + label);
             cell.Click += (_, _) =>
             {
                 Push();
@@ -424,9 +456,9 @@ public partial class EditorWindow : Window
         }
 
         Inspector.Children.Add(grid);
-        Inspector.Children.Add(Caption("进出动画"));
+        Inspector.Children.Add(Caption(L.Text("进出动画")));
         var entries = new StackPanel { Orientation = Orientation.Horizontal };
-        foreach (var (name, key) in new[] { ("无", "none"), ("淡入", "fade"), ("滑入", "rise") })
+        foreach (var (name, key) in new[] { (L.Text("无"), "none"), (L.Text("淡入"), "fade"), (L.Text("滑入"), "rise") })
         {
             var chip = new Button { Content = name, Tag = key, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 0) };
             chip.Click += (_, _) => { Push(); _project.Camera.Entry = (string)chip.Tag; Commit(); };
@@ -435,8 +467,8 @@ public partial class EditorWindow : Window
         }
 
         Inspector.Children.Add(entries);
-        Inspector.Children.Add(DecorationButton("替换摄像头素材", SwapCamera));
-        Inspector.Children.Add(DecorationButton("导出源文件", ExportSources));
+        Inspector.Children.Add(DecorationButton(L.Text("替换摄像头素材"), SwapCamera));
+        Inspector.Children.Add(DecorationButton(L.Text("导出源文件"), ExportSources));
         Inspector.Children.Add(CameraSyncPanel());
     }
 
@@ -462,7 +494,7 @@ public partial class EditorWindow : Window
         {
             panel.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 2) });
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            foreach (var (name, delta) in new[] { ("画面延后 10ms", -0.010), ("画面提前 10ms", 0.010), ("画面延后 1 帧", -frameDuration), ("画面提前 1 帧", frameDuration) })
+            foreach (var (name, delta) in new[] { (L.Text("画面延后 10ms"), -0.010), (L.Text("画面提前 10ms"), 0.010), (L.Text("画面延后 1 帧"), -frameDuration), (L.Text("画面提前 1 帧"), frameDuration) })
             {
                 var d = delta;
                 var button = new Button { Content = name, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
@@ -476,12 +508,12 @@ public partial class EditorWindow : Window
             }
         }
 
-        SyncRow("全片偏移  " + Math.Round(asset.CameraOffset * 1000) + " ms",
-            "声音先出来、嘴后动：点「画面提前」。",
+        SyncRow(L.Text("全片偏移  ") + Math.Round(asset.CameraOffset * 1000) + " ms",
+            L.Text("声音先出来、嘴后动：点「画面提前」。"),
             delta => asset.CameraOffset += delta);
         if (Math.Abs(asset.CameraOffset) > 0.0005)
         {
-            var reset = DecorationButton("偏移归零", () => { Push(); asset.CameraOffset = 0; Commit(); });
+            var reset = DecorationButton(L.Text("偏移归零"), () => { Push(); asset.CameraOffset = 0; Commit(); });
             panel.Children.Add(reset);
         }
 
@@ -490,19 +522,19 @@ public partial class EditorWindow : Window
         var total = asset.CameraOffset + (sourceTime is null ? 0 : SyncAnchorCurve.Offset(asset.CameraSyncAnchors, sourceTime.Value));
         panel.Children.Add(new TextBlock
         {
-            Text = "分段同步点  " + asset.CameraSyncAnchors.Count + " 个 · 当前 " + Math.Round(total * 1000) + " ms",
+            Text = L.Text("分段同步点  ") + asset.CameraSyncAnchors.Count + L.Text(" 个 · 当前 ") + Math.Round(total * 1000) + " ms",
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 10, 0, 2),
         });
         if (sourceTime is null)
         {
-            panel.Children.Add(new TextBlock { Text = "当前播放头无法映射到源素材", FontSize = 11, Opacity = 0.6 });
+            panel.Children.Add(new TextBlock { Text = L.Text("当前播放头无法映射到源素材"), FontSize = 11, Opacity = 0.6 });
         }
         else if (anchorIndex >= 0)
         {
             SyncRow("", "", delta => asset.CameraSyncAnchors[anchorIndex].Offset =
                 Math.Clamp(atPlayhead + delta, -10, 10));
-            panel.Children.Add(DecorationButton("删除播放头同步点", () =>
+            panel.Children.Add(DecorationButton(L.Text("删除播放头同步点"), () =>
             {
                 Push();
                 asset.CameraSyncAnchors.RemoveAt(anchorIndex);
@@ -511,7 +543,7 @@ public partial class EditorWindow : Window
         }
         else
         {
-            panel.Children.Add(DecorationButton("在播放头固定同步点", () =>
+            panel.Children.Add(DecorationButton(L.Text("在播放头固定同步点"), () =>
             {
                 Push();
                 asset.CameraSyncAnchors.Add(new SyncAnchor
@@ -522,7 +554,7 @@ public partial class EditorWindow : Window
                 Commit();
             }));
         }
-        panel.Children.Add(new TextBlock { Text = "先在错位前固定当前，再到错位后调整；两点之间自动平滑重映射。", FontSize = 11, Opacity = 0.6, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
+        panel.Children.Add(new TextBlock { Text = L.Text("先在错位前固定当前，再到错位后调整；两点之间自动平滑重映射。"), FontSize = 11, Opacity = 0.6, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
         return panel;
     }
 
@@ -546,7 +578,7 @@ public partial class EditorWindow : Window
     {
         var dialog = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = "选择源文件导出文件夹",
+            Title = L.Text("选择源文件导出文件夹"),
         };
         if (dialog.ShowDialog(this) != true)
         {
@@ -556,12 +588,12 @@ public partial class EditorWindow : Window
         try
         {
             var folder = SourceExport.Export(_project, _directory, dialog.FolderName);
-            TimeLabel.Text = "已导出源文件：" + folder;
+            TimeLabel.Text = L.Text("已导出源文件：") + folder;
             System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + folder + "\"");
         }
         catch (Exception ex)
         {
-            TimeLabel.Text = "导出源文件失败：" + ex.Message;
+            TimeLabel.Text = L.Text("导出源文件失败：") + ex.Message;
         }
     }
 
@@ -576,8 +608,8 @@ public partial class EditorWindow : Window
 
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Filter = "视频|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v|全部|*.*",
-            Title = "替换摄像头素材",
+            Filter = L.Text("视频|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v|全部|*.*"),
+            Title = L.Text("替换摄像头素材"),
         };
         if (dialog.ShowDialog(this) != true)
         {
@@ -599,7 +631,7 @@ public partial class EditorWindow : Window
         }
         catch (Exception ex)
         {
-            TimeLabel.Text = "替换失败：" + ex.Message;
+            TimeLabel.Text = L.Text("替换失败：") + ex.Message;
         }
     }
 
@@ -610,8 +642,8 @@ public partial class EditorWindow : Window
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Filter = "图片|*.png;*.jpg;*.jpeg;*.bmp;*.webp",
-            Title = "选择图片",
+            Filter = L.Text("图片|*.png;*.jpg;*.jpeg;*.bmp;*.webp"),
+            Title = L.Text("选择图片"),
         };
         if (dialog.ShowDialog(this) != true)
         {
@@ -631,7 +663,7 @@ public partial class EditorWindow : Window
         }
         catch (Exception ex)
         {
-            AppPaths.Log("装饰图导入失败：" + ex.Message);
+            AppPaths.Log(L.Text("装饰图导入失败：") + ex.Message);
         }
     }
 
@@ -647,8 +679,8 @@ public partial class EditorWindow : Window
     void BuildZoomInspector()
     {
         _zoomFocusSliders = null;
-        InspectorHeader("运镜", "缩放片段");
-        var auto = new Button { Content = "按点击自动运镜", Style = (Style)FindResource("QuietButton"), HorizontalAlignment = HorizontalAlignment.Left };
+        InspectorHeader(L.Text("运镜"), L.Text("缩放片段"));
+        var auto = new Button { Content = L.Text("按点击自动运镜"), Style = (Style)FindResource("QuietButton"), HorizontalAlignment = HorizontalAlignment.Left };
         auto.Click += (_, _) =>
         {
             Push();
@@ -656,7 +688,7 @@ public partial class EditorWindow : Window
             if (added == 0)
             {
                 _undo.Pop();
-                Inspector.Children.Add(Caption("没有空闲时段的点击点。可检查指针轨迹，或移动已有手动缩放。"));
+                Inspector.Children.Add(Caption(L.Text("没有空闲时段的点击点。可检查指针轨迹，或移动已有手动缩放。")));
                 return;
             }
 
@@ -664,7 +696,7 @@ public partial class EditorWindow : Window
         };
         var zoom = _project.Zooms.FirstOrDefault(item => item.Id == _selectedZoom);
         if (zoom is null) Inspector.Children.Add(auto);
-        var add = new Button { Content = "在播放头添加缩放", Style = (Style)FindResource("QuietButton"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
+        var add = new Button { Content = L.Text("在播放头添加缩放"), Style = (Style)FindResource("QuietButton"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
         add.Click += (_, _) =>
         {
             Push();
@@ -682,16 +714,16 @@ public partial class EditorWindow : Window
         if (zoom is null) Inspector.Children.Add(add);
         if (zoom is null)
         {
-            Inspector.Children.Add(Segments([("缩放", "zoom"), ("屏幕 3D", "screen3d")], "zoom", SelectMotionMode));
-            Inspector.Children.Add(Caption("选中时间线上的一段缩放后，可以改倍数和焦点。"));
+            Inspector.Children.Add(Segments([(L.Text("缩放"), "zoom"), (L.Text("屏幕 3D"), "screen3d")], "zoom", SelectMotionMode));
+            Inspector.Children.Add(Caption(L.Text("选中时间线上的一段缩放后，可以改倍数和焦点。")));
             return;
         }
 
         BuildZoomTargetControls(zoom);
-        Inspector.Children.Add(Caption("片段不足以容纳两段过渡时，按比例缩短；相邻镜头直接衔接。"));
+        Inspector.Children.Add(Caption(L.Text("片段不足以容纳两段过渡时，按比例缩短；相邻镜头直接衔接。")));
         var curves = new WrapPanel();
-        foreach (var (label, curve) in new[] { ("弹簧", "spring"), ("平滑", "smooth"), ("线性", "linear"),
-            ("二次", "quadratic"), ("三次", "cubic"), ("自定义", "custom") })
+        foreach (var (label, curve) in new[] { (L.Text("弹簧"), "spring"), (L.Text("平滑"), "smooth"), (L.Text("线性"), "linear"),
+            (L.Text("二次"), "quadratic"), (L.Text("三次"), "cubic"), (L.Text("自定义"), "custom") })
         {
             var button = new Button { Content = label, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 4, 6, 4) };
             ControlAppearance.SelectChip(button, zoom.Easing == curve);
@@ -701,20 +733,20 @@ public partial class EditorWindow : Window
         Inspector.Children.Add(curves);
         if (zoom.Easing == "spring")
         {
-            var spring = Disclosure("弹簧参数");
-            spring.Children.Add(MotionSlider("质量", .1, 10, zoom.SpringMass, value => zoom.SpringMass = value));
-            spring.Children.Add(MotionSlider("刚度", 10, 500, zoom.SpringStiffness, value => zoom.SpringStiffness = value));
-            spring.Children.Add(MotionSlider("阻尼", 1, 100, zoom.SpringDamping, value => zoom.SpringDamping = value));
+            var spring = Disclosure(L.Text("弹簧参数"));
+            spring.Children.Add(MotionSlider(L.Text("质量"), .1, 10, zoom.SpringMass, value => zoom.SpringMass = value));
+            spring.Children.Add(MotionSlider(L.Text("刚度"), 10, 500, zoom.SpringStiffness, value => zoom.SpringStiffness = value));
+            spring.Children.Add(MotionSlider(L.Text("阻尼"), 1, 100, zoom.SpringDamping, value => zoom.SpringDamping = value));
         }
         if (zoom.Easing == "custom")
         {
-            var bezier = Disclosure("自定义贝塞尔");
+            var bezier = Disclosure(L.Text("自定义贝塞尔"));
             bezier.Children.Add(MotionSlider("X1", 0, 1, zoom.CurveX1, value => zoom.CurveX1 = value));
             bezier.Children.Add(MotionSlider("Y1", -2, 2, zoom.CurveY1, value => zoom.CurveY1 = value));
             bezier.Children.Add(MotionSlider("X2", 0, 1, zoom.CurveX2, value => zoom.CurveX2 = value));
             bezier.Children.Add(MotionSlider("Y2", -2, 2, zoom.CurveY2, value => zoom.CurveY2 = value));
         }
-        Inspector.Children.Add(Caption("在「缩放」工具下点击画面，也会把焦点放到点击的位置。"));
+        Inspector.Children.Add(Caption(L.Text("在「缩放」工具下点击画面，也会把焦点放到点击的位置。")));
     }
 
     StackPanel MotionSlider(string name, double min, double max, double value, Action<double> apply, string unit = "")
@@ -735,13 +767,13 @@ public partial class EditorWindow : Window
     {
         var clip = _project.Clips.FirstOrDefault(c => c.Id == _selectedClip);
         CheckBox? inherit = null;
-        InspectorHeader("声音", clip is null ? "整个项目" : $"片段 {_project.Clips.IndexOf(clip) + 1}");
+        InspectorHeader(L.Text("声音"), clip is null ? L.Text("整个项目") : L.Text("片段") + $" {_project.Clips.IndexOf(clip) + 1}");
         if (clip is not null)
         {
             var placed = TimelineMath.Place(_project).First(p => p.Clip.Id == clip.Id);
-            Inspector.Children.Add(Caption($"{placed.Start:0.00} – {placed.End:0.00} 秒"));
-            Inspector.Children.Add(DecorationButton("前往此片段", () => _player.Seek(placed.Start, false)));
-            AddToggle(Inspector, "继承全局声音", clip.MicrophoneGain is null && clip.SystemGain is null && clip.MicrophoneEnabled is null && clip.SystemEnabled is null, on =>
+            Inspector.Children.Add(Caption($"{placed.Start:0.00} – {placed.End:0.00}" + L.Text(" 秒")));
+            Inspector.Children.Add(DecorationButton(L.Text("前往此片段"), () => _player.Seek(placed.Start, false)));
+            AddToggle(Inspector, L.Text("继承全局声音"), clip.MicrophoneGain is null && clip.SystemGain is null && clip.MicrophoneEnabled is null && clip.SystemEnabled is null, on =>
             {
                 clip.MicrophoneGain = on ? null : _project.MicrophoneGain;
                 clip.SystemGain = on ? null : _project.SystemGain;
@@ -751,12 +783,12 @@ public partial class EditorWindow : Window
             });
             inherit = Inspector.Children.OfType<CheckBox>().LastOrDefault();
         }
-        Inspector.Children.Add(SectionTitle(clip is null ? "项目声音" : "片段声音"));
+        Inspector.Children.Add(SectionTitle(clip is null ? L.Text("项目声音") : L.Text("片段声音")));
         var asset = clip is null ? null : _project.Asset(clip.AssetId);
         if (clip is null ? _project.Assets.Any(a => a.SystemAudio is not null) : asset?.SystemAudio is not null)
-            AudioChannel("系统声音", false);
+            AudioChannel(L.Text("系统声音"), false);
         if (clip is null ? _project.Assets.Any(a => a.Microphone is not null) : asset?.Microphone is not null)
-            AudioChannel("麦克风", true);
+            AudioChannel(L.Text("麦克风"), true);
         void AudioChannel(string title, bool mic)
         {
             double Global() => mic ? _project.MicrophoneGain : _project.SystemGain;
@@ -777,8 +809,8 @@ public partial class EditorWindow : Window
                 RebuildInspector();
             });
             var toggle = channel.Children.OfType<CheckBox>().Last(); toggle.Content = IconLabel(mic ? IconKind.Mic : IconKind.Speaker, title);
-            channel.Children.Add(new TextBlock { Text = clip is null ? "录制应用与系统声音" : "继承全局设置，调整即可单独覆盖", FontSize = 11, Foreground = (Brush)FindResource("InkSecondaryBrush") });
-            channel.Children.Add(ValueSlider("音量", 0, ProjectDocument.MaxGain, Gain(), Set, Percent, before =>
+            channel.Children.Add(new TextBlock { Text = clip is null ? L.Text("录制应用与系统声音") : L.Text("继承全局设置，调整即可单独覆盖"), FontSize = 11, Foreground = (Brush)FindResource("InkSecondaryBrush") });
+            channel.Children.Add(ValueSlider(L.Text("音量"), 0, ProjectDocument.MaxGain, Gain(), Set, Percent, before =>
             {
                 if (clip is null) return;
                 var original = before.Clips.First(c => c.Id == clip.Id);
@@ -787,7 +819,7 @@ public partial class EditorWindow : Window
                     && clip.MicrophoneEnabled is null && clip.SystemEnabled is null;
             }));
             Inspector.Children.Add(card);
-            if (Gain() > 1) Inspector.Children.Add(Caption("超过 100% 的增益以导出为准。"));
+            if (Gain() > 1) Inspector.Children.Add(Caption(L.Text("超过 100% 的增益以导出为准。")));
         }
     }
 
@@ -797,14 +829,14 @@ public partial class EditorWindow : Window
         var pad = new EditorPadSurface(compact: true);
         ParameterReadout? vx = null, vy = null;
         Button reset = null!;
-        var heading = PadHeading("屏幕位置", "居中", () => { Push(); _project.Canvas.CenterX = _project.Canvas.CenterY = .5; Place(); Commit(rebuild: false); });
+        var heading = PadHeading(L.Text("屏幕位置"), L.Text("居中"), () => { Push(); _project.Canvas.CenterX = _project.Canvas.CenterY = .5; Place(); Commit(rebuild: false); });
         reset = (Button)heading.Children[0]; panel.Children.Add(heading);
         var row = new Grid { Margin = new Thickness(0, 9, 0, 2) };
         row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new());
-        System.Windows.Automation.AutomationProperties.SetName(pad, "屏幕位置");
+        System.Windows.Automation.AutomationProperties.SetName(pad, L.Text("屏幕位置"));
         row.Children.Add(pad);
-        vx = Parameter("屏幕位置 X 坐标", 0, 1, _project.Canvas.CenterX, v => { _project.Canvas.CenterX = v; Place(); }, Percent);
-        vy = Parameter("屏幕位置 Y 坐标", 0, 1, _project.Canvas.CenterY, v => { _project.Canvas.CenterY = v; Place(); }, Percent);
+        vx = Parameter(L.Text("屏幕位置 X 坐标"), 0, 1, _project.Canvas.CenterX, v => { _project.Canvas.CenterX = v; Place(); }, Percent);
+        vy = Parameter(L.Text("屏幕位置 Y 坐标"), 0, 1, _project.Canvas.CenterY, v => { _project.Canvas.CenterY = v; Place(); }, Percent);
         var values = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 0, 0) };
         values.Children.Add(CoordinateValue("X", vx)); var ry = CoordinateValue("Y", vy); ry.Margin = new Thickness(0, 10, 0, 0); values.Children.Add(ry);
         Grid.SetColumn(values, 1); row.Children.Add(values); panel.Children.Add(row);
@@ -1381,8 +1413,8 @@ public partial class EditorWindow : Window
         if (!Timeline.IsScrubbing) Timeline.Playhead = _player.Time;
         TimeLabel.Text = Clock(_player.Time) + " / " + Clock(TimelineMath.Duration(_project));
         PlayIcon.Kind = _player.IsPlaying ? IconKind.Pause : IconKind.Play;
-        PlayButton.ToolTip = _player.IsPlaying ? "暂停（Space）" : "播放（Space）";
-        System.Windows.Automation.AutomationProperties.SetName(PlayButton, _player.IsPlaying ? "暂停" : "播放");
+        PlayButton.ToolTip = _player.IsPlaying ? L.Text("暂停（Space）") : L.Text("播放（Space）");
+        System.Windows.Automation.AutomationProperties.SetName(PlayButton, _player.IsPlaying ? L.Text("暂停") : L.Text("播放"));
         ApplyZoomVisual();
     }
 
@@ -1665,7 +1697,7 @@ public partial class EditorWindow : Window
         if (_project.Zooms.FirstOrDefault(zoom => zoom.Id == _selectedZoom) is { } zoom)
         {
             _zoomClipboard = TimelineEdits.CopyZoom(zoom);
-            TimeLabel.Text = "已复制缩放；Ctrl+V 粘贴完整副本，Ctrl+Shift+V 只粘属性。";
+            TimeLabel.Text = L.Text("已复制缩放；Ctrl+V 粘贴完整副本，Ctrl+Shift+V 只粘属性。");
             return;
         }
         if (_selectedClip is null)
@@ -1732,7 +1764,7 @@ public partial class EditorWindow : Window
         }
         else if (_selectedZoom is null || !TimelineEdits.PasteZoomAttributes(_project, _selectedZoom, source))
         {
-            TimeLabel.Text = "请先选中一段缩放，再粘贴属性。";
+            TimeLabel.Text = L.Text("请先选中一段缩放，再粘贴属性。");
             return;
         }
         Push(before);
@@ -1817,10 +1849,10 @@ public partial class EditorWindow : Window
         TrackScreenMotionItem.IsChecked = (flags & 2) != 0;
         TrackCameraMotionItem.IsChecked = (flags & 4) != 0;
         TrackOverlayItem.IsChecked = (flags & 8) != 0;
-        TrackZoomItem.Header = $"缩放 ({_project.Zooms.Count})";
-        TrackScreenMotionItem.Header = $"屏幕运动 ({_project.ScreenMotions.Count})";
-        TrackCameraMotionItem.Header = $"摄像头运动 ({_project.CameraMotions.Count})";
-        TrackOverlayItem.Header = $"叠加 ({_project.Canvas.Stickers.Count + _project.Canvas.SoftRegions.Count(x => x.Enabled)})";
+        TrackZoomItem.Header = L.Text("缩放") + $" ({_project.Zooms.Count})";
+        TrackScreenMotionItem.Header = L.Text("屏幕运动") + $" ({_project.ScreenMotions.Count})";
+        TrackCameraMotionItem.Header = L.Text("摄像头运动") + $" ({_project.CameraMotions.Count})";
+        TrackOverlayItem.Header = L.Text("叠加") + $" ({_project.Canvas.Stickers.Count + _project.Canvas.SoftRegions.Count(x => x.Enabled)})";
     }
 
     void TrackItem_Click(object sender, RoutedEventArgs e)
@@ -2061,7 +2093,7 @@ public partial class EditorWindow : Window
             }
             catch (Exception ex)
             {
-                AppPaths.Log("缩略图失败：" + ex.Message);
+                AppPaths.Log(L.Text("缩略图失败：") + ex.Message);
             }
         }
 
@@ -2098,7 +2130,7 @@ public partial class EditorWindow : Window
             }
             catch (Exception ex)
             {
-                AppPaths.Log("波形失败：" + ex.Message);
+                AppPaths.Log(L.Text("波形失败：") + ex.Message);
             }
         }
     }

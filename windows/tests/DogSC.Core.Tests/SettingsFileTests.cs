@@ -12,6 +12,7 @@ public class SettingsFileTests
         var settings = new AppSettings
         {
             Theme = "dark",
+            Language = "en",
             RecordMicrophone = true,
             MemoText = "记得剪掉口误",
             BarLeft = double.NaN,
@@ -29,6 +30,7 @@ public class SettingsFileTests
 
         var loaded = SettingsFile.Load(path);
         Assert.Equal("dark", loaded.Theme);
+        Assert.Equal("en", loaded.Language);
         Assert.True(loaded.RecordMicrophone);
         Assert.Equal("记得剪掉口误", loaded.MemoText);
         Assert.Equal(double.NaN, loaded.BarLeft);
@@ -57,6 +59,7 @@ public class SettingsFileTests
         var missing = TempFile();
         var defaults = SettingsFile.Load(missing);
         Assert.Equal("light", defaults.Theme);
+        Assert.Equal("zh-Hans", defaults.Language);
         Assert.Equal(30, defaults.FrameRate);
         Assert.True(defaults.RecordSystemAudio);
         Assert.False(defaults.RecordMicrophone);

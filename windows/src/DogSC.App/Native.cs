@@ -17,12 +17,14 @@ public static class Native
     const int DwmwaCloaked = 14;
     const uint MonitorinfoPrimary = 1;
 
-    public static void ExcludeFromCapture(IntPtr hwnd)
+    public static bool ExcludeFromCapture(IntPtr hwnd)
     {
-        if (hwnd != IntPtr.Zero)
-        {
-            SetWindowDisplayAffinity(hwnd, WdaExcludeFromCapture);
-        }
+        if (hwnd == IntPtr.Zero) return false;
+        var applied = SetWindowDisplayAffinity(hwnd, WdaExcludeFromCapture);
+        var error = Marshal.GetLastWin32Error();
+        var excluded = applied && GetWindowDisplayAffinity(hwnd, out var affinity) && affinity == WdaExcludeFromCapture;
+        if (!excluded) AppPaths.Log($"Capture exclusion failed: HWND={hwnd}, SetWindowDisplayAffinity={applied}, Win32={error}");
+        return excluded;
     }
 
     public static IReadOnlyList<MonitorDesc> Monitors()
@@ -54,7 +56,7 @@ public static class Native
         }, IntPtr.Zero);
         if (list.Count == 0)
         {
-            list.Add(new MonitorDesc("主显示器", 0, 0, 1920, 1080, true));
+            list.Add(new MonitorDesc(L.Text("主显示器"), 0, 0, 1920, 1080, true));
         }
 
         return list.OrderByDescending(item => item.Primary).ThenBy(item => item.Left).ToList();
@@ -168,7 +170,7 @@ public static class Native
                 return true;
             }
 
-            var process = "窗口";
+            var process = L.Text("窗口");
             try
             {
                 process = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName;
@@ -247,14 +249,17 @@ public static class Native
             return display.DeviceString.Trim();
         }
 
-        return index == 1 ? "主显示器" : "显示器 " + index;
+        return index == 1 ? L.Text("主显示器") : L.Text("显示器 ") + index;
     }
 
     delegate bool MonitorProc(IntPtr monitor, IntPtr hdc, ref RectData rect, IntPtr data);
     delegate bool WindowProc(IntPtr hwnd, IntPtr lParam);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint affinity);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetWindowDisplayAffinity(IntPtr hwnd, out uint affinity);
 
     [DllImport("user32.dll")]
     public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);

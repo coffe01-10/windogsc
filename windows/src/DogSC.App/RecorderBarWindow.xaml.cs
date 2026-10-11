@@ -6,6 +6,14 @@ namespace DogSC;
 
 public partial class RecorderBarWindow : Window
 {
+    internal void RefreshLanguage()
+    {
+        CollapseButton.ToolTip = _collapsed ? L.Text("展开工具条") : L.Text("收起工具条");
+        System.Windows.Automation.AutomationProperties.SetName(CollapseButton, (string)CollapseButton.ToolTip);
+        PaintToggles();
+        PaintPauseState();
+        PaintRecordingMicrophone();
+    }
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(200) };
     readonly DispatcherTimer _barSettingsTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     readonly HwndSourceHook _hook;
@@ -229,7 +237,7 @@ public partial class RecorderBarWindow : Window
         CompactPanel.Visibility = _collapsed ? Visibility.Visible : Visibility.Collapsed;
         CompactRecord.Visibility = recording ? Visibility.Collapsed : Visibility.Visible;
         CompactRecording.Visibility = recording ? Visibility.Visible : Visibility.Collapsed;
-        CollapseButton.ToolTip = _collapsed ? "展开工具条" : "收起工具条";
+        CollapseButton.ToolTip = _collapsed ? L.Text("展开工具条") : L.Text("收起工具条");
         System.Windows.Automation.AutomationProperties.SetName(CollapseButton, (string)CollapseButton.ToolTip);
 
         var length = _collapsed ? recording ? 380d : 280d : recording ? VerticalBar ? 440d : 620d : 860d;
@@ -309,9 +317,9 @@ public partial class RecorderBarWindow : Window
 
     void PaintPauseState()
     {
-        PauseLabel.Text = _paused ? "继续" : "暂停";
+        PauseLabel.Text = _paused ? L.Text("继续") : L.Text("暂停");
         PauseIcon.Kind = CompactPauseIcon.Kind = _paused ? IconKind.Play : IconKind.Pause;
-        CompactPause.ToolTip = _paused ? "继续录制" : "暂停录制";
+        CompactPause.ToolTip = _paused ? L.Text("继续录制") : L.Text("暂停录制");
         System.Windows.Automation.AutomationProperties.SetName(CompactPause, (string)CompactPause.ToolTip);
     }
 
@@ -351,7 +359,7 @@ public partial class RecorderBarWindow : Window
         var ffmpeg = FfmpegTools.LocateFfmpeg();
         if (ffmpeg is null)
         {
-            ShowError("没有找到 ffmpeg。安装后把它加入 PATH，或到设置里指定 ffmpeg.exe。");
+            ShowError(L.Text("没有找到 ffmpeg。安装后把它加入 PATH，或到设置里指定 ffmpeg.exe。"));
             return;
         }
 
@@ -377,7 +385,7 @@ public partial class RecorderBarWindow : Window
         var windows = Native.Windows();
         if (windows.Count == 0)
         {
-            ShowError("没有找到可录制的窗口。");
+            ShowError(L.Text("没有找到可录制的窗口。"));
             return;
         }
 
@@ -408,11 +416,11 @@ public partial class RecorderBarWindow : Window
     {
         if (_cameras.Count == 0)
         {
-            ShowError("没有找到采集设备。摄像头、采集卡会显示在这里。");
+            ShowError(L.Text("没有找到采集设备。摄像头、采集卡会显示在这里。"));
             return;
         }
 
-        ShowList(sender as FrameworkElement ?? this, _cameras.Select(name => (name, "作为主画面", (Action)(() =>
+        ShowList(sender as FrameworkElement ?? this, _cameras.Select(name => (name, L.Text("作为主画面"), (Action)(() =>
             _ = BeginAsync(new CaptureTarget(CaptureKind.Device, name, 0, 0, 0, 0, name))))).ToList());
     }
 
@@ -425,7 +433,7 @@ public partial class RecorderBarWindow : Window
             SettingsStore.Current.MicrophoneId ??= devices[0].Id;
             PaintToggles();
             SettingsStore.Save();
-            ShowList(MicButton, devices.Select(device => (device.Name, "麦克风", (Action)(() =>
+            ShowList(MicButton, devices.Select(device => (device.Name, L.Text("麦克风"), (Action)(() =>
             {
                 SettingsStore.Current.MicrophoneId = device.Id;
                 SettingsStore.Current.RecordMicrophone = true;
@@ -448,7 +456,7 @@ public partial class RecorderBarWindow : Window
             SettingsStore.Current.CameraName ??= _cameras[0];
             PaintToggles();
             SettingsStore.Save();
-            ShowList(CameraButton, _cameras.Select(name => (name, "画中画", (Action)(() =>
+            ShowList(CameraButton, _cameras.Select(name => (name, L.Text("画中画"), (Action)(() =>
             {
                 SettingsStore.Current.CameraName = name;
                 SettingsStore.Current.RecordCamera = true;
@@ -472,7 +480,7 @@ public partial class RecorderBarWindow : Window
             SettingsStore.Current.PlaybackDeviceId ??= devices[0].Id;
             PaintToggles();
             SettingsStore.Save();
-            ShowList(AudioButton, devices.Select(device => (device.Name, "系统声音", (Action)(() =>
+            ShowList(AudioButton, devices.Select(device => (device.Name, L.Text("系统声音"), (Action)(() =>
             {
                 SettingsStore.Current.PlaybackDeviceId = device.Id;
                 SettingsStore.Current.RecordSystemAudio = true;
@@ -491,7 +499,7 @@ public partial class RecorderBarWindow : Window
     {
         var dialog = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = "项目保存位置",
+            Title = L.Text("项目保存位置"),
             InitialDirectory = SettingsStore.Current.ProjectsDirectory,
         };
         if (dialog.ShowDialog(this) == true)
@@ -506,18 +514,18 @@ public partial class RecorderBarWindow : Window
     {
         var items = new List<(string Title, string Detail, Action Run)>
         {
-            ("导入视频", "做成可剪辑的项目", () => _ = ImportAsync()),
-            ("导入 macOS 项目", "打开 Mac 版 .dogscproject 包", () => _ = ImportMacAsync()),
-            ("打开项目", "打开 .dogscproject 文件夹", () => OpenProject()),
-            ("备忘录", "不进入录制画面", () => MemoWindow.Toggle()),
-            ("使用引导", "逐步介绍录制条", () => ShowRecorderTour(0)),
-            ("工具条大小", "70%–110% · Ctrl + 滚轮", () =>
+            (L.Text("导入视频"), L.Text("做成可剪辑的项目"), () => _ = ImportAsync()),
+            (L.Text("导入 macOS 项目"), L.Text("打开 Mac 版 .dogscproject 包"), () => _ = ImportMacAsync()),
+            (L.Text("打开项目"), L.Text("打开 .dogscproject 文件夹"), () => OpenProject()),
+            (L.Text("备忘录"), L.Text("不进入录制画面"), () => MemoWindow.Toggle()),
+            (L.Text("使用引导"), L.Text("逐步介绍录制条"), () => ShowRecorderTour(0)),
+            (L.Text("工具条大小"), L.Text("70%–110% · Ctrl + 滚轮"), () =>
             {
                 SizePopup.PlacementTarget = _collapsed ? CompactMenu : CollapseButton;
                 SizePopup.IsOpen = true;
                 BarSizeSlider.Focus();
             }),
-            ("设置", "录制、编辑器、关于", () =>
+            (L.Text("设置"), L.Text("录制、编辑器、关于"), () =>
             {
                 new SettingsWindow { Owner = this }.ShowDialog();
                 PaintToggles();
@@ -526,10 +534,10 @@ public partial class RecorderBarWindow : Window
         foreach (var recent in SettingsStore.Current.RecentProjects.Where(Directory.Exists).Take(5))
         {
             var path = recent;
-            items.Add((Path.GetFileName(path), "最近", () => EditorWindow.Open(path)));
+            items.Add((Path.GetFileName(path), L.Text("最近"), () => EditorWindow.Open(path)));
         }
 
-        items.Add(("退出", "", Close));
+        items.Add((L.Text("退出"), "", Close));
         ShowList(sender as FrameworkElement ?? this, items);
     }
 
@@ -595,7 +603,7 @@ public partial class RecorderBarWindow : Window
         {
             button.IsEnabled = _session?.HasMicrophone == true;
             button.Opacity = _session?.MicrophoneMuted == true ? .45 : 1;
-            button.ToolTip = !button.IsEnabled ? "此轮录制未启用麦克风" : _session!.MicrophoneMuted ? "恢复麦克风" : "静音麦克风";
+            button.ToolTip = !button.IsEnabled ? L.Text("此轮录制未启用麦克风") : _session!.MicrophoneMuted ? L.Text("恢复麦克风") : L.Text("静音麦克风");
             System.Windows.Automation.AutomationProperties.SetName(button, (string)button.ToolTip);
         }
     }
@@ -614,7 +622,7 @@ public partial class RecorderBarWindow : Window
         var ffprobe = FfmpegTools.LocateFfprobe(ffmpeg);
         if (ffmpeg is null || ffprobe is null)
         {
-            ShowError("没有找到 ffmpeg。安装后把它加入 PATH，或到设置里指定 ffmpeg.exe。");
+            ShowError(L.Text("没有找到 ffmpeg。安装后把它加入 PATH，或到设置里指定 ffmpeg.exe。"));
             return;
         }
 
@@ -624,7 +632,7 @@ public partial class RecorderBarWindow : Window
         try
         {
             await CountdownWindow.RunAsync(Native.MonitorAtCursor(), SettingsStore.Current.RecordCountdownSeconds);
-            directory = ProjectFactory.CreateDirectory("录制 " + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss"));
+            directory = ProjectFactory.CreateDirectory(L.Text("录制 ") + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss"));
             var options = new RecordingOptions
             {
                 FrameRate = SettingsStore.Current.FrameRate >= 60 ? 60 : 30,
@@ -724,8 +732,8 @@ public partial class RecorderBarWindow : Window
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Filter = "视频|*.mp4;*.mov;*.mkv;*.webm;*.avi|所有文件|*.*",
-            Title = "导入视频",
+            Filter = L.Text("视频|*.mp4;*.mov;*.mkv;*.webm;*.avi|所有文件|*.*"),
+            Title = L.Text("导入视频"),
         };
         if (dialog.ShowDialog(this) != true)
         {
@@ -736,7 +744,7 @@ public partial class RecorderBarWindow : Window
         var ffprobe = FfmpegTools.LocateFfprobe(ffmpeg);
         if (ffmpeg is null || ffprobe is null)
         {
-            ShowError("没有找到 ffmpeg，暂时不能导入。");
+            ShowError(L.Text("没有找到 ffmpeg，暂时不能导入。"));
             return;
         }
 
@@ -758,7 +766,7 @@ public partial class RecorderBarWindow : Window
 
     void OpenProject()
     {
-        var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "打开 DogSC 项目" };
+        var dialog = new Microsoft.Win32.OpenFolderDialog { Title = L.Text("打开 DogSC 项目") };
         if (dialog.ShowDialog(this) == true)
         {
             EditorWindow.Open(dialog.FolderName);
@@ -768,7 +776,7 @@ public partial class RecorderBarWindow : Window
     /// <summary>选一个 macOS .dogscproject 包，转成 Windows 项目并打开。</summary>
     async Task ImportMacAsync()
     {
-        var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "选择 macOS 的 .dogscproject 包" };
+        var dialog = new Microsoft.Win32.OpenFolderDialog { Title = L.Text("选择 macOS 的 .dogscproject 包") };
         if (dialog.ShowDialog(this) != true)
         {
             return;
@@ -778,7 +786,7 @@ public partial class RecorderBarWindow : Window
         var ffprobe = FfmpegTools.LocateFfprobe(ffmpeg);
         if (ffprobe is null)
         {
-            ShowError("需要 ffprobe 才能补全导入项目的媒体信息。");
+            ShowError(L.Text("需要 ffprobe 才能补全导入项目的媒体信息。"));
             return;
         }
 
@@ -789,14 +797,14 @@ public partial class RecorderBarWindow : Window
             EditorWindow.Open(directory);
             if (result.DroppedFields.Count > 0)
             {
-                AppPaths.Log("macOS 导入丢弃字段：" + string.Join("；", result.DroppedFields));
-                MessageBox.Show(this, "项目已导入。以下设置暂未迁移：\n\n" + string.Join("\n", result.DroppedFields.Distinct()), "Mac 项目导入说明");
+                AppPaths.Log(L.Text("macOS 导入丢弃字段：") + string.Join("；", result.DroppedFields));
+                MessageBox.Show(this, L.Text("项目已导入。以下设置暂未迁移：\n\n") + string.Join("\n", result.DroppedFields.Distinct()), L.Text("Mac 项目导入说明"));
             }
 
             var videos = result.Project.Assets.SelectMany(a => new[] { a.Video, a.Camera });
             if (ffmpeg is null && videos.Any(v => v?.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) == true))
             {
-                ShowError("已导入，但摄像头/屏幕是 .mov：预览可能黑屏，导出不受影响。装 ffmpeg 可自动转码。");
+                ShowError(L.Text("已导入，但摄像头/屏幕是 .mov：预览可能黑屏，导出不受影响。装 ffmpeg 可自动转码。"));
             }
         }
         catch (Exception ex)
@@ -842,9 +850,9 @@ public partial class RecorderBarWindow : Window
         MicDot.Visibility = SettingsStore.Current.RecordMicrophone ? Visibility.Visible : Visibility.Collapsed;
         CameraDot.Visibility = SettingsStore.Current.RecordCamera ? Visibility.Visible : Visibility.Collapsed;
         AudioDot.Visibility = SettingsStore.Current.RecordSystemAudio ? Visibility.Visible : Visibility.Collapsed;
-        MicButton.ToolTip = SettingsStore.Current.RecordMicrophone ? "麦克风已开启，点击关闭" : "麦克风已关闭，点击选择并开启";
-        CameraButton.ToolTip = SettingsStore.Current.RecordCamera ? "摄像头画中画已开启，点击关闭" : "摄像头画中画已关闭，点击选择并开启";
-        AudioButton.ToolTip = SettingsStore.Current.RecordSystemAudio ? "系统声音已开启，点击关闭" : "系统声音已关闭，点击选择并开启";
+        MicButton.ToolTip = SettingsStore.Current.RecordMicrophone ? L.Text("麦克风已开启，点击关闭") : L.Text("麦克风已关闭，点击选择并开启");
+        CameraButton.ToolTip = SettingsStore.Current.RecordCamera ? L.Text("摄像头画中画已开启，点击关闭") : L.Text("摄像头画中画已关闭，点击选择并开启");
+        AudioButton.ToolTip = SettingsStore.Current.RecordSystemAudio ? L.Text("系统声音已开启，点击关闭") : L.Text("系统声音已关闭，点击选择并开启");
     }
 
     /// <summary>Mac 录制恢复：启动时扫描项目目录，给只有 media/ 的半成品目录重建 project.json。</summary>
@@ -861,13 +869,13 @@ public partial class RecorderBarWindow : Window
             var count = await ProjectFactory.RecoverPartialAsync(ffprobe);
             if (count > 0)
             {
-                ShowError("已恢复 " + count + " 个中断的录制，可在最近项目里打开。");
+                ShowError(L.Text("已恢复 ") + count + L.Text(" 个中断的录制，可在最近项目里打开。"));
 
             }
         }
         catch (Exception ex)
         {
-            AppPaths.Log("录制恢复扫描失败：" + ex.Message);
+            AppPaths.Log(L.Text("录制恢复扫描失败：") + ex.Message);
         }
     }
 

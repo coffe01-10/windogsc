@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text.Json;
 using DogSC.Core;
 
@@ -148,19 +148,19 @@ public partial class EditorWindow
     void UpdateCropSize()
     {
         if (_cropSize is null) return;
-        _cropSize.Text = $"裁切后尺寸  {Math.Round(_project.Width * _project.Canvas.Crop.Width)} × {Math.Round(_project.Height * _project.Canvas.Crop.Height)}";
+        _cropSize.Text = L.Format("裁切后尺寸  {0} × {1}", Math.Round(_project.Width * _project.Canvas.Crop.Width), Math.Round(_project.Height * _project.Canvas.Crop.Height));
     }
 
     void BuildCropInspector()
     {
-        InspectorHeader("裁切", "屏幕");
-        Inspector.Children.Add(Caption("拖动边缘或角点调整裁切，拖动框内移动选区。"));
+        InspectorHeader(L.Text("裁切"), L.Text("屏幕"));
+        Inspector.Children.Add(Caption(L.Text("拖动边缘或角点调整裁切，拖动框内移动选区。")));
         var c = _project.Canvas.Crop;
         var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2, Margin = new Thickness(0, 12, 0, 0) };
-        Side("左", c.X, _project.Width, RegionEdge.Left);
-        Side("右", 1 - c.X - c.Width, _project.Width, RegionEdge.Right);
-        Side("上", c.Y, _project.Height, RegionEdge.Top);
-        Side("下", 1 - c.Y - c.Height, _project.Height, RegionEdge.Bottom);
+        Side(L.Text("左"), c.X, _project.Width, RegionEdge.Left);
+        Side(L.Text("右"), 1 - c.X - c.Width, _project.Width, RegionEdge.Right);
+        Side(L.Text("上"), c.Y, _project.Height, RegionEdge.Top);
+        Side(L.Text("下"), 1 - c.Y - c.Height, _project.Height, RegionEdge.Bottom);
         Inspector.Children.Add(grid);
         var divider = new Border { Height = .75, Background = (Brush)FindResource("LineBrush"), Margin = new Thickness(0, 8, 0, 0) }; Inspector.Children.Add(divider);
         _cropSize = new TextBlock { FontSize = 11, Margin = new Thickness(0, 12, 0, 0) }; Inspector.Children.Add(_cropSize); UpdateCropSize();
@@ -171,7 +171,7 @@ public partial class EditorWindow
             DockPanel.SetDock(label, Dock.Left); row.Children.Add(label);
             var line = new DockPanel();
             var box = new TextBox { Text = Math.Round(value * dimension).ToString(CultureInfo.InvariantCulture), MinWidth = 38, FontSize = 11, Padding = new Thickness(5, 3, 5, 3), TextAlignment = TextAlignment.Center, BorderThickness = new Thickness(0), Background = (Brush)FindResource("ValueWellBrush"), Margin = new Thickness(2, 0, 2, 0) };
-            System.Windows.Automation.AutomationProperties.SetName(box, title + "裁切像素");
+            System.Windows.Automation.AutomationProperties.SetName(box, title + L.Text("裁切像素"));
             void Apply(double pixels)
             {
                 var crop = _project.Canvas.Crop; var original = new RegionBounds(crop.X, crop.Y, crop.Width, crop.Height);

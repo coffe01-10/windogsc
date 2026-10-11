@@ -51,9 +51,9 @@ sealed class ParameterReadout : Border
         var grid = new Grid(); grid.Children.Add(_button);
         var overlay = new Canvas { IsHitTestVisible = true }; overlay.Children.Add(_input); grid.Children.Add(overlay); Child = grid;
         grid.SizeChanged += (_, e) => _input.Width = Math.Max(0, e.NewSize.Width);
-        System.Windows.Automation.AutomationProperties.SetName(_button, "编辑" + title);
-        System.Windows.Automation.AutomationProperties.SetName(_input, "输入" + title);
-        _button.ToolTip = "点击输入" + title;
+        System.Windows.Automation.AutomationProperties.SetName(_button, L.Text("编辑") + " " + title);
+        System.Windows.Automation.AutomationProperties.SetName(_input, L.Text("输入") + " " + title);
+        _button.ToolTip = L.Text("点击输入") + " " + title;
         _button.Click += (_, _) => BeginEditing();
         _input.TextChanged += (_, _) =>
         {

@@ -19,6 +19,7 @@ public sealed class AppSettings
     public string? PlaybackDeviceId { get; set; }
     public string? CameraName { get; set; }
     public string Theme { get; set; } = "light";
+    public string Language { get; set; } = "zh-Hans";
     public string? AppearancePreference { get; set; }
     public bool ExportCompletionSoundEnabled { get; set; } = true;
     public List<string> RecentProjects { get; set; } = [];

@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using DogSC.Core;
 
 namespace DogSC;
@@ -224,7 +224,7 @@ public sealed class TimelineControl : FrameworkElement
             drawing.DrawRoundedRectangle(zoomBrush, new Pen(zoom.Id == _selectedZoom ? accent : null, 1.4), rect, 8, 8);
             if (w > 70)
             {
-                var label = Text($"缩放 {zoom.Scale:0.#}× · {(zoom.Origin == "automatic" ? "自动" : "手动")}", 11, zoomInk);
+                var label = Text(L.Format("缩放 {0:0.#}× · {1}", zoom.Scale, L.Text(zoom.Origin == "automatic" ? "自动" : "手动")), 11, zoomInk);
                 label.MaxTextWidth = Math.Max(1, rect.Width - 16); label.Trimming = TextTrimming.CharacterEllipsis;
                 drawing.DrawText(label, new Point(rect.X + Math.Max(8, (rect.Width - label.Width) / 2), rect.Y + 8));
             }
@@ -392,7 +392,7 @@ public sealed class TimelineControl : FrameworkElement
         if (HitMarker(point, pixels) is { } marker)
         {
             var menu = new ContextMenu();
-            var item = new MenuItem { Header = "删除标记" };
+            var item = new MenuItem { Header = L.Text("删除标记") };
             item.Click += (_, _) => MarkerDeleteRequested?.Invoke(this, marker);
             menu.Items.Add(item);
             menu.IsOpen = true;
@@ -411,9 +411,9 @@ public sealed class TimelineControl : FrameworkElement
             }
             var placedClip = TimelineMath.Place(_project).First(c => c.Clip.Id == id);
             var insideClip = Playhead > placedClip.Start && Playhead < placedClip.End;
-            Add("在播放头切开", "split", insideClip);
-            var speed = new MenuItem { Header = "片段速度" };
-            foreach (var (label, value) in new[] { ("1.0x（默认）", "1"), ("1.5x", "1.5"), ("2x", "2"), ("4x", "4"), ("8x", "8"), ("12x", "12"), ("20x", "20"), ("50x", "50"), ("100x", "100") })
+            Add(L.Text("在播放头切开"), "split", insideClip);
+            var speed = new MenuItem { Header = L.Text("片段速度") };
+            foreach (var (label, value) in new[] { (L.Text("1.0x（默认）"), "1"), ("1.5x", "1.5"), ("2x", "2"), ("4x", "4"), ("8x", "8"), ("12x", "12"), ("20x", "20"), ("50x", "50"), ("100x", "100") })
             {
                 var sub = new MenuItem { Header = label };
                 var v = value;
@@ -422,10 +422,10 @@ public sealed class TimelineControl : FrameworkElement
             }
             menu.Items.Add(speed);
             menu.Items.Add(new Separator());
-            Add("波纹删除播放头前", "ripple-before", insideClip);
-            Add("波纹删除播放头后", "ripple-after", insideClip);
+            Add(L.Text("波纹删除播放头前"), "ripple-before", insideClip);
+            Add(L.Text("波纹删除播放头后"), "ripple-after", insideClip);
             menu.Items.Add(new Separator());
-            Add("删除片段", "delete", _project.Clips.Count > 1);
+            Add(L.Text("删除片段"), "delete", _project.Clips.Count > 1);
             menu.IsOpen = true;
             e.Handled = true;
         }
@@ -445,7 +445,7 @@ public sealed class TimelineControl : FrameworkElement
             var edge = HitDecoration(point, pixels)?.Edge ?? HitZoom(point, pixels)?.Edge ?? HitClip(point, pixels)?.Edge;
             Cursor = edge is < 0 or > 0 ? Cursors.SizeWE : edge == 0 ? Cursors.Hand : Cursors.Arrow;
             ToolTip = HitMarker(point, pixels) is { } marker
-                ? "标记 " + TimeSpan.FromSeconds(TimelineMath.MarkerTime(_project, marker) ?? 0).ToString(@"mm\:ss\.f")
+                ? L.Text("标记 ") + TimeSpan.FromSeconds(TimelineMath.MarkerTime(_project, marker) ?? 0).ToString(@"mm\:ss\.f")
                 : null;
             return;
         }
@@ -653,13 +653,13 @@ public sealed class TimelineControl : FrameworkElement
         var top = (TrackFlags & 1) != 0 ? ZoomTop + 48 : ZoomTop;
         var groups = new[]
         {
-            (Title: "屏幕 3D", Icon: IconKind.Cube, Bit: 2,
-                Effects: _project.ScreenMotions.Select((x, i) => (x.Id, Title: $"过渡 {i + 1} · {TimeSpan.FromSeconds(x.Timing.Duration).ToString(@"m\:ss\.ff")}", Timing: MotionWindow(x.Timing)))),
-            (Title: "摄像头运动", Icon: IconKind.Camera, Bit: 4,
-                Effects: _project.CameraMotions.Select((x, i) => (x.Id, Title: $"过渡 {i + 1} · {TimeSpan.FromSeconds(x.Timing.Duration).ToString(@"m\:ss\.ff")}", Timing: MotionWindow(x.Timing)))),
-            (Title: "叠加", Icon: IconKind.Layers, Bit: 8,
-                Effects: _project.Canvas.Stickers.Select((x, i) => (x.Id, Title: $"贴图 {i + 1}", Timing: x.Timing))
-                    .Concat(_project.Canvas.SoftRegions.Where(x => x.Enabled).Select(x => (x.Id, Title: x.Style == "spotlight" ? "聚光" : "柔化", Timing: x.Timing)))),
+            (Title: L.Text("屏幕 3D"), Icon: IconKind.Cube, Bit: 2,
+                Effects: _project.ScreenMotions.Select((x, i) => (x.Id, Title: L.Text("过渡") + $" {i + 1} · {TimeSpan.FromSeconds(x.Timing.Duration).ToString(@"m\:ss\.ff")}", Timing: MotionWindow(x.Timing)))),
+            (Title: L.Text("摄像头运动"), Icon: IconKind.Camera, Bit: 4,
+                Effects: _project.CameraMotions.Select((x, i) => (x.Id, Title: L.Text("过渡") + $" {i + 1} · {TimeSpan.FromSeconds(x.Timing.Duration).ToString(@"m\:ss\.ff")}", Timing: MotionWindow(x.Timing)))),
+            (Title: L.Text("叠加"), Icon: IconKind.Layers, Bit: 8,
+                Effects: _project.Canvas.Stickers.Select((x, i) => (x.Id, Title: L.Text("贴图") + $" {i + 1}", Timing: x.Timing))
+                    .Concat(_project.Canvas.SoftRegions.Where(x => x.Enabled).Select(x => (x.Id, Title: x.Style == "spotlight" ? L.Text("聚光") : L.Text("柔化"), Timing: x.Timing)))),
         };
         foreach (var group in groups)
         {
@@ -701,10 +701,10 @@ public sealed class TimelineControl : FrameworkElement
             if (hide) Symbol(IconKind.Eye, 96, y + 2, 12);
         }
         Symbol(IconKind.Folder, 12, 4, 12);
-        drawing.DrawText(Text("轨道", 11, ink), new Point(31, 4));
+        drawing.DrawText(Text(L.Text("轨道"), 11, ink), new Point(31, 4));
         Symbol(IconKind.ChevronDown, 98, 5, 10);
-        Label("屏幕录制", IconKind.Monitor, ClipTop, ClipHeight, false);
-        if ((TrackFlags & 1) != 0) Label("缩放", IconKind.Zoom, ZoomTop, 30, true);
+        Label(L.Text("屏幕录制"), IconKind.Monitor, ClipTop, ClipHeight, false);
+        if ((TrackFlags & 1) != 0) Label(L.Text("缩放"), IconKind.Zoom, ZoomTop, 30, true);
         foreach (var lane in DecorationLanes()) Label(lane.Title, lane.Icon, lane.Top, lane.Height - 14, true);
     }
 

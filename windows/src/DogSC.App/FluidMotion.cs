@@ -310,7 +310,7 @@ sealed class FluidSegments : Grid
             ((Button)_buttons.Children[i]).SetResourceReference(Control.ForegroundProperty, i == selected ? "InkBrush" : "InkSecondaryBrush");
             ((Button)_buttons.Children[i]).SetResourceReference(Control.FontFamilyProperty, i == selected ? "FontMedium" : "FontRegular");
             ((Button)_buttons.Children[i]).FontWeight = i == selected ? FontWeights.Medium : FontWeights.Normal;
-            System.Windows.Automation.AutomationProperties.SetItemStatus(_buttons.Children[i], i == selected ? "已选中" : "");
+            System.Windows.Automation.AutomationProperties.SetItemStatus(_buttons.Children[i], i == selected ? L.Text("已选中") : "");
         }
         Position(animate);
     }

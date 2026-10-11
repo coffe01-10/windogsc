@@ -15,6 +15,7 @@
     <LangVersion>12</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Localization\en.json" LogicalName="DogSC.Localization.en.json" />
     <ProjectReference Include="..\DogSC.Core\DogSC.Core.csproj" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <InternalsVisibleTo Include="DogSC.UiChecks" />

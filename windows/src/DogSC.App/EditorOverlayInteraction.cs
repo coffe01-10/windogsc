@@ -124,7 +124,7 @@ public partial class EditorWindow
         if (_snapY is { } y) dc.DrawLine(snap, new(0, y), new(OverlayEditor.Width, y));
         if (id == "camera" && _cameraContentEditing)
         {
-            var text = new FormattedText("拖动画面调整构图 · 边角调整外框", CultureInfo.CurrentCulture,
+            var text = new FormattedText(L.Text("拖动画面调整构图 · 边角调整外框"), CultureInfo.CurrentCulture,
                 FlowDirection.LeftToRight, new Typeface(FontFamily.Source), 12, Brushes.White, VisualTreeHelper.GetDpi(this).PixelsPerDip);
             dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(225, 28, 32, 40)), null, new(8, 8, text.Width + 20, 28), 6, 6);
             dc.DrawText(text, new(18, 14));
@@ -246,14 +246,14 @@ public partial class EditorWindow
 
     void BuildCameraContentControls()
     {
-        Inspector.Children.Add(Caption("拖动外框摆放 · 边角缩放 · 方向键微调"));
-        var edit = new CheckBox { Content = "调整内部画面（拖动构图）", IsChecked = _cameraContentEditing, Margin = new(0, 6, 0, 6) };
+        Inspector.Children.Add(Caption(L.Text("拖动外框摆放 · 边角缩放 · 方向键微调")));
+        var edit = new CheckBox { Content = L.Text("调整内部画面（拖动构图）"), IsChecked = _cameraContentEditing, Margin = new(0, 6, 0, 6) };
         edit.Click += (_, _) => { _cameraContentEditing = edit.IsChecked == true; _cameraSelected = true; _player.Pause(); ApplyZoomVisual(); };
         Inspector.Children.Add(edit);
-        RegionValueControl(Inspector, "内部放大", 1, 4, _project.Camera.ContentScale, x => _project.Camera.ContentScale = x);
-        RegionValueControl(Inspector, "内部水平位置", 0, 1, _project.Camera.ContentX, x => _project.Camera.ContentX = x);
-        RegionValueControl(Inspector, "内部垂直位置", 0, 1, _project.Camera.ContentY, x => _project.Camera.ContentY = x);
-        Inspector.Children.Add(DecorationButton("重置构图", () => { Push(); _project.Camera.ContentX = _project.Camera.ContentY = .5; _project.Camera.ContentScale = 1; Commit(); }));
+        RegionValueControl(Inspector, L.Text("内部放大"), 1, 4, _project.Camera.ContentScale, x => _project.Camera.ContentScale = x);
+        RegionValueControl(Inspector, L.Text("内部水平位置"), 0, 1, _project.Camera.ContentX, x => _project.Camera.ContentX = x);
+        RegionValueControl(Inspector, L.Text("内部垂直位置"), 0, 1, _project.Camera.ContentY, x => _project.Camera.ContentY = x);
+        Inspector.Children.Add(DecorationButton(L.Text("重置构图"), () => { Push(); _project.Camera.ContentX = _project.Camera.ContentY = .5; _project.Camera.ContentScale = 1; Commit(); }));
     }
 
     void BuildStickerNumbers(Panel panel, StickerImage sticker)
@@ -261,10 +261,10 @@ public partial class EditorWindow
         var (width, height) = CanvasLayout.OutputSize(_project.Width, _project.Height, _project.Canvas.Aspect, "source");
         var row = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 };
         foreach (var (title, value, assign) in new (string, double, Action<double>)[] {
-            ("中心 X / px", sticker.X * width, x => sticker.X = Math.Clamp(x / width, 0, 1)),
-            ("中心 Y / px", sticker.Y * height, y => sticker.Y = Math.Clamp(y / height, 0, 1)),
-            ("宽度 / px", sticker.Width * width, w => sticker.Width = Math.Clamp(w / width, .02, 1)),
-            ("角度 / °", sticker.Rotation, a => sticker.Rotation = Math.Clamp(a, -180, 180)) })
+            (L.Text("中心 X / px"), sticker.X * width, x => sticker.X = Math.Clamp(x / width, 0, 1)),
+            (L.Text("中心 Y / px"), sticker.Y * height, y => sticker.Y = Math.Clamp(y / height, 0, 1)),
+            (L.Text("宽度 / px"), sticker.Width * width, w => sticker.Width = Math.Clamp(w / width, .02, 1)),
+            (L.Text("角度 / °"), sticker.Rotation, a => sticker.Rotation = Math.Clamp(a, -180, 180)) })
         {
             var group = new StackPanel { Margin = new(0, 0, 6, 4) }; group.Children.Add(Caption(title));
             var initial = value.ToString("0.#", CultureInfo.CurrentCulture); var box = new TextBox { Text = initial, MinWidth = 70 };

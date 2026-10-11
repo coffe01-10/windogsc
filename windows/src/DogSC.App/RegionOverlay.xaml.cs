@@ -72,7 +72,7 @@ public partial class RegionOverlay : Window
         }
 
         var even = Native.EvenRegion((int)physical.X, (int)physical.Y, (int)physical.Width, (int)physical.Height);
-        Result = new CaptureTarget(CaptureKind.Region, "自选区域", even.X, even.Y, even.Width, even.Height, null);
+        Result = new CaptureTarget(CaptureKind.Region, L.Text("自选区域"), even.X, even.Y, even.Width, even.Height, null);
         DialogResult = true;
     }
 

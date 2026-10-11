@@ -1,4 +1,4 @@
-﻿using DogSC.Core;
+using DogSC.Core;
 using System.Windows.Shapes;
 
 namespace DogSC;
@@ -29,14 +29,14 @@ public partial class EditorWindow
 
     void BuildScreenMotionCreation()
     {
-        InspectorHeader("运镜", "屏幕 3D");
-        Inspector.Children.Add(Caption("运动类型"));
-        Inspector.Children.Add(Segments([("缩放", "zoom"), ("屏幕 3D", "screen3d")], "screen3d", SelectMotionMode));
-        Inspector.Children.Add(Caption("在播放头加入位置、大小与透视动画，可与缩放叠加。"));
-        var add = DecorationButton("在播放头添加屏幕 3D", AddScreenMotion);
+        InspectorHeader(L.Text("运镜"), L.Text("屏幕 3D"));
+        Inspector.Children.Add(Caption(L.Text("运动类型")));
+        Inspector.Children.Add(Segments([(L.Text("缩放"), "zoom"), (L.Text("屏幕 3D"), "screen3d")], "screen3d", SelectMotionMode));
+        Inspector.Children.Add(Caption(L.Text("在播放头加入位置、大小与透视动画，可与缩放叠加。")));
+        var add = DecorationButton(L.Text("在播放头添加屏幕 3D"), AddScreenMotion);
         add.Style = (Style)FindResource("PrimaryButton"); Inspector.Children.Add(add);
-        var transition = Disclosure("新动画过渡", () => Seconds(_project.Motion.DefaultZoomTransitionDuration));
-        transition.Children.Add(ValueSlider("过渡时长", 0, 5, _project.Motion.DefaultZoomTransitionDuration,
+        var transition = Disclosure(L.Text("新动画过渡"), () => Seconds(_project.Motion.DefaultZoomTransitionDuration));
+        transition.Children.Add(ValueSlider(L.Text("过渡时长"), 0, 5, _project.Motion.DefaultZoomTransitionDuration,
             v => _project.Motion.DefaultZoomTransitionDuration = v, Seconds));
     }
 
@@ -48,9 +48,9 @@ public partial class EditorWindow
         ParameterReadout? vx = null, vy = null;
         Button reset = null!;
         System.Windows.Automation.AutomationProperties.SetName(pad, title);
-        var heading = PadHeading(headingTitle ?? title, tilt ? "归零" : "居中", () => { Push(); x = y = tilt ? 0 : .5; set(x, y); Paint(); Commit(rebuild: false); });
+        var heading = PadHeading(headingTitle ?? title, tilt ? L.Text("归零") : L.Text("居中"), () => { Push(); x = y = tilt ? 0 : .5; set(x, y); Paint(); Commit(rebuild: false); });
         reset = (Button)heading.Children[0];
-        System.Windows.Automation.AutomationProperties.SetName(reset, (tilt ? "归零 " : "居中") + title);
+        System.Windows.Automation.AutomationProperties.SetName(reset, (tilt ? L.Text("归零 ") : L.Text("居中")) + title);
         heading.Margin = new Thickness(0, 0, 0, 9); panel.Children.Add(heading);
         if (detail is not null)
         {
@@ -60,9 +60,9 @@ public partial class EditorWindow
             panel.Children.Add(text);
         }
         Func<double, string> format = tilt ? v => $"{v:0.0}°" : Percent;
-        vx = Parameter(title + (tilt ? " X 角度" : " X 坐标"), tilt ? -28 : 0, tilt ? 28 : 1, x,
+        vx = Parameter(title + (tilt ? L.Text(" X 角度") : L.Text(" X 坐标")), tilt ? -28 : 0, tilt ? 28 : 1, x,
             v => { x = v; set(x, y); Paint(); }, format);
-        vy = Parameter(title + (tilt ? " Y 角度" : " Y 坐标"), tilt ? -32 : 0, tilt ? 32 : 1, y,
+        vy = Parameter(title + (tilt ? L.Text(" Y 角度") : L.Text(" Y 坐标")), tilt ? -32 : 0, tilt ? 32 : 1, y,
             v => { y = v; set(x, y); Paint(); }, format);
         var values = new System.Windows.Controls.Primitives.UniformGrid { Rows = 1, Margin = new Thickness(0, 9, 0, 0) };
         values.Children.Add(CoordinateValue("X", vx)); values.Children.Add(CoordinateValue("Y", vy));
@@ -89,29 +89,29 @@ public partial class EditorWindow
     void BuildScreenPoseControls(Panel section, ScreenMotionClip screen)
     {
         var s = screen.Target;
-        section.Children.Add(SectionTitle("构图"));
-        section.Children.Add(VectorPad("屏幕 3D 构图", s.X, s.Y, (x, y) => { s.X = x; s.Y = y; }, headingTitle: "缩放锚点",
-            detail: "放大时画面向锚点的反方向展开；缩小时会向锚点收拢，因此 1× 两侧的移动方向会自然相反。"));
-        section.Children.Add(InlineValueSlider("目标大小", .25, 4, s.Scale, v => s.Scale = v, v => $"{v:0.00}×"));
-        section.Children.Add(SectionTitle("空间姿态"));
-        section.Children.Add(VectorPad("屏幕 3D 倾斜", s.RotationX, s.RotationY,
-            (x, y) => { s.RotationX = x; s.RotationY = y; }, tilt: true, headingTitle: "3D 倾斜", detail: "上下控制 X · 左右控制 Y"));
-        var rotation = Disclosure("平面旋转与透视", () => $"Z {s.RotationZ:0.0}° · 透视 {s.Perspective:0.00}");
-        rotation.Children.Add(InlineValueSlider("平面旋转", -30, 30, s.RotationZ, v => s.RotationZ = v, v => $"{v:0.0}°"));
-        rotation.Children.Add(InlineValueSlider("透视强度", 0, 2, s.Perspective, v => s.Perspective = v, v => $"{v:0.00}"));
-        AddToggle(section, "线性柔化", screen.LinearBlur, v => { screen.LinearBlur = v; RebuildInspector(); });
+        section.Children.Add(SectionTitle(L.Text("构图")));
+        section.Children.Add(VectorPad(L.Text("屏幕 3D 构图"), s.X, s.Y, (x, y) => { s.X = x; s.Y = y; }, headingTitle: L.Text("缩放锚点"),
+            detail: L.Text("放大时画面向锚点的反方向展开；缩小时会向锚点收拢，因此 1× 两侧的移动方向会自然相反。")));
+        section.Children.Add(InlineValueSlider(L.Text("目标大小"), .25, 4, s.Scale, v => s.Scale = v, v => $"{v:0.00}×"));
+        section.Children.Add(SectionTitle(L.Text("空间姿态")));
+        section.Children.Add(VectorPad(L.Text("屏幕 3D 倾斜"), s.RotationX, s.RotationY,
+            (x, y) => { s.RotationX = x; s.RotationY = y; }, tilt: true, headingTitle: L.Text("3D 倾斜"), detail: L.Text("上下控制 X · 左右控制 Y")));
+        var rotation = Disclosure(L.Text("平面旋转与透视"), () => L.Format("Z {0:0.0}° · 透视 {1:0.00}", s.RotationZ, s.Perspective));
+        rotation.Children.Add(InlineValueSlider(L.Text("平面旋转"), -30, 30, s.RotationZ, v => s.RotationZ = v, v => $"{v:0.0}°"));
+        rotation.Children.Add(InlineValueSlider(L.Text("透视强度"), 0, 2, s.Perspective, v => s.Perspective = v, v => $"{v:0.00}"));
+        AddToggle(section, L.Text("线性柔化"), screen.LinearBlur, v => { screen.LinearBlur = v; RebuildInspector(); });
         if (screen.LinearBlur) BuildLinearFocusControls(section, screen);
-        var anchor = Disclosure("聚焦锚点");
-        anchor.Children.Add(VectorPad("屏幕投影锚点", s.AnchorX, s.AnchorY, (x, y) => { s.AnchorX = x; s.AnchorY = y; }));
+        var anchor = Disclosure(L.Text("聚焦锚点"));
+        anchor.Children.Add(VectorPad(L.Text("屏幕投影锚点"), s.AnchorX, s.AnchorY, (x, y) => { s.AnchorX = x; s.AnchorY = y; }));
     }
 
     void BuildLinearFocusControls(Panel section, ScreenMotionClip clip)
     {
-        section.Children.Add(Caption("清晰带 · 向两侧逐渐柔化"));
-        section.Children.Add(ValueSlider("清晰范围", .1, 1, clip.LinearBlurSize, v => clip.LinearBlurSize = v, Percent));
-        section.Children.Add(ValueSlider("柔化强度", 0, 1, clip.LinearBlurStrength, v => clip.LinearBlurStrength = v, Percent));
-        section.Children.Add(ValueSlider("羽化", 0, 1, clip.LinearBlurSoftness, v => clip.LinearBlurSoftness = v, Percent));
-        section.Children.Add(ValueSlider("方向", 0, 360, clip.LinearBlurAngle, v => clip.LinearBlurAngle = v, v => $"{v:0}°"));
+        section.Children.Add(Caption(L.Text("清晰带 · 向两侧逐渐柔化")));
+        section.Children.Add(ValueSlider(L.Text("清晰范围"), .1, 1, clip.LinearBlurSize, v => clip.LinearBlurSize = v, Percent));
+        section.Children.Add(ValueSlider(L.Text("柔化强度"), 0, 1, clip.LinearBlurStrength, v => clip.LinearBlurStrength = v, Percent));
+        section.Children.Add(ValueSlider(L.Text("羽化"), 0, 1, clip.LinearBlurSoftness, v => clip.LinearBlurSoftness = v, Percent));
+        section.Children.Add(ValueSlider(L.Text("方向"), 0, 360, clip.LinearBlurAngle, v => clip.LinearBlurAngle = v, v => $"{v:0}°"));
     }
 
     void UpdateLinearFocus()

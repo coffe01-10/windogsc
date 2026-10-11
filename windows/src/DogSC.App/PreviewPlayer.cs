@@ -332,7 +332,7 @@ public sealed class PreviewPlayer : IDisposable
 
             if (_proxyJobs.Add(path)) _ = PrepareProxyAsync(path, proxy, proxyDirectory);
         }
-        catch (Exception ex) { AppPaths.Log("预览代理：" + ex.Message); }
+        catch (Exception ex) { AppPaths.Log(L.Text("预览代理：") + ex.Message); }
         return path;
     }
 
@@ -355,7 +355,7 @@ public sealed class PreviewPlayer : IDisposable
             if (!_disposed && !IsPlaying) Seek(Time, play: false);
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { AppPaths.Log("预览代理：" + ex.Message); }
+        catch (Exception ex) { AppPaths.Log(L.Text("预览代理：") + ex.Message); }
         finally
         {
             if (process is not null)
@@ -364,7 +364,7 @@ public sealed class PreviewPlayer : IDisposable
                 process.Dispose();
             }
             try { if (File.Exists(temporary)) File.Delete(temporary); }
-            catch (IOException ex) { AppPaths.Log("预览代理清理：" + ex.Message); }
+            catch (IOException ex) { AppPaths.Log(L.Text("预览代理清理：") + ex.Message); }
             _proxyJobs.Remove(source);
         }
     }

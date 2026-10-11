@@ -13,7 +13,7 @@ sealed class CanvasRatioSelector : Button
 
     public CanvasRatioSelector(Func<CanvasSettings> canvas, Action<CanvasSettings> apply)
     {
-        _canvas = canvas; Tag = "ratio"; ToolTip = "画布比例";
+        _canvas = canvas; Tag = "ratio"; ToolTip = L.Text("画布比例");
         var label = new StackPanel { Orientation = Orientation.Horizontal };
         label.Children.Add(new Icon { Kind = IconKind.AspectRatio, Width = 14, Height = 14, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center });
         _value.SetBinding(TextBlock.FontFamilyProperty, new System.Windows.Data.Binding(nameof(FontFamily)) { Source = this });
@@ -28,13 +28,13 @@ sealed class CanvasRatioSelector : Button
         _popup.Closed += (_, _) => Focus();
         Click += (_, _) => { if (!_popup.IsOpen) _panel.Prepare(); _popup.IsOpen = !_popup.IsOpen; };
         Unloaded += (_, _) => _popup.IsOpen = false;
-        System.Windows.Automation.AutomationProperties.SetName(this, "画布比例"); Sync();
+        System.Windows.Automation.AutomationProperties.SetName(this, L.Text("画布比例")); Sync();
     }
 
     public void Sync()
     {
         var canvas = _canvas();
-        _value.Text = CanvasRatioPanel.IsCustom(canvas) ? "自定义" : canvas.Aspect is "source" or "适应" ? "适应" : canvas.Aspect;
+        _value.Text = CanvasRatioPanel.IsCustom(canvas) ? L.Text("自定义") : canvas.Aspect is "source" or "适应" ? L.Text("适应") : canvas.Aspect;
         System.Windows.Automation.AutomationProperties.SetItemStatus(this, _value.Text);
         _panel.RefreshFromCanvas();
     }
@@ -57,9 +57,9 @@ sealed class CanvasRatioPanel : Border
     readonly Border _orientation;
     readonly FluidSegments _directions;
     readonly StackPanel _custom = new();
-    readonly TextBox _width = Field("自定义比例宽");
-    readonly TextBox _height = Field("自定义比例高");
-    readonly Button _applyCustom = new() { Content = "应用" };
+    readonly TextBox _width = Field(L.Text("自定义比例宽"));
+    readonly TextBox _height = Field(L.Text("自定义比例高"));
+    readonly Button _applyCustom = new() { Content = L.Text("应用") };
     bool _editingCustom;
     bool _positioned;
     string _aspectAtSync = "";
@@ -78,8 +78,8 @@ sealed class CanvasRatioPanel : Border
         var heading = new DockPanel { Margin = new Thickness(0, 0, 0, 16) };
         var close = new Button { Content = new Icon { Kind = IconKind.Close, Width = 13, Height = 13 }, Width = 28, Height = 32, Padding = new Thickness(6), Style = ControlStyle("QuietButton") };
         close.Click += (_, _) => CloseRequested?.Invoke(); DockPanel.SetDock(close, Dock.Right); heading.Children.Add(close);
-        System.Windows.Automation.AutomationProperties.SetName(close, "关闭画布比例");
-        var title = new TextBlock { Text = "画布比例", FontSize = 14, VerticalAlignment = VerticalAlignment.Center };
+        System.Windows.Automation.AutomationProperties.SetName(close, L.Text("关闭画布比例"));
+        var title = new TextBlock { Text = L.Text("画布比例"), FontSize = 14, VerticalAlignment = VerticalAlignment.Center };
         title.SetResourceReference(TextBlock.FontFamilyProperty, "FontSemi"); title.FontWeight = FontWeights.SemiBold; heading.Children.Add(title); body.Children.Add(heading);
         for (var column = 0; column < 5; column++) _presets.ColumnDefinitions.Add(new ColumnDefinition { Width = column % 2 == 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(8) });
         _presets.RowDefinitions.Add(new RowDefinition { Height = new GridLength(68) });
@@ -93,13 +93,13 @@ sealed class CanvasRatioPanel : Border
             var well = new Border { CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(.75), IsHitTestVisible = false };
             well.SetResourceReference(BackgroundProperty, "SegmentWellBrush"); well.SetResourceReference(BorderBrushProperty, "LineBrush");
             Grid.SetRow(well, i / 3 * 2); Grid.SetColumn(well, i % 3 * 2); Panel.SetZIndex(well, -1); _presets.Children.Add(well); _wells.Add(well);
-            var button = new Button { Tag = Presets[i], Height = 68, Padding = new Thickness(0), Margin = new Thickness(0), FontSize = 12, Style = ControlStyle("QuietButton"), Content = PresetLabel(i), ToolTip = Titles[i] };
-            System.Windows.Automation.AutomationProperties.SetName(button, "画布比例 " + Titles[i]);
+            var button = new Button { Tag = Presets[i], Height = 68, Padding = new Thickness(0), Margin = new Thickness(0), FontSize = 12, Style = ControlStyle("QuietButton"), Content = PresetLabel(i), ToolTip = L.Text(Titles[i]) };
+            System.Windows.Automation.AutomationProperties.SetName(button, L.Text("画布比例 ") + L.Text(Titles[i]));
             Grid.SetRow(button, i / 3 * 2); Grid.SetColumn(button, i % 3 * 2); Panel.SetZIndex(button, 1);
             button.Click += (_, _) => SelectPreset(index); _presetButtons.Add(button); _presets.Children.Add(button);
         }
         body.Children.Add(_presets);
-        var landscape = Direction("横向", IconKind.Landscape, false); var portrait = Direction("竖向", IconKind.Portrait, true);
+        var landscape = Direction(L.Text("横向"), IconKind.Landscape, false); var portrait = Direction(L.Text("竖向"), IconKind.Portrait, true);
         _directions = new FluidSegments([landscape, portrait], 0);
         _orientation = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(4), Child = _directions };
         _orientation.SetResourceReference(BackgroundProperty, "SegmentWellBrush");
@@ -109,7 +109,7 @@ sealed class CanvasRatioPanel : Border
         var fieldWell = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 0, 6, 0), BorderThickness = new Thickness(.75), Child = fields };
         fieldWell.SetResourceReference(BackgroundProperty, "SegmentWellBrush"); fieldWell.SetResourceReference(BorderBrushProperty, "ControlBorderBrush"); customRow.Children.Add(fieldWell);
         _applyCustom.Style = ControlStyle("QuietButton"); _applyCustom.Tag = "applyCustom"; _applyCustom.Margin = new Thickness(8, 0, 0, 0); _applyCustom.Padding = new Thickness(12, 4, 12, 4); Grid.SetColumn(_applyCustom, 1); customRow.Children.Add(_applyCustom); _custom.Children.Add(customRow);
-        var help = new TextBlock { Text = "输入宽高比例，例如 3:2（支持 1:10 至 10:1）", FontSize = 11, Margin = new Thickness(0, 12, 0, 0) };
+        var help = new TextBlock { Text = L.Text("输入宽高比例，例如 3:2（支持 1:10 至 10:1）"), FontSize = 11, Margin = new Thickness(0, 12, 0, 0) };
         help.SetResourceReference(TextBlock.ForegroundProperty, "InkSecondaryBrush"); _custom.Children.Add(help);
         _width.TextChanged += (_, _) => _applyCustom.IsEnabled = CustomValue() is not null;
         _height.TextChanged += (_, _) => _applyCustom.IsEnabled = CustomValue() is not null;
@@ -165,7 +165,7 @@ sealed class CanvasRatioPanel : Border
             shape.SetBinding(System.Windows.Shapes.Shape.StrokeProperty, new System.Windows.Data.Binding("Foreground") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(Button), 1) }); glyph.Children.Add(shape);
         }
         content.Children.Add(glyph);
-        var label = new TextBlock { Text = Titles[index], FontSize = 12, Margin = new Thickness(0, 7, 0, 0), HorizontalAlignment = HorizontalAlignment.Center };
+        var label = new TextBlock { Text = L.Text(Titles[index]), FontSize = 12, Margin = new Thickness(0, 7, 0, 0), HorizontalAlignment = HorizontalAlignment.Center };
         label.SetBinding(TextBlock.FontFamilyProperty, new System.Windows.Data.Binding("FontFamily") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(Button), 1) }); content.Children.Add(label); return content;
     }
 
@@ -179,7 +179,7 @@ sealed class CanvasRatioPanel : Border
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal };
         row.Children.Add(new Icon { Kind = kind, Width = 14, Height = 14, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center });
-        var label = new TextBlock { Text = title, FontSize = 12 };
+        var label = new TextBlock { Text = L.Text(title), FontSize = 12 };
         label.SetBinding(TextBlock.FontFamilyProperty, new System.Windows.Data.Binding("FontFamily") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(Button), 1) }); row.Children.Add(label); return row;
     }
 

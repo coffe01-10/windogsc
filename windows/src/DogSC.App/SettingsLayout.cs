@@ -14,22 +14,25 @@ public partial class SettingsWindow
     CheckBox MicDefaultBox = null!, SysAudioDefaultBox = null!, _soundToggle = null!;
     TextBlock FfmpegLabel = null!, UpdateLabel = null!, ResetDone = null!, _projectsPath = null!, _exportPath = null!;
     FluidSegments _qualityChoices = null!, _cameraChoices = null!, _fpsChoices = null!, _countdownChoices = null!;
+    FluidSegments _languageChoices = null!;
 
     TextBlock Text(string text, double size = 13, bool secondary = false, bool semi = false)
     {
         var label = new TextBlock { Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        L.Bind(label, TextBlock.TextProperty, text);
         label.SetResourceReference(TextBlock.ForegroundProperty, secondary ? "InkSecondaryBrush" : "InkBrush");
         label.SetResourceReference(TextBlock.FontFamilyProperty, semi ? "FontSemi" : "FontRegular"); label.FontWeight = semi ? FontWeights.SemiBold : FontWeights.Normal; return label;
     }
     Button ActionButton(string title, RoutedEventHandler action)
     {
         var button = new Button { Content = title, Style = (Style)FindResource("QuietButton"), FontSize = 12, Padding = new Thickness(10, 7, 10, 7), VerticalAlignment = VerticalAlignment.Center };
+        L.Bind(button, ContentControl.ContentProperty, title);
         button.Click += action; return button;
     }
     CheckBox Switch(string name, bool selected, RoutedEventHandler action)
     {
         var toggle = new CheckBox { IsChecked = selected, Style = (Style)FindResource("SwitchCheckBox"), VerticalAlignment = VerticalAlignment.Center };
-        System.Windows.Automation.AutomationProperties.SetName(toggle, name); toggle.Click += action; return toggle;
+        L.Bind(toggle, System.Windows.Automation.AutomationProperties.NameProperty, name); toggle.Click += action; return toggle;
     }
     StackPanel Page(string key, string title, string? subtitle)
     {
@@ -76,7 +79,7 @@ public partial class SettingsWindow
             var label = Text(title, 13); label.SetResourceReference(TextBlock.FontFamilyProperty, "FontMedium"); label.FontWeight = FontWeights.Medium; content.Children.Add(label);
             var button = new Button { Content = content, Tag = key, Height = 40, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(0, 0, 0, 5),
                 Style = (Style)FindResource("QuietButton"), HorizontalContentAlignment = HorizontalAlignment.Left };
-            System.Windows.Automation.AutomationProperties.SetName(button, "设置：" + title); button.Click += (_, _) => SelectSettingsSection(key);
+            L.Bind(button, System.Windows.Automation.AutomationProperties.NameProperty, title); button.Click += (_, _) => SelectSettingsSection(key);
             _navigation[key] = button; NavigationButtons.Children.Add(button);
         }
 
@@ -92,6 +95,11 @@ public partial class SettingsWindow
             button.Content = outline; button.Padding = new Thickness(0); button.HorizontalContentAlignment = HorizontalAlignment.Stretch; button.Margin = new Thickness(0, 0, 10, 0); tiles.Children.Add(button);
         }
         ((Button)tiles.Children[^1]).Margin = new Thickness(0);
+        var language = Card(general, "语言");
+        var chinese = Choice("中文", (_, _) => L.Change("zh-Hans"));
+        var english = Choice("English", (_, _) => L.Change("en"));
+        _languageChoices = new FluidSegments([chinese, english], SettingsStore.Current.Language == "en" ? 1 : 0);
+        language.Children.Add(ChoiceWell(_languageChoices));
         var sounds = Card(general, "提示与声音");
         _soundToggle = Switch("导出完成后播放提示音", SettingsStore.Current.ExportCompletionSoundEnabled,
             (_, _) => Set(() => SettingsStore.Current.ExportCompletionSoundEnabled = _soundToggle.IsChecked == true));
@@ -115,7 +123,8 @@ public partial class SettingsWindow
         Row(layout, IconKind.Window, "重置编辑窗口布局", "恢复默认轨道显示、时间线缩放及面板大小。", ActionButton("重置布局", ResetLayout_Click), out ResetDone);
         var advanced = new StackPanel { Margin = new Thickness(0, 6, 0, 8) };
         Row(advanced, IconKind.Folder, "ffmpeg", "", ActionButton("浏览…", BrowseFfmpeg_Click), out FfmpegLabel);
-        editor.Children.Add(new Expander { Header = "导出工具", Content = advanced, Margin = new Thickness(0, 22, 0, 0) });
+        var exportTools = new Expander { Content = advanced, Margin = new Thickness(0, 22, 0, 0) };
+        L.Bind(exportTools, HeaderedContentControl.HeaderProperty, "导出工具"); editor.Children.Add(exportTools);
 
         var recording = Page("recording", "录制", "开始录制时的默认选项"); var audio = Card(recording, "默认音频输入");
         SysAudioDefaultBox = Switch("默认录制系统声音", true, SysAudioDefault_Changed); MicDefaultBox = Switch("默认录制麦克风声音", false, MicDefault_Changed);
@@ -130,7 +139,8 @@ public partial class SettingsWindow
         Cd0 = Choice("关闭", Cd0_Click); Cd3 = Choice("3 秒", Cd3_Click); Cd5 = Choice("5 秒", Cd5_Click); _countdownChoices = new FluidSegments([Cd0, Cd3, Cd5], 1);
         var defaults = new StackPanel { Margin = new Thickness(0, 6, 0, 8) }; defaults.Children.Add(Text("录制帧率", 12)); defaults.Children.Add(ChoiceWell(_fpsChoices));
         var cdTitle = Text("录制倒计时", 12); cdTitle.Margin = new Thickness(0, 14, 0, 6); defaults.Children.Add(cdTitle); defaults.Children.Add(ChoiceWell(_countdownChoices));
-        recording.Children.Add(new Expander { Header = "帧率与倒计时", Content = defaults, Margin = new Thickness(0, 22, 0, 0) });
+        var recordingDefaults = new Expander { Content = defaults, Margin = new Thickness(0, 22, 0, 0) };
+        L.Bind(recordingDefaults, HeaderedContentControl.HeaderProperty, "帧率与倒计时"); recording.Children.Add(recordingDefaults);
 
         var permissions = Page("permissions", "权限", "管理录制所需的系统权限"); var access = Card(permissions, "Windows 隐私与设备访问");
         Row(access, IconKind.Monitor, "屏幕录制", "使用 Windows 桌面采集；窗口遮挡会影响画面。", Status("桌面采集", "SuccessBrush"), out _); Divider(access);
@@ -158,12 +168,13 @@ public partial class SettingsWindow
         _section = section; SettingsPage.Content = _pages[section]; SettingsScroll.ScrollToTop();
         FluidMotion.Select(NavigationSelection, _navigation[section], NavigationGrid, animate);
         foreach (var (key, button) in _navigation)
-            System.Windows.Automation.AutomationProperties.SetItemStatus(button, key == section ? "已选中" : "");
+            System.Windows.Automation.AutomationProperties.SetItemStatus(button, key == section ? L.Text("已选中") : "");
         transition();
     }
     void PaintSettingsChoices()
     {
         var s = SettingsStore.Current;
+        _languageChoices.Select(s.Language == "en" ? 1 : 0);
         _qualityChoices.Select(s.PreviewQuality == "low" ? 0 : 1); _fpsChoices.Select(s.FrameRate < 60 ? 0 : 1);
         _cameraChoices.Select(s.CameraDefaultShape switch { "square" => 1, "rounded" => 2, _ => 0 });
         _countdownChoices.Select(s.RecordCountdownSeconds switch { <= 0 => 0, >= 5 => 2, _ => 1 });

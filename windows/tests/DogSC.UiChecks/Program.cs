@@ -20,10 +20,11 @@ internal static class Program
         using var source = new HwndSource(new HwndSourceParameters("DogSC UI checks") { Width = 900, Height = 700, WindowStyle = 0 });
         var host = new Grid { Width = 900, Height = 700 }; source.RootVisual = host;
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(app.Dispatcher));
-        var task = CheckAsync(host, args.Length > 0 ? System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(args[0])) : null);
+        var reportExport = args.Length == 2 && args[0] == "--report-export";
+        var task = reportExport ? ReportExportCheck.RunAsync(args[1]) : CheckAsync(host, args.Length > 0 ? System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(args[0])) : null);
         task.ContinueWith(_ => app.Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background));
         Dispatcher.Run();
-        try { task.GetAwaiter().GetResult(); if (args.Length > 0) RenderSymbols(args[0]); return 0; }
+        try { task.GetAwaiter().GetResult(); if (!reportExport && args.Length > 0) RenderSymbols(args[0]); return 0; }
         catch (Exception error) { Console.Error.WriteLine("UI_FAIL " + error); return 1; }
     }
 
@@ -33,6 +34,23 @@ internal static class Program
     static void Require(bool condition, string issue) { if (!condition) throw new InvalidOperationException(issue); }
     static async Task CheckAsync(Grid host, string? reviewDirectory)
     {
+        // Switching copy must update already-mounted controls and leave authored
+        // text alone; a settings-only translation would miss both regressions.
+        var languageBefore = SettingsStore.Current.Language;
+        var localizedLabel = new TextBlock(); L.Bind(localizedLabel, TextBlock.TextProperty, "背景来源");
+        var authoredText = new TextBox { Text = "我的项目 Canvas / 背景来源" };
+        host.Children.Add(localizedLabel); host.Children.Add(authoredText);
+        try
+        {
+            SettingsStore.Current.Language = "en"; LanguageCatalog.Current.Refresh(); await Task.Delay(20);
+            Require(localizedLabel.Text == "Background source", "Mounted labels do not switch to English.");
+            Require(L.Format("{0} 个参与元素", 3) == "3 elements included", "English dynamic labels keep Chinese word order.");
+            Require(authoredText.Text == "我的项目 Canvas / 背景来源", "Switching language changed authored text.");
+            SettingsStore.Current.Language = "zh-Hans"; LanguageCatalog.Current.Refresh(); await Task.Delay(20);
+            Require(localizedLabel.Text == "背景来源", "Mounted labels cannot switch back to Chinese.");
+            Console.WriteLine("UI_OK language: live labels, formatted copy and authored text preserved");
+        }
+        finally { SettingsStore.Current.Language = languageBefore; LanguageCatalog.Current.Refresh(); host.Children.Clear(); }
         foreach (var key in new[] { "FontRegular", "FontMedium", "FontSemi" })
         {
             var weight = key == "FontSemi" ? FontWeights.SemiBold : key == "FontMedium" ? FontWeights.Medium : FontWeights.Normal;

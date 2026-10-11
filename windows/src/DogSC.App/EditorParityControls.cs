@@ -11,7 +11,7 @@ public partial class EditorWindow
         _sourceRegions.Update(_player.Time, EditingRegions ? _selectedDecoration : null, drawing);
         _canvasRegions.Update(_player.Time, EditingRegions ? _selectedDecoration : null, drawing);
     }
-    readonly HashSet<string> _expandedDetails = ["贴图、柔化与聚光"];
+    readonly HashSet<string> _expandedDetails = [L.Text("贴图、柔化与聚光")];
     StackPanel Disclosure(string title, Func<string>? summary = null)
     {
         var content = new StackPanel();
@@ -34,15 +34,15 @@ public partial class EditorWindow
 
     void BuildCursorDetails()
     {
-        var panel = Disclosure("光标细节与时间校准");
+        var panel = Disclosure(L.Text("光标细节与时间校准"));
         var fx = _project.Canvas.Cursor;
-        panel.Children.Add(Caption("光标大小"));
+        panel.Children.Add(Caption(L.Text("光标大小")));
         panel.Children.Add(Slider(0.5, 4, fx.Size, value => fx.Size = value));
-        panel.Children.Add(Caption("静止隐藏延迟（秒）"));
+        panel.Children.Add(Caption(L.Text("静止隐藏延迟（秒）")));
         panel.Children.Add(Slider(0.1, 10, fx.IdleDelay, value => fx.IdleDelay = value));
-        panel.Children.Add(Caption("点击反馈大小"));
+        panel.Children.Add(Caption(L.Text("点击反馈大小")));
         panel.Children.Add(Slider(0.5, 4, fx.ClickScale, value => fx.ClickScale = value));
-        panel.Children.Add(Caption("点击反馈不透明度"));
+        panel.Children.Add(Caption(L.Text("点击反馈不透明度")));
         panel.Children.Add(Slider(0, 1, fx.ClickOpacity, value => fx.ClickOpacity = value));
         var colors = new WrapPanel();
         foreach (var hex in new[] { "#292929", "#FFFFFF", "#36A87E", "#E56060", "#528AE8", "#F3BC48" })
@@ -54,7 +54,7 @@ public partial class EditorWindow
         PaintColors();
         panel.Children.Add(colors);
         AddTimingControls(panel, () => fx.TimingAdvance, value => fx.TimingAdvance = value, 1);
-        panel.Children.Add(Caption("正值让光标和点击提前，负值延后，不改变移动速度。"));
+        panel.Children.Add(Caption(L.Text("正值让光标和点击提前，负值延后，不改变移动速度。")));
 
         void PaintColors()
         {
@@ -69,20 +69,20 @@ public partial class EditorWindow
 
     void BuildCameraDetails()
     {
-        var panel = Disclosure("摄像头显示与音画同步");
+        var panel = Disclosure(L.Text("摄像头显示与音画同步"));
         var camera = _project.Camera;
-        AddToggle(panel, "隐藏摄像头", camera.Hidden, value => camera.Hidden = value);
-        AddToggle(panel, "镜像摄像头", camera.Mirrored, value => camera.Mirrored = value);
+        AddToggle(panel, L.Text("隐藏摄像头"), camera.Hidden, value => camera.Hidden = value);
+        AddToggle(panel, L.Text("镜像摄像头"), camera.Mirrored, value => camera.Mirrored = value);
         AddTimingControls(panel, () => camera.TimingAdvance, value => camera.TimingAdvance = value, 5);
-        panel.Children.Add(Caption("声音先于嘴型时提前画面；每次调整保留当前播放位置。"));
+        panel.Children.Add(Caption(L.Text("声音先于嘴型时提前画面；每次调整保留当前播放位置。")));
     }
 
     void BuildEffectTiming(string title, EffectWindow timing)
     {
-        var panel = Disclosure(title + "时间与过渡");
+        var panel = Disclosure(title + L.Text("时间与过渡"));
         var total = TimelineMath.Duration(_project);
         var limited = timing.Duration > 0;
-        var toggle = new CheckBox { Content = "仅在指定时间段显示", IsChecked = limited, Margin = new Thickness(0, 4, 0, 6) };
+        var toggle = new CheckBox { Content = L.Text("仅在指定时间段显示"), IsChecked = limited, Margin = new Thickness(0, 4, 0, 6) };
         toggle.Click += (_, _) =>
         {
             Push();
@@ -92,28 +92,28 @@ public partial class EditorWindow
         };
         panel.Children.Add(toggle);
         if (!limited) return;
-        panel.Children.Add(Caption("开始（秒）"));
+        panel.Children.Add(Caption(L.Text("开始（秒）")));
         panel.Children.Add(Slider(0, Math.Max(0, total - timing.Duration), timing.Start, value => timing.Start = value, refresh: true));
-        panel.Children.Add(Caption("持续（秒）"));
+        panel.Children.Add(Caption(L.Text("持续（秒）")));
         panel.Children.Add(Slider(0.12, Math.Max(0.12, total - timing.Start), timing.Duration, value => timing.Duration = value, refresh: true));
         var transitions = new ComboBox { Margin = new Thickness(0, 8, 0, 4) };
-        foreach (var (transitionTitle, key) in new[] { ("无过渡", "none"), ("线性过渡", "linear"), ("平滑过渡", "smooth") })
+        foreach (var (transitionTitle, key) in new[] { (L.Text("无过渡"), "none"), (L.Text("线性过渡"), "linear"), (L.Text("平滑过渡"), "smooth") })
             transitions.Items.Add(new ComboBoxItem { Content = transitionTitle, Tag = key });
         transitions.SelectedItem = transitions.Items.Cast<ComboBoxItem>().First(x => Equals(x.Tag, timing.Transition));
         transitions.SelectionChanged += (_, _) => { Push(); timing.Transition = (string)((ComboBoxItem)transitions.SelectedItem).Tag; Commit(); };
         panel.Children.Add(transitions);
         if (timing.Transition != "none")
         {
-            panel.Children.Add(Caption("淡入（秒）"));
+            panel.Children.Add(Caption(L.Text("淡入（秒）")));
             panel.Children.Add(Slider(0, 5, timing.FadeIn ?? Math.Min(timing.Fade, timing.Duration / 2), value => timing.FadeIn = value));
-            panel.Children.Add(Caption("淡出（秒）"));
+            panel.Children.Add(Caption(L.Text("淡出（秒）")));
             panel.Children.Add(Slider(0, 5, timing.FadeOut ?? Math.Min(timing.Fade, timing.Duration / 2), value => timing.FadeOut = value));
         }
         var row = new WrapPanel();
-        Add("从播放头开始", () => { timing.Start = Math.Clamp(_player.Time, 0, Math.Max(0, total - 0.12)); timing.Duration = Math.Min(timing.Duration, total - timing.Start); });
-        Add("结束设为播放头", () => timing.Duration = Math.Max(0.12, _player.Time - timing.Start));
+        Add(L.Text("从播放头开始"), () => { timing.Start = Math.Clamp(_player.Time, 0, Math.Max(0, total - 0.12)); timing.Duration = Math.Min(timing.Duration, total - timing.Start); });
+        Add(L.Text("结束设为播放头"), () => timing.Duration = Math.Max(0.12, _player.Time - timing.Start));
         panel.Children.Add(row);
-        panel.Children.Add(Caption("也可在下方时间线上拖动色块或两端。"));
+        panel.Children.Add(Caption(L.Text("也可在下方时间线上拖动色块或两端。")));
         void Add(string text, Action action)
         {
             var button = new Button { Content = text, Style = (Style)FindResource("QuietButton"), Margin = new Thickness(0, 0, 4, 4) };
@@ -133,10 +133,10 @@ public partial class EditorWindow
     {
         var label = Caption("");
         panel.Children.Add(label);
-        void Paint() => label.Text = "时间偏移 " + (get() * 1000).ToString("+0;-0;0", CultureInfo.InvariantCulture) + " ms";
+        void Paint() => label.Text = L.Text("时间偏移 ") + (get() * 1000).ToString("+0;-0;0", CultureInfo.InvariantCulture) + " ms";
         Paint();
         var row = new WrapPanel();
-        foreach (var (title, delta) in new[] { ("−100 ms", -0.1), ("−10 ms", -0.01), ("+10 ms", 0.01), ("+100 ms", 0.1), ("归零", double.NaN) })
+        foreach (var (title, delta) in new[] { ("−100 ms", -0.1), ("−10 ms", -0.01), ("+10 ms", 0.01), ("+100 ms", 0.1), (L.Text("归零"), double.NaN) })
         {
             var button = new Button { Content = title, Style = (Style)FindResource("ChipButton"), Margin = new Thickness(0, 0, 4, 4) };
             button.Click += (_, _) =>

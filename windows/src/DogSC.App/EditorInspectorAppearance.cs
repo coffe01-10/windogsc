@@ -1,4 +1,4 @@
-﻿using DogSC.Core;
+using DogSC.Core;
 using System.Windows.Controls.Primitives;
 
 namespace DogSC;
@@ -24,7 +24,7 @@ public partial class EditorWindow
             }
             content.Children.Add(new TextBlock { Text = title, FontSize = 11, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 4, 0, 0) });
             var button = new Button { Content = content, Height = 50, Style = (Style)FindResource("SegmentButton"), Padding = new Thickness(3) };
-            System.Windows.Automation.AutomationProperties.SetName(button, "点击动画：" + title);
+            System.Windows.Automation.AutomationProperties.SetName(button, L.Text("点击动画：") + title);
             ControlAppearance.SelectSegment(button, selected == key); button.Click += (_, _) => choose(key); buttons.Add(button);
         }
         var row = ReuseSegments(groupKey, buttons, selectedIndex);

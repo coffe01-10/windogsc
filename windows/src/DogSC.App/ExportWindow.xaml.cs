@@ -1,10 +1,14 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using DogSC.Core;
 
 namespace DogSC;
 
 public partial class ExportWindow : Window
 {
+    internal void RefreshLanguage()
+    {
+        if (!_running && _completedOutput is null && LogButton.Visibility != Visibility.Visible) Paint();
+    }
     readonly ProjectDocument _project;
     readonly string _directory;
     CancellationTokenSource? _cancel;
@@ -28,7 +32,7 @@ public partial class ExportWindow : Window
         FileName.Text = project.Name + "-" + _fps + "fps";
         FileNameDisplay.Text = FileName.Text;
         FolderPath.Text = SettingsStore.Current.ExportDirectory;
-        foreach (var option in new[] { ("原始素材", "source"), ("1080p", "1080"), ("1440p", "1440"), ("4K", "2160") })
+        foreach (var option in new[] { (L.Text("原始素材"), "source"), ("1080p", "1080"), ("1440p", "1440"), ("4K", "2160") })
         {
             var button = new Button
             {
@@ -105,7 +109,7 @@ public partial class ExportWindow : Window
         Status.Visibility = Visibility.Visible;
         if (ffmpeg is null)
         {
-            Status.Text = "没有找到 ffmpeg。";
+            Status.Text = L.Text("没有找到 ffmpeg。");
             return;
         }
 
@@ -116,8 +120,6 @@ public partial class ExportWindow : Window
         SettingsStore.Current.ExportFps = _fps;
         _project.ExportResolution = _resolution;
         _project.ExportFps = _fps;
-        ProjectFile.Save(_directory, _project);
-        SettingsStore.Save();
         _running = true;
         Height = 635;
         ExportSettings.IsEnabled = false;
@@ -125,17 +127,21 @@ public partial class ExportWindow : Window
         _cancel = new CancellationTokenSource();
         var clock = Stopwatch.StartNew();
         Bar.Visibility = Visibility.Visible;
-        Status.Text = "正在导出…";
+        Bar.Value = 0;
+        LogButton.Visibility = Visibility.Collapsed;
+        Status.Text = L.Text("正在导出…");
         try
         {
+            ProjectFile.Save(_directory, _project);
+            SettingsStore.SaveOrThrow();
             var service = new ExportService(ffmpeg);
             service.Stage += stage => Dispatcher.Invoke(() => { clock.Restart(); Status.Text = stage; });
             service.Progress += value => Dispatcher.Invoke(() =>
             {
                 Bar.Value = value;
                 var remaining = value > 0.03 && clock.Elapsed.TotalSeconds > 3
-                    ? " · 预计剩余 " + TimeSpan.FromSeconds(clock.Elapsed.TotalSeconds * (1 - value) / value).ToString(@"m\:ss") : "";
-                Status.Text = "正在导出… " + (int)(value * 100) + "% · 已用 " + clock.Elapsed.ToString(@"m\:ss") + remaining;
+                    ? L.Text(" · 预计剩余 ") + TimeSpan.FromSeconds(clock.Elapsed.TotalSeconds * (1 - value) / value).ToString(@"m\:ss") : "";
+                Status.Text = L.Text("正在导出… ") + (int)(value * 100) + L.Text("% · 已用 ") + clock.Elapsed.ToString(@"m\:ss") + remaining;
             });
             await service.ExportAsync(_project, _directory, new ExportOptions
             {
@@ -145,19 +151,21 @@ public partial class ExportWindow : Window
             }, output, _cancel.Token);
             _completedOutput = output;
             if (SettingsStore.Current.ExportCompletionSoundEnabled) System.Media.SystemSounds.Asterisk.Play();
-            Status.Text = "导出完成 · " + output;
+            Status.Text = L.Text("导出完成 · ") + output;
             Bar.Value = 1;
-            ExportButton.Content = "在文件夹中显示";
-            CancelButton.Content = "完成";
+            ExportButton.Content = L.Text("在文件夹中显示");
+            CancelButton.Content = L.Text("完成");
         }
         catch (OperationCanceledException)
         {
-            Status.Text = "已取消。";
+            Status.Text = L.Text("已取消。");
         }
         catch (Exception ex)
         {
             AppPaths.Log(ex.ToString());
-            Status.Text = ex.Message.Split('\n').LastOrDefault()?.Trim() ?? "导出失败。";
+            L.Bind(Status, TextBlock.TextProperty, "导出失败，请重试。详细信息已保存到日志。");
+            L.Bind(ExportButton, ContentControl.ContentProperty, "重试导出");
+            LogButton.Visibility = Visibility.Visible;
         }
         finally
         {
@@ -179,6 +187,8 @@ public partial class ExportWindow : Window
 
         Close();
     }
+
+    void Log_Click(object sender, RoutedEventArgs e) => Process.Start(new ProcessStartInfo(AppPaths.LogFile) { UseShellExecute = true });
 
     void Header_Down(object sender, MouseButtonEventArgs e)
     {
@@ -217,7 +227,7 @@ public partial class ExportWindow : Window
         AudioPreview.Visibility = _audioOnly ? Visibility.Visible : Visibility.Collapsed;
         Height = _audioOnly ? 531 : 635;
         AudioDescription.Visibility = _audioOnly ? Visibility.Visible : Visibility.Collapsed;
-        PreviewHeading.Text = _audioOnly ? "音频导出" : "当前画面";
+        PreviewHeading.Text = _audioOnly ? L.Text("音频导出") : L.Text("当前画面");
         VideoMetadata.Visibility = _audioOnly ? Visibility.Collapsed : Visibility.Visible;
         ExtensionLabel.Text = _audioOnly ? ".m4a" : ".mp4";
         PaintChoice(VideoChoice, !_audioOnly);
@@ -239,13 +249,13 @@ public partial class ExportWindow : Window
         ResolutionValue.Text = width + " × " + height; FpsValue.Text = _fps + " fps";
         DurationValue.Text = TimeSpan.FromSeconds(duration).ToString(@"m\:ss\.ff");
         var bytes = CanvasLayout.EstimateBytes(width, height, _fps, duration, _audioOnly);
-        Estimate.Text = "预计大小 · 约 " + (bytes / 1024d / 1024d).ToString("0.0") + " MB";
+        Estimate.Text = L.Text("预计大小 · 约 ") + (bytes / 1024d / 1024d).ToString("0.0") + " MB";
         Summary.Text = _audioOnly
-            ? "M4A · " + duration.ToString("0.00") + " 秒"
-            : "MP4 · " + width + " × " + height + " · " + _fps + " fps · " + duration.ToString("0.00") + " 秒";
+            ? "M4A · " + duration.ToString("0.00") + L.Text(" 秒")
+            : "MP4 · " + width + " × " + height + " · " + _fps + " fps · " + duration.ToString("0.00") + L.Text(" 秒");
         var exportLabel = new StackPanel { Orientation = Orientation.Horizontal };
         exportLabel.Children.Add(new Icon { Kind = IconKind.Share, Width = 16, Height = 16, Margin = new Thickness(0, 0, 8, 0) });
-        var exportText = new TextBlock { Text = _audioOnly ? "导出音频" : "导出视频" };
+        var exportText = new TextBlock { Text = _audioOnly ? L.Text("导出音频") : L.Text("导出视频") };
         exportText.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding("Foreground")
             { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(Button), 1) });
         exportLabel.Children.Add(exportText);
@@ -255,8 +265,8 @@ public partial class ExportWindow : Window
 
     void PaintChoice(Button button, bool selected)
     {
-        var title = button == VideoChoice ? "视频" : button == AudioChoice ? "仅音频" : button == Fps30 ? "30 FPS" : button == Fps60 ? "60 FPS"
-            : (string)button.Tag switch { "source" => "原始素材", "1080" => "1080p", "1440" => "1440p", _ => "4K" };
+        var title = button == VideoChoice ? L.Text("视频") : button == AudioChoice ? L.Text("仅音频") : button == Fps30 ? "30 FPS" : button == Fps60 ? "60 FPS"
+            : (string)button.Tag switch { "source" => L.Text("原始素材"), "1080" => "1080p", "1440" => "1440p", _ => "4K" };
         var content = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         var label = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center };
         label.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding(nameof(Button.Foreground)) { Source = button });
