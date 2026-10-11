@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -69,6 +70,7 @@ public sealed class FfmpegProcess : IDisposable
             StandardOutputEncoding = Encoding.UTF8,
         };
         var process = Process.Start(start) ?? throw new InvalidOperationException("无法启动 ffmpeg。");
+        ChildJob.Assign(process);
         AppPaths.Log("ffmpeg " + start.Arguments);
         return new FfmpegProcess(process);
     }
@@ -195,6 +197,36 @@ public sealed class FfmpegProcess : IDisposable
 
 public static class FfmpegTools
 {
+    // Fragmented recordings survive an interrupted process, but WPF reports
+    // no usable duration for empty_moov files. Remux completed/recovered video
+    // without re-encoding before handing it to the editor.
+    public static async Task FinalizeRecordingAsync(string ffmpeg, string path)
+    {
+        var temporary = path + ".tmp";
+        try
+        {
+            using var process = FfmpegProcess.Start(ffmpeg,
+                ["-y", "-i", path, "-map", "0", "-c", "copy", "-movflags", "+faststart", "-f", "mp4", temporary]);
+            if (await process.WaitAsync() != 0)
+                throw new IOException("无法整理录制视频：" + process.ErrorText());
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally { File.Delete(temporary); }
+    }
+
+    public static async Task<bool> FinalizeCameraRecordingAsync(string ffmpeg, string path)
+    {
+        if (!File.Exists(path)) return false;
+        try { await FinalizeRecordingAsync(ffmpeg, path); return true; }
+        catch (Exception ex)
+        {
+            // A camera that stopped before writing a frame must not prevent
+            // saving the otherwise usable screen recording.
+            AppPaths.Log("摄像头录制视频无法整理：" + ex.Message);
+            return false;
+        }
+    }
+
     public static string? LocateFfmpeg()
     {
         foreach (var candidate in Candidates("ffmpeg.exe"))
@@ -336,5 +368,109 @@ public static class FfmpegTools
         {
             return null;
         }
+    }
+}
+
+/// <summary>
+/// Job Object with KILL_ON_JOB_CLOSE：DogSC 进程退出（含被强杀）时
+/// 连带杀掉所有挂进来的子进程，防止孤儿 ffmpeg 继续录。
+/// </summary>
+static class ChildJob
+{
+    // Recording and export can start FFmpeg concurrently. Publish the handle
+    // only after KILL_ON_JOB_CLOSE has been configured.
+    static readonly Lazy<IntPtr> Job = new(Create);
+
+    public static void Assign(Process process)
+    {
+        try
+        {
+            var job = Job.Value;
+            if (job != IntPtr.Zero && !AssignProcessToJobObject(job, process.Handle))
+            {
+                AppPaths.Log("FFmpeg 子进程自动清理不可用：" + Marshal.GetLastWin32Error());
+            }
+        }
+        catch (Exception ex)
+        {
+            AppPaths.Log("FFmpeg 子进程自动清理不可用：" + ex.Message);
+        }
+    }
+
+    static IntPtr Create()
+    {
+        var job = CreateJobObject(IntPtr.Zero, null);
+        if (job == IntPtr.Zero)
+        {
+            AppPaths.Log("FFmpeg 作业对象创建失败：" + Marshal.GetLastWin32Error());
+            return IntPtr.Zero;
+        }
+
+        var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        {
+            BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION { LimitFlags = JobObjectLimitKillOnJobClose },
+        };
+        var length = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
+        var pointer = Marshal.AllocHGlobal(length);
+        try
+        {
+            Marshal.StructureToPtr(info, pointer, false);
+            if (SetInformationJobObject(job, JobObjectInfoTypeExtendedLimitInformation, pointer, (uint)length)) return job;
+            AppPaths.Log("FFmpeg 作业对象退出清理配置失败：" + Marshal.GetLastWin32Error());
+            CloseHandle(job);
+            return IntPtr.Zero;
+        }
+        finally { Marshal.FreeHGlobal(pointer); }
+    }
+
+    const uint JobObjectLimitKillOnJobClose = 0x2000;
+    const int JobObjectInfoTypeExtendedLimitInformation = 9;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr CreateJobObject(IntPtr attributes, string? name);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool SetInformationJobObject(IntPtr job, int infoType, IntPtr info, uint length);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+    [DllImport("kernel32.dll")]
+    static extern bool CloseHandle(IntPtr handle);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+    {
+        public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+        public IO_COUNTERS IoInfo;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
     }
 }

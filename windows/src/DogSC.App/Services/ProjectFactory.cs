@@ -87,7 +87,7 @@ public static class ProjectFactory
     /// 按 <token>.mp4 / <token>-camera.mp4 / <token>-mic.wav / <token>-system.wav
     /// 命名归组，逐 take 探测时长后重建项目文件。返回恢复的目录数。
     /// </summary>
-    public static async Task<int> RecoverPartialAsync(string ffprobe)
+    public static async Task<int> RecoverPartialAsync(string ffprobe, string? ffmpeg = null)
     {
         var root = SettingsStore.Current.ProjectsDirectory;
         if (!Directory.Exists(root))
@@ -124,10 +124,14 @@ public static class ProjectFactory
                     continue;
                 }
 
+                ffmpeg ??= FfmpegTools.LocateFfmpeg();
+
+                var journal = RecordingSession.ReadJournal(directory);
                 var project = new ProjectDocument
                 {
                     Name = Path.GetFileName(directory).Replace(".dogscproject", ""),
-                    SourceLabel = "恢复的录制",
+                    SourceLabel = string.IsNullOrWhiteSpace(journal.TargetLabel) ? "恢复的录制" : journal.TargetLabel,
+                    FrameRate = journal.FrameRate,
                 };
                 foreach (var token in takes)
                 {
@@ -138,19 +142,30 @@ public static class ProjectFactory
                     }
 
                     var info = await FfmpegTools.Probe(ffprobe, screen);
-                    if (info is null)
+                    if (info is null || info.Width < 2 || info.Height < 2 || info.Duration < 0.2)
                     {
                         continue;
+                    }
+
+                    var camera = Path.Combine(media, token + "-camera.mp4");
+                    string? recoveredCamera = File.Exists(camera) ? "media/" + Path.GetFileName(camera) : null;
+                    if (ffmpeg is not null)
+                    {
+                        await FfmpegTools.FinalizeRecordingAsync(ffmpeg, screen);
+                        if (recoveredCamera is not null && !await FfmpegTools.FinalizeCameraRecordingAsync(ffmpeg, camera))
+                            recoveredCamera = null;
                     }
 
                     string? Companion(string suffix, params string[] extensions) => extensions
                         .Select(ext => Path.Combine(media, token + suffix + ext))
                         .FirstOrDefault(File.Exists) is { } found
                         ? "media/" + Path.GetFileName(found) : null;
+                    journal.Takes.TryGetValue(token!, out var entry);
                     var asset = new MediaAsset
                     {
+                        Id = string.IsNullOrEmpty(entry?.AssetId) ? Guid.NewGuid().ToString("N") : entry!.AssetId,
                         Video = "media/" + token + ".mp4",
-                        Camera = Companion("-camera", ".mp4"),
+                        Camera = recoveredCamera,
                         Microphone = Companion("-mic", ".wav", ".mp3", ".m4a"),
                         SystemAudio = Companion("-system", ".wav", ".m4a", ".mp3"),
                         Duration = Math.Max(info.Duration, 0.1),
@@ -159,6 +174,21 @@ public static class ProjectFactory
                     };
                     project.Assets.Add(asset);
                     project.Clips.Add(new ClipSegment { AssetId = asset.Id, SourceStart = 0, SourceEnd = asset.Duration });
+                    if (entry is not null)
+                    {
+                        foreach (var mark in entry.Marks)
+                        {
+                            if (mark.Time <= asset.Duration)
+                            {
+                                project.Markers.Add(new SourceMarker
+                                {
+                                    AssetId = asset.Id,
+                                    SourceTime = mark.Time,
+                                    Note = mark.Note,
+                                });
+                            }
+                        }
+                    }
                 }
 
                 if (project.Clips.Count == 0)

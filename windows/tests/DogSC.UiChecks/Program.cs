@@ -14,6 +14,8 @@ internal static class Program
     [STAThread]
     static int Main(string[] args)
     {
+        if (args.Length == 4 && args[0] == "--recovery-worker")
+            return RecordingRecoveryChecks.WorkerAsync(args[1], args[2], args[3]).GetAwaiter().GetResult();
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/DogSC;component/Themes/Light.xaml", UriKind.Relative) });
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/DogSC;component/Themes/Controls.xaml", UriKind.Relative) });
@@ -21,10 +23,11 @@ internal static class Program
         var host = new Grid { Width = 900, Height = 700 }; source.RootVisual = host;
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(app.Dispatcher));
         var reportExport = args.Length == 2 && args[0] == "--report-export";
-        var task = reportExport ? ReportExportCheck.RunAsync(args[1]) : CheckAsync(host, args.Length > 0 ? System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(args[0])) : null);
+        var recovery = args.Length == 1 && args[0] == "--recording-recovery";
+        var task = recovery ? RecordingRecoveryChecks.RunAsync() : reportExport ? ReportExportCheck.RunAsync(args[1]) : CheckAsync(host, args.Length > 0 ? System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(args[0])) : null);
         task.ContinueWith(_ => app.Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background));
         Dispatcher.Run();
-        try { task.GetAwaiter().GetResult(); if (!reportExport && args.Length > 0) RenderSymbols(args[0]); return 0; }
+        try { task.GetAwaiter().GetResult(); if (!reportExport && !recovery && args.Length > 0) RenderSymbols(args[0]); return 0; }
         catch (Exception error) { Console.Error.WriteLine("UI_FAIL " + error); return 1; }
     }
 
