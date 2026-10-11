@@ -98,7 +98,7 @@ public static class ThemeService
         SettingsStore.Current.AppearancePreference = theme;
         if (theme == "system") theme = Microsoft.Win32.Registry.GetValue(
             @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme", 1) is 0 ? "dark" : "light";
-        var source = theme == "dark" ? "Themes/Dark.xaml" : "Themes/Light.xaml";
+        var source = theme == "dark" ? "/DogSC;component/Themes/Dark.xaml" : "/DogSC;component/Themes/Light.xaml";
         var dictionary = new ResourceDictionary { Source = new Uri(source, UriKind.Relative) };
         var merged = System.Windows.Application.Current.Resources.MergedDictionaries;
         if (merged.Count == 0)
@@ -111,6 +111,17 @@ public static class ThemeService
         }
 
         SettingsStore.Current.Theme = theme == "dark" ? "dark" : "light";
+        foreach (Window window in Application.Current.Windows)
+        {
+            ApplyWindowFrame(window);
+            if (window is EditorWindow editor) editor.SyncAppearance();
+        }
+    }
+
+    internal static void ApplyWindowFrame(Window window)
+    {
+        var handle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+        if (handle != IntPtr.Zero) Native.SetDarkTitleBar(handle, SettingsStore.Current.Theme == "dark");
     }
 }
 

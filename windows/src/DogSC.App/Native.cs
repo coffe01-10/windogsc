@@ -15,7 +15,17 @@ public static class Native
     const uint WdaExcludeFromCapture = 0x11;
     const int DwmwaExtendedFrameBounds = 9;
     const int DwmwaCloaked = 14;
+    const int DwmwaUseImmersiveDarkMode = 20;
     const uint MonitorinfoPrimary = 1;
+
+    public static void SetDarkTitleBar(IntPtr hwnd, bool dark)
+    {
+        var enabled = dark ? 1 : 0;
+        DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref enabled, sizeof(int));
+    }
+
+    [DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
     public static bool ExcludeFromCapture(IntPtr hwnd)
     {

@@ -52,6 +52,7 @@ internal static class Program
         }
         finally { SettingsStore.Current.Language = languageBefore; LanguageCatalog.Current.Refresh(); host.Children.Clear(); }
         await CheckSettingsAsync(host, reviewDirectory);
+        await CheckThemeSwitchAsync(host, reviewDirectory);
         foreach (var key in new[] { "FontRegular", "FontMedium", "FontSemi" })
         {
             var weight = key == "FontSemi" ? FontWeights.SemiBold : key == "FontMedium" ? FontWeights.Medium : FontWeights.Normal;
@@ -158,6 +159,79 @@ internal static class Program
         CheckNewRecordingAppearance();
         await CheckParameterReadoutAsync(host, reviewDirectory);
         if (reviewDirectory is not null) await RenderPadReviewAsync(host, reviewDirectory);
+    }
+
+    static async Task CheckThemeSwitchAsync(Grid host, string? directory)
+    {
+        var preference = SettingsStore.Current.AppearancePreference;
+        var theme = SettingsStore.Current.Theme;
+        var project = new ProjectDocument
+        {
+            Assets = [new MediaAsset { Id = "theme-check", Duration = 8 }],
+            Clips = [new ClipSegment { AssetId = "theme-check", SourceEnd = 8 }],
+            Zooms = [new ZoomSpan { Start = 0, Duration = 6 }],
+            ScreenMotions = [new ScreenMotionClip { Timing = new TransitionTiming { Duration = 6 } }],
+        };
+        project.Canvas.SoftRegions.Add(new SoftRegion { Enabled = true, Timing = new EffectWindow { Duration = 6 } });
+        var timeline = new TimelineControl { Project = project, Playhead = 4, Width = 840, Height = 290,
+            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
+        host.Children.Clear();
+        // Application resource changes propagate through real Window trees;
+        // the raw HwndSource used by the animation checks is not registered there.
+        var themeWindow = new Window { Content = timeline, Width = 900, Height = 350,
+            WindowStyle = WindowStyle.None, ShowInTaskbar = false, ShowActivated = false,
+            Left = -30000, Top = -30000, Opacity = 0 };
+        themeWindow.Show();
+        // Keep the recorder unshown: its real content can be laid out without
+        // device discovery, recording, or saving the user's window placement.
+        var recorder = new RecorderBarWindow();
+        var bar = (FrameworkElement)recorder.Content;
+        try
+        {
+            foreach (var appearance in new[] { "light", "dark", "light" })
+            {
+                ThemeService.Apply(appearance);
+                themeWindow.UpdateLayout(); await Task.Delay(60);
+                var bitmap = new RenderTargetBitmap(840, 290, 96, 96, PixelFormats.Pbgra32); bitmap.Render(timeline);
+                void CheckPixel(int x, int y, string key)
+                {
+                    var pixel = new byte[4]; bitmap.CopyPixels(new Int32Rect(x, y, 1, 1), pixel, 4, 0);
+                    var expected = ((SolidColorBrush)Application.Current.FindResource(key)).Color;
+                    Require(pixel[0] == expected.B && pixel[1] == expected.G && pixel[2] == expected.R && pixel[3] == 255,
+                        $"Stationary timeline retained the previous {key} after switching to {appearance}: pixel {x},{y} = {pixel[2]},{pixel[1]},{pixel[0]},{pixel[3]}, expected {expected}; size {timeline.ActualWidth},{timeline.ActualHeight}.");
+                }
+                CheckPixel(6, 45, "CardBrush");
+                CheckPixel(150, 118, "ZoomBrush");
+                CheckPixel(150, 184, "MotionTrackBrush");
+                CheckPixel(150, 232, "BlurTrackBrush");
+                CheckPixel(478, 6, "AccentBrush");
+                bar.Measure(new Size(900, 700)); bar.Arrange(new Rect(bar.DesiredSize)); bar.UpdateLayout();
+                foreach (var name in new[] { "TimerLabel", "CompactTimer" })
+                {
+                    var elapsed = (TextBlock)recorder.FindName(name);
+                    Require(((SolidColorBrush)elapsed.Foreground).Color == ((SolidColorBrush)Application.Current.FindResource("InkBrush")).Color,
+                        $"Recorder {name} lost the inherited theme foreground.");
+                }
+                if (directory is not null)
+                {
+                    SaveVisual(timeline, System.IO.Path.Combine(directory, "windows-timeline-" + appearance + ".png"));
+                    SaveVisual(bar, System.IO.Path.Combine(directory, "windows-recorder-" + appearance + ".png"));
+                    var setup = (FrameworkElement)recorder.FindName("SetupPanel");
+                    var recording = (FrameworkElement)recorder.FindName("RecordingPanel");
+                    setup.Visibility = Visibility.Collapsed; recording.Visibility = Visibility.Visible;
+                    bar.UpdateLayout();
+                    SaveVisual(bar, System.IO.Path.Combine(directory, "windows-recorder-active-" + appearance + ".png"));
+                    setup.Visibility = Visibility.Visible; recording.Visibility = Visibility.Collapsed;
+                }
+            }
+            Console.WriteLine("UI_OK theme: mounted timeline lanes, effect pills and stationary playhead repaint light/dark/light; recorder time stays legible");
+        }
+        finally
+        {
+            themeWindow.Close();
+            host.Children.Clear();
+            ThemeService.Apply(theme); SettingsStore.Current.AppearancePreference = preference;
+        }
     }
 
     static async Task RenderPadReviewAsync(Grid host, string directory)
@@ -457,8 +531,8 @@ internal static class Program
         host.Children.Clear();
         var language = SettingsStore.Current.Language;
         var settings = new SettingsWindow(); var root = (FrameworkElement)settings.Content; settings.Content = null;
-        root.Width = 780; root.Height = 640; root.HorizontalAlignment = HorizontalAlignment.Left; root.VerticalAlignment = VerticalAlignment.Top;
-        ((Grid)root).SetResourceReference(Panel.BackgroundProperty, "CardBrush"); host.Children.Add(root);
+        root.Width = 780; root.Height = 674; root.HorizontalAlignment = HorizontalAlignment.Left; root.VerticalAlignment = VerticalAlignment.Top;
+        ((Border)root).SetResourceReference(Border.BackgroundProperty, "CardBrush"); host.Children.Add(root);
         void Navigate(string section) => Descendants<Button>(root).Single(button => Equals(button.Tag, section)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         try
         {

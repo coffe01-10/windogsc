@@ -358,7 +358,7 @@ public partial class EditorWindow : Window
         ThemeButton.ToolTip = dark ? L.Text("切换到浅色主题") : L.Text("切换到深色主题");
     }
 
-    internal void SyncAppearance() { UpdateThemeButton(); RebuildInspector(); BuildMonitorToolbar(); }
+    internal void SyncAppearance() { UpdateThemeButton(); PaintAspects(); RebuildInspector(); BuildMonitorToolbar(); }
 
     void RebuildInspector()
     {
@@ -1585,9 +1585,6 @@ public partial class EditorWindow : Window
         var next = SettingsStore.Current.Theme == "dark" ? "light" : "dark";
         ThemeService.Apply(next);
         SettingsStore.Save();
-        UpdateThemeButton();
-        PaintAspects();
-        RebuildInspector();
     }
 
     void Split_Click(object sender, RoutedEventArgs e)

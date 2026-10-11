@@ -20,7 +20,7 @@ public partial class SettingsWindow : Window
         BuildSettingsPages();
         Paint();
         NavigationGrid.SizeChanged += (_, _) => { if (_section.Length > 0) FluidMotion.Select(NavigationSelection, _navigation[_section], NavigationGrid); };
-        Loaded += (_, _) => { Height = Math.Min(679, Math.Max(439, SystemParameters.WorkArea.Height - 100)); WindowPlacement.KeepInWorkArea(this, center: true); SelectSettingsSection(_lastSection, false); FluidMotion.Entrance(SettingsRoot); };
+        Loaded += (_, _) => { Height = 34 + Math.Min(640, Math.Max(400, WindowPlacement.WorkArea(this).Height - 100)); WindowPlacement.KeepInWorkArea(this, center: true); SelectSettingsSection(_lastSection, false); FluidMotion.Entrance(SettingsRoot); };
     }
 
     void Chip(Button b, bool on)
@@ -105,4 +105,5 @@ public partial class SettingsWindow : Window
     }
 
     void Close_Click(object sender, RoutedEventArgs e) => Close();
+    void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 }

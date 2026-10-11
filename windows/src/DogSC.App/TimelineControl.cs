@@ -7,6 +7,11 @@ public sealed record FilmFrame(string AssetId, double SourceTime, ImageSource Im
 
 public sealed class TimelineControl : FrameworkElement
 {
+    public static readonly DependencyProperty LaneBackgroundProperty = DependencyProperty.Register(
+        nameof(LaneBackground), typeof(Brush), typeof(TimelineControl),
+        new FrameworkPropertyMetadata(Brushes.White, FrameworkPropertyMetadataOptions.AffectsRender));
+    public Brush LaneBackground { get => (Brush)GetValue(LaneBackgroundProperty); set => SetValue(LaneBackgroundProperty, value); }
+
     const double RulerHeight = 26;
     const double ClipTop = 32;
     const double ClipHeight = 74;
@@ -60,6 +65,9 @@ public sealed class TimelineControl : FrameworkElement
         ClipToBounds = true;
         _playheadVisual.Transform = _playheadOffset;
         AddVisualChild(_playheadVisual);
+        // The retained drawing must repaint when the theme dictionary changes,
+        // even when the pointer and project remain stationary.
+        SetResourceReference(LaneBackgroundProperty, "CardBrush");
     }
 
     protected override int VisualChildrenCount => 1;
@@ -160,7 +168,7 @@ public sealed class TimelineControl : FrameworkElement
         var ink = BrushOf("InkBrush", Brushes.Black);
         var muted = BrushOf("InkSecondaryBrush", Brushes.Gray);
         var line = BrushOf("LineBrush", Brushes.LightGray);
-        var card = BrushOf("CardBrush", Brushes.White);
+        var card = LaneBackground;
         var well = BrushOf("WellBrush", Brushes.WhiteSmoke);
         var accent = BrushOf("AccentBrush", Brushes.Black);
         var zoomBrush = BrushOf("ZoomBrush", Brushes.Tan);

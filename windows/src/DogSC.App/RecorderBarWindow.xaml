@@ -5,13 +5,18 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="DogSC"
         SizeToContent="WidthAndHeight" UseLayoutRounding="True" PreviewMouseWheel="Bar_PreviewMouseWheel"
-        WindowStyle="None" Background="Transparent"
+        WindowStyle="None" Background="Transparent" Foreground="{DynamicResource InkBrush}"
         Topmost="True" ShowInTaskbar="True" ResizeMode="NoResize"
         FontFamily="{DynamicResource FontRegular}">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="0" ResizeBorderThickness="0" GlassFrameThickness="-1" UseAeroCaptionButtons="False"/>
     </shell:WindowChrome.WindowChrome>
     <Window.Resources>
+        <Style x:Key="RecorderActionButton" TargetType="Button" BasedOn="{StaticResource QuietButton}">
+            <Setter Property="Background" Value="{DynamicResource SegmentSelectedBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource GlassEdgeBrush}"/>
+            <Setter Property="BorderThickness" Value="0.75"/>
+        </Style>
         <DataTemplate x:Key="RecorderToolContent">
             <Grid Width="48">
                 <Grid.RowDefinitions>
@@ -34,7 +39,7 @@
     </Window.Resources>
     <Grid x:Name="BarRoot" Width="860" Height="124" HorizontalAlignment="Left" VerticalAlignment="Top" ClipToBounds="True">
         <Grid.LayoutTransform><ScaleTransform x:Name="BarScale" ScaleX="0.85" ScaleY="0.85"/></Grid.LayoutTransform>
-        <Border x:Name="BarShell" Margin="16,12,16,8" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1" CornerRadius="24" Padding="13,9">
+        <Border x:Name="BarShell" Margin="16,12,16,8" Background="{DynamicResource RecorderSurfaceBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="0.75" CornerRadius="24" Padding="13,9">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="22" ShadowDepth="5" Opacity="0.16" Direction="90"/>
             </Border.Effect>
@@ -60,7 +65,7 @@
                             <Grid.RowDefinitions><RowDefinition Height="24"/><RowDefinition Height="6"/><RowDefinition Height="18"/></Grid.RowDefinitions>
                             <Grid Width="26" Height="24" HorizontalAlignment="Center">
                                 <local:Icon Kind="Mic" Width="22" Height="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                <Ellipse x:Name="MicDot" Width="6" Height="6" Fill="{DynamicResource SuccessBrush}" Stroke="{DynamicResource PanelBrush}" StrokeThickness="1" VerticalAlignment="Bottom" HorizontalAlignment="Right" Visibility="Collapsed"/>
+                                <Ellipse x:Name="MicDot" Width="6" Height="6" Fill="{DynamicResource SuccessBrush}" Stroke="{DynamicResource RecorderSurfaceBrush}" StrokeThickness="1" VerticalAlignment="Bottom" HorizontalAlignment="Right" Visibility="Collapsed"/>
                             </Grid>
                             <TextBlock Grid.Row="2" Text="{local:Localize '麦克风'}" FontSize="12" LineHeight="18" LineStackingStrategy="BlockLineHeight" TextAlignment="Center" VerticalAlignment="Center"/>
                         </Grid>
@@ -70,7 +75,7 @@
                             <Grid.RowDefinitions><RowDefinition Height="24"/><RowDefinition Height="6"/><RowDefinition Height="18"/></Grid.RowDefinitions>
                             <Grid Width="26" Height="24" HorizontalAlignment="Center">
                                 <local:Icon Kind="Camera" Width="22" Height="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                <Ellipse x:Name="CameraDot" Width="6" Height="6" Fill="{DynamicResource SuccessBrush}" Stroke="{DynamicResource PanelBrush}" StrokeThickness="1" VerticalAlignment="Bottom" HorizontalAlignment="Right" Visibility="Collapsed"/>
+                                <Ellipse x:Name="CameraDot" Width="6" Height="6" Fill="{DynamicResource SuccessBrush}" Stroke="{DynamicResource RecorderSurfaceBrush}" StrokeThickness="1" VerticalAlignment="Bottom" HorizontalAlignment="Right" Visibility="Collapsed"/>
                             </Grid>
                             <TextBlock Grid.Row="2" Text="{local:Localize '摄像头'}" FontSize="12" LineHeight="18" LineStackingStrategy="BlockLineHeight" TextAlignment="Center" VerticalAlignment="Center"/>
                         </Grid>
@@ -80,7 +85,7 @@
                             <Grid.RowDefinitions><RowDefinition Height="24"/><RowDefinition Height="6"/><RowDefinition Height="18"/></Grid.RowDefinitions>
                             <Grid Width="26" Height="24" HorizontalAlignment="Center">
                                 <local:Icon Kind="Speaker" Width="22" Height="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                <Ellipse x:Name="AudioDot" Width="6" Height="6" Fill="{DynamicResource SuccessBrush}" Stroke="{DynamicResource PanelBrush}" StrokeThickness="1" VerticalAlignment="Bottom" HorizontalAlignment="Right" Visibility="Collapsed"/>
+                                <Ellipse x:Name="AudioDot" Width="6" Height="6" Fill="{DynamicResource SuccessBrush}" Stroke="{DynamicResource RecorderSurfaceBrush}" StrokeThickness="1" VerticalAlignment="Bottom" HorizontalAlignment="Right" Visibility="Collapsed"/>
                             </Grid>
                             <TextBlock Grid.Row="2" Text="{local:Localize '系统声'}" FontSize="12" LineHeight="18" LineStackingStrategy="BlockLineHeight" TextAlignment="Center" VerticalAlignment="Center"/>
                         </Grid>
@@ -102,10 +107,10 @@
                         <TextBlock x:Name="TimerLabel" Text="00:00" FontFamily="{DynamicResource FontSemi}" FontWeight="SemiBold" FontSize="20" VerticalAlignment="Center"/>
                         <TextBlock x:Name="RecordingLabel" MaxWidth="140" TextTrimming="CharacterEllipsis" Margin="14,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     </StackPanel>
-                    <Button DockPanel.Dock="Right" Height="36" Padding="14,8" VerticalAlignment="Center" Style="{StaticResource PrimaryButton}" Click="Stop_Click" Margin="8,0,4,0" AutomationProperties.AutomationId="StopButton">
+                    <Button DockPanel.Dock="Right" Height="36" Padding="14,8" VerticalAlignment="Center" Style="{StaticResource RecorderActionButton}" Click="Stop_Click" Margin="8,0,4,0" AutomationProperties.AutomationId="StopButton">
                         <StackPanel Orientation="Horizontal">
-                            <local:Icon Kind="Stop" Foreground="{DynamicResource OnAccentBrush}" Width="18" Height="18" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBlock Text="{local:Localize '停止'}" VerticalAlignment="Center" Foreground="{DynamicResource OnAccentBrush}"/>
+                            <local:Icon Kind="Stop" Foreground="{DynamicResource RecordBrush}" Width="18" Height="18" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="{local:Localize '停止'}" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                     <Button DockPanel.Dock="Right" Height="36" VerticalAlignment="Center" Style="{StaticResource QuietButton}" Click="Pause_Click" x:Name="PauseButton">
@@ -125,10 +130,10 @@
                     <Button x:Name="RecordingMicButton" DockPanel.Dock="Right" Height="36" VerticalAlignment="Center" Style="{StaticResource IconButton}" Click="RecordingMic_Click" ToolTip="{local:Localize '静音麦克风'}" AutomationProperties.Name="{local:Localize '静音麦克风'}"><local:Icon Kind="Mic"/></Button>
                 </DockPanel>
                 <StackPanel x:Name="CompactPanel" Orientation="Horizontal" VerticalAlignment="Center" Visibility="Collapsed">
-                    <Button x:Name="CompactRecord" Height="36" Padding="14,8" Style="{StaticResource PrimaryButton}" ToolTip="{local:Localize '选择显示器并开始录制'}" AutomationProperties.Name="{local:Localize '开始录制'}" Click="Display_Click">
+                    <Button x:Name="CompactRecord" Height="36" Padding="14,8" Style="{StaticResource RecorderActionButton}" ToolTip="{local:Localize '选择显示器并开始录制'}" AutomationProperties.Name="{local:Localize '开始录制'}" Click="Display_Click">
                         <StackPanel x:Name="CompactRecordContent" Orientation="Horizontal">
-                            <local:Icon x:Name="CompactRecordIcon" Kind="Record" Foreground="{DynamicResource OnAccentBrush}" Width="16" Height="16" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="{local:Localize '录制'}" Foreground="{DynamicResource OnAccentBrush}" VerticalAlignment="Center"/>
+                            <local:Icon x:Name="CompactRecordIcon" Kind="Record" Foreground="{DynamicResource RecordBrush}" Width="16" Height="16" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{local:Localize '录制'}" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                     <StackPanel x:Name="CompactRecording" Orientation="Horizontal" Visibility="Collapsed">

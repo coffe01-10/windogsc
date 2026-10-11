@@ -92,7 +92,7 @@ public partial class SettingsWindow
             var label = Text(title, 12); label.HorizontalAlignment = HorizontalAlignment.Center; stack.Children.Add(label);
             var outline = new Border { Child = stack, CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(.75), Padding = new Thickness(8) };
             outline.SetResourceReference(Border.BackgroundProperty, "SegmentWellBrush"); _appearanceTiles[key] = outline;
-            var button = ActionButton(title, (_, _) => { var transition = FluidMotion.PrepareSwap(SettingsScroll, SettingsTransitionLayer, 0); ThemeService.Apply(key); SettingsStore.Save(); Paint(); foreach (var editor in Application.Current.Windows.OfType<EditorWindow>()) editor.SyncAppearance(); transition(); });
+            var button = ActionButton(title, (_, _) => { var transition = FluidMotion.PrepareSwap(SettingsScroll, SettingsTransitionLayer, 0); ThemeService.Apply(key); SettingsStore.Save(); Paint(); transition(); });
             button.Content = outline; button.Padding = new Thickness(0); button.HorizontalContentAlignment = HorizontalAlignment.Stretch; button.Margin = new Thickness(5, 0, 5, 0); tiles.Children.Add(button);
         }
         var sounds = Card(general, "提示与声音");

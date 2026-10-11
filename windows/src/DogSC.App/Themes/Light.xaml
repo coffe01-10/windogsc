@@ -3,6 +3,7 @@
     <SolidColorBrush x:Key="BgBrush" Color="#F2F3F7"/>
     <SolidColorBrush x:Key="PanelBrush" Color="#FAFBFC"/>
     <SolidColorBrush x:Key="CardBrush" Color="#FAFAFA"/>
+    <SolidColorBrush x:Key="RecorderSurfaceBrush" Color="#FAFAFA"/>
     <SolidColorBrush x:Key="GlassEdgeBrush" Color="#19000000"/>
     <SolidColorBrush x:Key="ChoiceSelectedBorderBrush" Color="#24000000"/>
     <SolidColorBrush x:Key="PopoverSelectionBrush" Color="#52EBEBEB"/>

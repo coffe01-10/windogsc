@@ -6,6 +6,8 @@ public partial class App : Application
     {
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnLastWindowClose;
+        EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
+            new RoutedEventHandler((sender, _) => ThemeService.ApplyWindowFrame((Window)sender)));
         DispatcherUnhandledException += (_, args) =>
         {
             AppPaths.Log(args.Exception.ToString());

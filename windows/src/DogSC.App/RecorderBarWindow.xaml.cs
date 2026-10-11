@@ -91,7 +91,7 @@ public partial class RecorderBarWindow : Window
             }
         };
         _hook = WndProc;
-        Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/AppIconMaster.png"));
+        Icon = BitmapFrame.Create(new Uri("pack://application:,,,/DogSC;component/Assets/AppIconMaster.png"));
         FolderLabel.Text = Path.GetFileName(SettingsStore.Current.ProjectsDirectory);
         PaintToggles();
         _timer.Tick += (_, _) => PaintElapsedTime();
@@ -827,7 +827,9 @@ public partial class RecorderBarWindow : Window
             stack.Children.Add(new TextBlock { Text = item.Title, FontFamily = (FontFamily)FindResource("FontMedium"), FontWeight = FontWeights.Medium });
             if (!string.IsNullOrWhiteSpace(item.Detail))
             {
-                stack.Children.Add(new TextBlock { Text = item.Detail, FontSize = 11, Foreground = (Brush)FindResource("InkSecondaryBrush") });
+                var detail = new TextBlock { Text = item.Detail, FontSize = 11 };
+                detail.SetResourceReference(TextBlock.ForegroundProperty, "InkSecondaryBrush");
+                stack.Children.Add(detail);
             }
 
             button.Content = stack;
