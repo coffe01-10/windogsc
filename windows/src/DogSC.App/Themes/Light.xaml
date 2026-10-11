@@ -8,6 +8,7 @@
     <SolidColorBrush x:Key="PopoverSelectionBrush" Color="#52EBEBEB"/>
     <SolidColorBrush x:Key="SettingsSidebarBrush" Color="#F5F5F5"/>
     <SolidColorBrush x:Key="SettingsCardBrush" Color="#FCFCFC"/>
+    <SolidColorBrush x:Key="SettingsShapeWellBrush" Color="#10000000"/>
     <SolidColorBrush x:Key="SegmentWellBrush" Color="#F1F1F1"/>
     <SolidColorBrush x:Key="SegmentSelectedBrush" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="ValueWellBrush" Color="#EBEBEB"/>

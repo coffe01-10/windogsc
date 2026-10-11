@@ -43,7 +43,7 @@ public partial class SettingsWindow
     StackPanel Card(StackPanel page, string title)
     {
         var content = new StackPanel(); var heading = Text(title, 14, semi: true); heading.Margin = new Thickness(0, 0, 0, 8); content.Children.Add(heading);
-        var card = new Border { Child = content, CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(.75), Padding = new Thickness(16), Margin = new Thickness(0, 22, 0, 0) };
+        var card = new Border { Child = content, CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(.75), Padding = new Thickness(16), Margin = new Thickness(0, page.Children.OfType<Border>().Any() ? 22 : 24, 0, 0) };
         card.SetResourceReference(Border.BackgroundProperty, "SettingsCardBrush"); card.SetResourceReference(Border.BorderBrushProperty, "LineBrush"); page.Children.Add(card); return content;
     }
     void Divider(Panel panel)
@@ -54,15 +54,15 @@ public partial class SettingsWindow
     {
         var row = new Grid(); row.ColumnDefinitions.Add(new() { Width = new GridLength(24) });
         row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        var symbol = new Icon { Kind = icon, Width = 20, Height = 20, VerticalAlignment = VerticalAlignment.Center }; symbol.SetResourceReference(DogSC.Icon.ForegroundProperty, "InkSecondaryBrush"); row.Children.Add(symbol);
+        var symbol = new Icon { Kind = icon, Width = 17, Height = 17, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }; symbol.SetResourceReference(DogSC.Icon.ForegroundProperty, "InkSecondaryBrush"); row.Children.Add(symbol);
         var labels = new StackPanel { Margin = new Thickness(12, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
         var titleLabel = Text(title, 13); titleLabel.SetResourceReference(TextBlock.FontFamilyProperty, "FontMedium"); titleLabel.FontWeight = FontWeights.Medium;
-        labels.Children.Add(titleLabel); helper = Text(description, 12, true); helper.Margin = new Thickness(0, 3, 0, 0); labels.Children.Add(helper);
+        labels.Children.Add(titleLabel); helper = Text(description, 11, true); helper.Margin = new Thickness(0, 3, 0, 0); labels.Children.Add(helper);
         Grid.SetColumn(labels, 1); row.Children.Add(labels); Grid.SetColumn(accessory, 2); row.Children.Add(accessory); panel.Children.Add(row);
     }
     Border ChoiceWell(FluidSegments segments)
     {
-        var border = new Border { Child = segments, CornerRadius = new CornerRadius(12), Padding = new Thickness(4) }; border.SetResourceReference(Border.BackgroundProperty, "SegmentWellBrush"); return border;
+        var border = new Border { Child = segments, CornerRadius = new CornerRadius(12), Padding = new Thickness(4), VerticalAlignment = VerticalAlignment.Center }; border.SetResourceReference(Border.BackgroundProperty, "SegmentWellBrush"); return border;
     }
     Button Choice(string title, RoutedEventHandler action)
     {
@@ -84,22 +84,17 @@ public partial class SettingsWindow
         }
 
         var general = Page("general", "通用", "界面、声音与文件");
-        var appearance = Card(general, "外观"); var tiles = new UniformGrid { Rows = 1 }; appearance.Children.Add(tiles);
+        var appearance = Card(general, "外观"); var tiles = new UniformGrid { Rows = 1, Margin = new Thickness(-5, 0, -5, 0) }; appearance.Children.Add(tiles);
         foreach (var (title, key) in new[] { ("跟随系统", "system"), ("浅色", "light"), ("深色", "dark") })
         {
-            var stack = new StackPanel(); var miniature = AppearanceMiniature(key); miniature.Margin = new Thickness(8, 8, 8, 8); stack.Children.Add(miniature);
-            var label = Text(title, 12); label.HorizontalAlignment = HorizontalAlignment.Center; label.Margin = new Thickness(0, 0, 0, 4); stack.Children.Add(label);
+            var stack = new StackPanel(); var miniature = new SettingsAppearancePreview(key) { Height = 58, Margin = new Thickness(8, 8, 8, 8),
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { Color = Colors.Black, Opacity = .07, BlurRadius = 4, ShadowDepth = 2, Direction = 270 } }; stack.Children.Add(miniature);
+            var label = Text(title, 12); label.HorizontalAlignment = HorizontalAlignment.Center; stack.Children.Add(label);
             var outline = new Border { Child = stack, CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(.75), Padding = new Thickness(8) };
             outline.SetResourceReference(Border.BackgroundProperty, "SegmentWellBrush"); _appearanceTiles[key] = outline;
             var button = ActionButton(title, (_, _) => { var transition = FluidMotion.PrepareSwap(SettingsScroll, SettingsTransitionLayer, 0); ThemeService.Apply(key); SettingsStore.Save(); Paint(); foreach (var editor in Application.Current.Windows.OfType<EditorWindow>()) editor.SyncAppearance(); transition(); });
-            button.Content = outline; button.Padding = new Thickness(0); button.HorizontalContentAlignment = HorizontalAlignment.Stretch; button.Margin = new Thickness(0, 0, 10, 0); tiles.Children.Add(button);
+            button.Content = outline; button.Padding = new Thickness(0); button.HorizontalContentAlignment = HorizontalAlignment.Stretch; button.Margin = new Thickness(5, 0, 5, 0); tiles.Children.Add(button);
         }
-        ((Button)tiles.Children[^1]).Margin = new Thickness(0);
-        var language = Card(general, "语言");
-        var chinese = Choice("中文", (_, _) => L.Change("zh-Hans"));
-        var english = Choice("English", (_, _) => L.Change("en"));
-        _languageChoices = new FluidSegments([chinese, english], SettingsStore.Current.Language == "en" ? 1 : 0);
-        language.Children.Add(ChoiceWell(_languageChoices));
         var sounds = Card(general, "提示与声音");
         _soundToggle = Switch("导出完成后播放提示音", SettingsStore.Current.ExportCompletionSoundEnabled,
             (_, _) => Set(() => SettingsStore.Current.ExportCompletionSoundEnabled = _soundToggle.IsChecked == true));
@@ -113,11 +108,17 @@ public partial class SettingsWindow
         var locations = Card(general, "存储位置");
         Row(locations, IconKind.DocumentUp, "项目位置", "", ActionButton("更改…", (_, _) => ChangeDirectory(true)), out _projectsPath); Divider(locations);
         Row(locations, IconKind.DocumentDown, "导出位置", "", ActionButton("更改…", (_, _) => ChangeDirectory(false)), out _exportPath);
+        var language = Card(general, "语言");
+        var chinese = Choice("中文", (_, _) => L.Change("zh-Hans"));
+        var english = Choice("English", (_, _) => L.Change("en"));
+        _languageChoices = new FluidSegments([chinese, english], SettingsStore.Current.Language == "en" ? 1 : 0);
+        language.Children.Add(ChoiceWell(_languageChoices));
 
         var editor = Page("editor", "编辑器", "预览与编辑工作区"); var preview = Card(editor, "画布与预览");
         QualityLow = Choice("清晰预览", QualityLow_Click); QualityFull = Choice("完整分辨率", QualityFull_Click);
-        _qualityChoices = new FluidSegments([QualityLow, QualityFull], 1);
-        var quality = ChoiceWell(_qualityChoices); quality.Width = 200;
+        foreach (var button in new[] { QualityLow, QualityFull }) { button.Padding = new Thickness(12, 0, 12, 0); button.Height = 32; button.Margin = new Thickness(1.5, 0, 1.5, 0); }
+        _qualityChoices = new FluidSegments([QualityLow, QualityFull], 1, naturalWidths: true) { Margin = new Thickness(-1.5, 0, -1.5, 0) };
+        var quality = ChoiceWell(_qualityChoices);
         Row(preview, IconKind.Monitor, "预览画质", "清晰预览更流畅，完整分辨率保留细节；导出画质不受影响。", quality, out _);
         var layout = Card(editor, "窗口与界面状态");
         Row(layout, IconKind.Window, "重置编辑窗口布局", "恢复默认轨道显示、时间线缩放及面板大小。", ActionButton("重置布局", ResetLayout_Click), out ResetDone);
@@ -133,8 +134,10 @@ public partial class SettingsWindow
         var camera = Card(recording, "悬浮摄像头预览");
         CamCircle = Choice("圆形", CamCircle_Click); CamSquare = Choice("圆角方形", CamSquare_Click); CamRounded = Choice("圆角矩形", CamRounded_Click);
         CamCircle.Content = CameraShapeTile("circle", "圆形"); CamSquare.Content = CameraShapeTile("square", "圆角方形"); CamRounded.Content = CameraShapeTile("rounded", "圆角矩形");
-        _cameraChoices = new FluidSegments([CamCircle, CamSquare, CamRounded], 0); camera.Children.Add(ChoiceWell(_cameraChoices));
-        var hint = Text("新录制的默认摄像头形状，可在编辑器中继续调整。", 12, true); hint.Margin = new Thickness(0, 14, 0, 0); camera.Children.Add(hint);
+        foreach (var button in new[] { CamCircle, CamSquare, CamRounded }) { button.Padding = new Thickness(0); button.Margin = new Thickness(6, 0, 6, 0); }
+        _cameraChoices = new FluidSegments([CamCircle, CamSquare, CamRounded], 0, individualTiles: true, tileRadius: 12) { Margin = new Thickness(-6, 0, -6, 0) };
+        _cameraChoices.SetSelectionBrush("SelectionBrush"); camera.Children.Add(_cameraChoices);
+        var hint = Text("新录制的默认摄像头形状，可在编辑器中继续调整。", 11, true); hint.Margin = new Thickness(0, 14, 0, 0); camera.Children.Add(hint);
         Fps30 = Choice("30 FPS", Fps30_Click); Fps60 = Choice("60 FPS", Fps60_Click); _fpsChoices = new FluidSegments([Fps30, Fps60], 0);
         Cd0 = Choice("关闭", Cd0_Click); Cd3 = Choice("3 秒", Cd3_Click); Cd5 = Choice("5 秒", Cd5_Click); _countdownChoices = new FluidSegments([Cd0, Cd3, Cd5], 1);
         var defaults = new StackPanel { Margin = new Thickness(0, 6, 0, 8) }; defaults.Children.Add(Text("录制帧率", 12)); defaults.Children.Add(ChoiceWell(_fpsChoices));
@@ -147,11 +150,13 @@ public partial class SettingsWindow
         Row(access, IconKind.CursorMotion, "光标记录", "记录鼠标移动与点击，生成可编辑的光标轨道。", Status("应用内记录", "SuccessBrush"), out _); Divider(access);
         Row(access, IconKind.PhotoCamera, "摄像头", "画中画人像出镜与外接相机输入。", Status("由系统管理", "InkSecondaryBrush"), out _); Divider(access);
         Row(access, IconKind.Mic, "麦克风", "人声解说录音与音频设备采集。", Status("由系统管理", "InkSecondaryBrush"), out _); Divider(access);
-        Row(access, IconKind.Shield, "设备不可用时", "请检查设备连接和 Windows 隐私设置。", ActionButton("打开系统设置 ↗", OpenPrivacy_Click), out _);
+        var permissionFooter = new DockPanel();
+        var privacyButton = ActionButton("打开系统设置 ↗", OpenPrivacy_Click); DockPanel.SetDock(privacyButton, Dock.Right); permissionFooter.Children.Add(privacyButton);
+        var privacyHint = Text("请检查设备连接和 Windows 隐私设置。", 11, true); privacyHint.Margin = new Thickness(0, 0, 12, 0); permissionFooter.Children.Add(privacyHint); access.Children.Add(permissionFooter);
 
         var about = Page("about", "关于", null);
         var identity = new DockPanel { Margin = new Thickness(0, 24, 0, 0) };
-        var appIcon = new Image { Width = 64, Height = 64, Source = new BitmapImage(new Uri("pack://application:,,,/Assets/AppIconMaster.png")), Margin = new Thickness(0, 0, 16, 0) };
+        var appIcon = new Image { Width = 64, Height = 64, Source = new BitmapImage(new Uri("pack://application:,,,/DogSC;component/Assets/AppIconMaster.png")), Margin = new Thickness(0, 0, 16, 0) };
         DockPanel.SetDock(appIcon, Dock.Left); identity.Children.Add(appIcon);
         var appName = new StackPanel { VerticalAlignment = VerticalAlignment.Center }; appName.Children.Add(Text("DogSC", 18, semi: true)); UpdateLabel = Text("", 12, true); UpdateLabel.Margin = new Thickness(0, 6, 0, 0); appName.Children.Add(UpdateLabel); identity.Children.Add(appName); about.Children.Add(identity);
         Divider(about);
@@ -166,6 +171,7 @@ public partial class SettingsWindow
         if (_section == section) return;
         var transition = animate ? FluidMotion.PrepareSwap(SettingsScroll, SettingsTransitionLayer) : () => { };
         _section = section; SettingsPage.Content = _pages[section]; SettingsScroll.ScrollToTop();
+        _lastSection = section;
         FluidMotion.Select(NavigationSelection, _navigation[section], NavigationGrid, animate);
         foreach (var (key, button) in _navigation)
             System.Windows.Automation.AutomationProperties.SetItemStatus(button, key == section ? L.Text("已选中") : "");
@@ -174,6 +180,7 @@ public partial class SettingsWindow
     void PaintSettingsChoices()
     {
         var s = SettingsStore.Current;
+        UpdateNavigationWidth();
         _languageChoices.Select(s.Language == "en" ? 1 : 0);
         _qualityChoices.Select(s.PreviewQuality == "low" ? 0 : 1); _fpsChoices.Select(s.FrameRate < 60 ? 0 : 1);
         _cameraChoices.Select(s.CameraDefaultShape switch { "square" => 1, "rounded" => 2, _ => 0 });
@@ -182,10 +189,12 @@ public partial class SettingsWindow
         foreach (var (key, tile) in _appearanceTiles)
         {
             var selected = key == (s.AppearancePreference ?? s.Theme);
-            tile.SetResourceReference(Border.BorderBrushProperty, selected ? "SelectionOutlineBrush" : "LineBrush"); tile.BorderThickness = new Thickness(selected ? 1.25 : .75);
+            if (selected) { var outline = ((Brush)FindResource("SelectionOutlineBrush")).Clone(); outline.Opacity = .5; tile.BorderBrush = outline; }
+            else tile.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
+            tile.BorderThickness = new Thickness(selected ? 1.25 : .75);
         }
-        _projectsPath.Text = s.ProjectsDirectory; _projectsPath.TextTrimming = TextTrimming.CharacterEllipsis; _projectsPath.ToolTip = s.ProjectsDirectory;
-        _exportPath.Text = s.ExportDirectory; _exportPath.TextTrimming = TextTrimming.CharacterEllipsis; _exportPath.ToolTip = s.ExportDirectory;
+        _projectsPath.Text = s.ProjectsDirectory; _projectsPath.TextWrapping = TextWrapping.NoWrap; _projectsPath.TextTrimming = TextTrimming.CharacterEllipsis; _projectsPath.ToolTip = s.ProjectsDirectory;
+        _exportPath.Text = s.ExportDirectory; _exportPath.TextWrapping = TextWrapping.NoWrap; _exportPath.TextTrimming = TextTrimming.CharacterEllipsis; _exportPath.ToolTip = s.ExportDirectory;
     }
     void ChangeDirectory(bool projects)
     {
@@ -197,7 +206,9 @@ public partial class SettingsWindow
     Border Status(string text, string brush)
     {
         var label = Text(text, 11, semi: true); label.SetResourceReference(TextBlock.ForegroundProperty, brush);
-        var badge = new Border { Child = label, CornerRadius = new CornerRadius(12), Padding = new Thickness(9, 4, 9, 4) }; badge.SetResourceReference(Border.BackgroundProperty, "SegmentWellBrush"); return badge;
+        var background = new Border { CornerRadius = new CornerRadius(12), Opacity = .1 }; background.SetResourceReference(Border.BackgroundProperty, brush);
+        label.Margin = new Thickness(9, 4, 9, 4);
+        var layers = new Grid(); layers.Children.Add(background); layers.Children.Add(label); return new Border { Child = layers, VerticalAlignment = VerticalAlignment.Center };
     }
     void Link(Panel page, string title, string url, IconKind icon)
     {
@@ -210,28 +221,19 @@ public partial class SettingsWindow
     {
         var stack = new StackPanel { Margin = new Thickness(0, 10, 0, 10) };
         var silhouette = new Border { Width = shape == "rounded" ? 26 : 20, Height = shape == "rounded" ? 16 : 20,
-            CornerRadius = new CornerRadius(shape == "circle" ? 10 : shape == "rounded" ? 3 : 4), Margin = new Thickness(0, 0, 0, 12) };
+            CornerRadius = new CornerRadius(shape == "circle" ? 10 : shape == "rounded" ? 3 : 4), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         silhouette.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding(nameof(Control.Foreground))
             { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(Button), 1) });
-        stack.Children.Add(silhouette);
+        var well = new Border { Width = 44, Height = 32, CornerRadius = new CornerRadius(6), Child = silhouette, Margin = new Thickness(0, 0, 0, 8) }; well.SetResourceReference(Border.BackgroundProperty, "SettingsShapeWellBrush"); stack.Children.Add(well);
         var label = Text(title, 12); label.HorizontalAlignment = HorizontalAlignment.Center; stack.Children.Add(label); return stack;
     }
-    Border AppearanceMiniature(string key)
+    void UpdateNavigationWidth()
     {
-        var grid = new Grid { Height = 58 }; grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        for (var half = 0; half < 2; half++)
-        {
-            var dark = key == "dark" || key == "system" && half == 1;
-            var canvas = new Canvas { Background = dark ? new SolidColorBrush(Color.FromRgb(26, 26, 26)) : Brushes.White, ClipToBounds = true };
-            var sidebar = new Border { Width = half == 0 ? 25 : 0, Height = 58, Background = dark ? new SolidColorBrush(Color.FromRgb(38, 38, 38)) : Brushes.WhiteSmoke }; canvas.Children.Add(sidebar);
-            for (var line = 0; line < 3; line++)
-            {
-                var pill = new Border { Width = half == 0 ? 36 : 47, Height = 5, CornerRadius = new CornerRadius(2.5), Background = dark ? new SolidColorBrush(Color.FromRgb(59, 59, 59)) : new SolidColorBrush(Color.FromRgb(235, 235, 235)) };
-                Canvas.SetLeft(pill, half == 0 ? 30 : 0); Canvas.SetTop(pill, 15 + line * 10); canvas.Children.Add(pill);
-            }
-            Grid.SetColumn(canvas, half); grid.Children.Add(canvas);
-        }
-        var frame = new Border { Child = grid, CornerRadius = new CornerRadius(6), ClipToBounds = true, BorderThickness = new Thickness(.5), BorderBrush = new SolidColorBrush(Color.FromArgb(25, 0, 0, 0)) }; return frame;
+        var face = new Typeface((FontFamily)FindResource("FontMedium"), FontStyles.Normal, FontWeights.Medium, FontStretches.Normal);
+        double Measure(string key, double size) => new FormattedText(L.Text(key), System.Globalization.CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight, face, size, Brushes.Black, VisualTreeHelper.GetDpi(this).PixelsPerDip).Width;
+        var sectionWidth = new[] { "通用", "编辑器", "录制", "权限", "关于" }.Max(key => Measure(key, 13) + 78);
+        SettingsRoot.ColumnDefinitions[0].Width = new GridLength(Math.Ceiling(Math.Max(156, Math.Max(sectionWidth, Measure("首次使用引导", 12) + 70) + 4)));
     }
     void Settings_KeyDown(object sender, KeyEventArgs e)
     {

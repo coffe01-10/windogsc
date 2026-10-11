@@ -1578,7 +1578,7 @@ public partial class EditorWindow : Window
 
     void ProjectFolder_Click(object sender, RoutedEventArgs e) => Process.Start(new ProcessStartInfo("explorer.exe", _directory) { UseShellExecute = true });
 
-    void Settings_Click(object sender, RoutedEventArgs e) => new SettingsWindow { Owner = this }.ShowDialog();
+    void Settings_Click(object sender, RoutedEventArgs e) => SettingsWindow.Open(this);
 
     void Theme_Click(object sender, RoutedEventArgs e)
     {

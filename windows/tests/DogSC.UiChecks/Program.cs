@@ -51,6 +51,7 @@ internal static class Program
             Console.WriteLine("UI_OK language: live labels, formatted copy and authored text preserved");
         }
         finally { SettingsStore.Current.Language = languageBefore; LanguageCatalog.Current.Refresh(); host.Children.Clear(); }
+        await CheckSettingsAsync(host, reviewDirectory);
         foreach (var key in new[] { "FontRegular", "FontMedium", "FontSemi" })
         {
             var weight = key == "FontSemi" ? FontWeights.SemiBold : key == "FontMedium" ? FontWeights.Medium : FontWeights.Normal;
@@ -442,6 +443,54 @@ internal static class Program
         Require(Descendants<TextBlock>(unavailable).Any(text => text.Text.Contains("预览暂不可用")) && !Descendants<ProgressBar>(unavailable).Any(), "Unavailable crop thumbnails remain stuck in a loading state.");
         Require(ScenePresetCropPreviewPanel.CropSummary(new SourceCrop { Y = .125, Height = .75 }, 100, 100).Contains("上 13"), "Crop summary rounds half pixels differently from the Mac source.");
         Console.WriteLine("UI_OK scene crop preview: adapted pixel summary, source frame, retained region, cancel/apply and unavailable thumbnail"); host.Children.Clear();
+    }
+
+    static async Task CheckSettingsAsync(Grid host, string? reviewDirectory)
+    {
+        var miniature = new SettingsAppearancePreview("system") { Width = 140, Height = 58, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
+        host.Children.Add(miniature); host.UpdateLayout();
+        var pixels = new RenderTargetBitmap(140, 58, 96, 96, PixelFormats.Pbgra32); pixels.Render(miniature);
+        byte GrayAt(int x, int y) { var pixel = new byte[4]; pixels.CopyPixels(new Int32Rect(x, y, 1, 1), pixel, 4, 0); return pixel[0]; }
+        Require(GrayAt(10, 40) == 240 && GrayAt(80, 5) == 26, "System appearance miniature loses its light sidebar or dark right half.");
+        Require(GrayAt(34, 19) == 255 && GrayAt(45, 19) == 235 && GrayAt(80, 19) == 59,
+            "The miniature draws separate half-width layouts instead of a continuous content line.");
+        host.Children.Clear();
+        var language = SettingsStore.Current.Language;
+        var settings = new SettingsWindow(); var root = (FrameworkElement)settings.Content; settings.Content = null;
+        root.Width = 780; root.Height = 640; root.HorizontalAlignment = HorizontalAlignment.Left; root.VerticalAlignment = VerticalAlignment.Top;
+        ((Grid)root).SetResourceReference(Panel.BackgroundProperty, "CardBrush"); host.Children.Add(root);
+        void Navigate(string section) => Descendants<Button>(root).Single(button => Equals(button.Tag, section)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        try
+        {
+            foreach (var locale in new[] { "zh-Hans", "en" })
+            {
+                SettingsStore.Current.Language = locale; LanguageCatalog.Current.Refresh(); settings.RefreshLanguage();
+                Navigate("general"); await Task.Delay(520); host.UpdateLayout();
+                var nav = Descendants<Button>(root).Single(button => Equals(button.Tag, "permissions"));
+                var label = Descendants<TextBlock>(nav).Single();
+                Require(nav.ActualWidth >= label.ActualWidth + 54, "Settings navigation clips translated section labels.");
+                if (reviewDirectory is not null) SaveVisual(root, System.IO.Path.Combine(reviewDirectory, "windows-settings-general-" + locale + ".png"));
+                Navigate("editor"); await Task.Delay(520); host.UpdateLayout();
+                foreach (var choice in Descendants<Button>(root).Where(button => Equals(button.Content, L.Text("清晰预览")) || Equals(button.Content, L.Text("完整分辨率"))))
+                {
+                    var text = Descendants<TextBlock>(choice).First();
+                    text.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    Require(choice.ActualWidth >= text.DesiredSize.Width + 24, "Translated preview quality options clip their text.");
+                }
+                var quality = Descendants<FluidSegments>(root).Single();
+                Require(Math.Abs(((Border)quality.Parent).ActualHeight - 40) < 1,
+                    "Preview quality well stretches to the description height instead of its 32-point buttons plus padding.");
+                Navigate("recording"); await Task.Delay(520); host.UpdateLayout();
+                var camera = Descendants<FluidSegments>(root).Single(selector => selector.Buttons.Any(button => button.Content is StackPanel));
+                var buttons = camera.Buttons.ToArray();
+                var gap = buttons[1].TranslatePoint(new Point(), camera).X - buttons[0].TranslatePoint(new Point(buttons[0].ActualWidth, 0), camera).X;
+                Require(Math.Abs(gap - 12) <= 1 / VisualTreeHelper.GetDpi(root).DpiScaleX + .01,
+                    $"Camera shapes have merged into a continuous segmented well: gap={gap:0.000}.");
+                if (reviewDirectory is not null) SaveVisual(root, System.IO.Path.Combine(reviewDirectory, "windows-settings-recording-" + locale + ".png"));
+            }
+            Console.WriteLine("UI_OK settings: continuous miniature, bilingual navigation/quality fit, separate camera tiles");
+        }
+        finally { SettingsStore.Current.Language = language; LanguageCatalog.Current.Refresh(); host.Children.Clear(); settings.Close(); }
     }
 
     static void SaveVisual(FrameworkElement view, string path)

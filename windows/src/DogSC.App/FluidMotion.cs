@@ -253,16 +253,19 @@ public static class FluidMotion
 
 sealed class FluidSegments : Grid
 {
-    readonly UniformGrid _buttons = new() { Rows = 1 };
+    readonly Panel _buttons;
     readonly Border _selection;
     readonly UniformGrid? _tileWells;
+    readonly double _tileRadius;
     int _selected;
     bool _positioned;
     public IEnumerable<Button> Buttons => _buttons.Children.OfType<Button>();
-    public FluidSegments(IReadOnlyList<Button> buttons, int selected, bool individualTiles = false)
+    public FluidSegments(IReadOnlyList<Button> buttons, int selected, bool individualTiles = false, bool naturalWidths = false, double tileRadius = 10)
     {
+        _tileRadius = tileRadius;
+        _buttons = naturalWidths ? new StackPanel { Orientation = Orientation.Horizontal } : new UniformGrid { Rows = 1 };
         _selected = selected; ClipToBounds = false;
-        _selection = FluidMotion.Selection(radius: individualTiles ? 10 : 8);
+        _selection = FluidMotion.Selection(radius: individualTiles ? tileRadius : 8);
         if (individualTiles)
         {
             _tileWells = new UniformGrid { Rows = 1, IsHitTestVisible = false };
@@ -288,7 +291,7 @@ sealed class FluidSegments : Grid
         {
             if (_tileWells is not null)
             {
-                var well = new Border { CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(.75), Margin = button.Margin };
+                var well = new Border { CornerRadius = new CornerRadius(_tileRadius), BorderThickness = new Thickness(.75), Margin = button.Margin };
                 well.SetResourceReference(Border.BackgroundProperty, "SegmentWellBrush");
                 well.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
                 _tileWells.Children.Add(well);
@@ -302,6 +305,7 @@ sealed class FluidSegments : Grid
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => Position(_positioned));
     }
     public void SetIndicatorVisible(bool visible) => _selection.Opacity = visible ? 1 : 0;
+    public void SetSelectionBrush(string brush) => _selection.SetResourceReference(Border.BackgroundProperty, brush);
     public void Select(int selected, bool animate = true)
     {
         _selected = selected;

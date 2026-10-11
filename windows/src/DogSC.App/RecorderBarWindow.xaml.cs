@@ -527,7 +527,7 @@ public partial class RecorderBarWindow : Window
             }),
             (L.Text("设置"), L.Text("录制、编辑器、关于"), () =>
             {
-                new SettingsWindow { Owner = this }.ShowDialog();
+                SettingsWindow.Open(this);
                 PaintToggles();
             }),
         };

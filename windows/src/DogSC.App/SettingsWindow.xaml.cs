@@ -4,13 +4,23 @@ namespace DogSC;
 
 public partial class SettingsWindow : Window
 {
+    static string _lastSection = "general";
+    public static void Open(Window owner)
+    {
+        var settings = Application.Current.Windows.OfType<SettingsWindow>().FirstOrDefault();
+        if (settings is null) { settings = new SettingsWindow { Owner = owner }; settings.Show(); }
+        if (settings.WindowState == WindowState.Minimized) settings.WindowState = WindowState.Normal;
+        settings.Activate();
+    }
+
     internal void RefreshLanguage() => Paint();
     public SettingsWindow()
     {
         InitializeComponent();
         BuildSettingsPages();
         Paint();
-        Loaded += (_, _) => { WindowPlacement.KeepInWorkArea(this, center: true); SelectSettingsSection("general", false); FluidMotion.Entrance(SettingsRoot); };
+        NavigationGrid.SizeChanged += (_, _) => { if (_section.Length > 0) FluidMotion.Select(NavigationSelection, _navigation[_section], NavigationGrid); };
+        Loaded += (_, _) => { Height = Math.Min(679, Math.Max(439, SystemParameters.WorkArea.Height - 100)); WindowPlacement.KeepInWorkArea(this, center: true); SelectSettingsSection(_lastSection, false); FluidMotion.Entrance(SettingsRoot); };
     }
 
     void Chip(Button b, bool on)

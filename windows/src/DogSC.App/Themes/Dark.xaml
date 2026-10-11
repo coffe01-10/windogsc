@@ -17,6 +17,7 @@
     <SolidColorBrush x:Key="PopoverSelectionBrush" Color="#52333333"/>
     <SolidColorBrush x:Key="SettingsSidebarBrush" Color="#202123"/>
     <SolidColorBrush x:Key="SettingsCardBrush" Color="#252628"/>
+    <SolidColorBrush x:Key="SettingsShapeWellBrush" Color="#10FFFFFF"/>
     <SolidColorBrush x:Key="WellBrush" Color="#2A2C2F"/>
     <SolidColorBrush x:Key="InkBrush" Color="#E8E8E6"/>
     <SolidColorBrush x:Key="InkSecondaryBrush" Color="#B0B0AA"/>
