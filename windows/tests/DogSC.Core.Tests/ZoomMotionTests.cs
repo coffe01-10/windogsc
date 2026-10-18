@@ -155,4 +155,26 @@ public class ZoomMotionTests
         span.Duration = 1.1;
         Assert.Equal((1, .1), ZoomMotion.Windows(span));
     }
+
+    [Theory]
+    [InlineData("manual")]
+    [InlineData("automatic")]
+    public void TargetAtWorksWhenShortSpanTransitionsLeaveNoHold(string origin)
+    {
+        var project = Project();
+        project.Motion.AutomaticFollow = "pointer";
+        var span = new ZoomSpan { Start = 1, Duration = .8424182, EnterDuration = .7, ExitDuration = .7,
+            Scale = 1.6, FocusX = .2, FocusY = .8, Origin = origin };
+        project.Zooms.Add(span);
+        var motion = new ZoomMotion(project);
+        foreach (var time in new[] { 1.1, 1.4212091, 1.7, 3.63 })
+        {
+            var target = motion.TargetAt(span, time);
+            Assert.Equal(1.6, target.Scale);
+            Assert.True(double.IsFinite(target.X) && double.IsFinite(target.Y));
+            Assert.InRange(target.X, 0, 1);
+            Assert.InRange(target.Y, 0, 1);
+        }
+        Assert.Equal(motion.TargetAt(span, 1.1), motion.TargetAt(span, 3.63));
+    }
 }

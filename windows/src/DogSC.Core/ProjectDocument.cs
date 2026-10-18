@@ -118,6 +118,10 @@ public sealed class ZoomSpan
     public double CurveY2 { get; set; } = 1;
     public double? EnterDuration { get; set; }
     public double? ExitDuration { get; set; }
+    /// <summary>分割/裁短保留原轨迹的时钟与进入姿态，避免重播进入或压缩退出。</summary>
+    public double AnimationOffset { get; set; }
+    public double? AnimationDuration { get; set; }
+    public ZoomPose? AnimationInitialPose { get; set; }
     public double SpringMass { get; set; } = 2.4;
     public double SpringStiffness { get; set; } = 210;
     public double SpringDamping { get; set; } = 42;
@@ -539,7 +543,9 @@ public static class ProjectFile
         timing.LeadInDuration = Math.Clamp(timing.LeadInDuration, 0, timing.Duration);
         timing.ReturnDuration = Math.Clamp(timing.ReturnDuration, 0, 5);
         timing.LeadInProgressOffset = Math.Clamp(timing.LeadInProgressOffset, 0, 1);
+        timing.LeadInProgressEnd = Math.Clamp(timing.LeadInProgressEnd, timing.LeadInProgressOffset, 1);
         timing.ReturnProgressOffset = Math.Clamp(timing.ReturnProgressOffset, 0, 1);
+        timing.ReturnProgressEnd = Math.Clamp(timing.ReturnProgressEnd, timing.ReturnProgressOffset, 1);
         timing.Easing = timing.Easing is "linear" or "quadratic" or "cubic" or "quintic"
             or "spring" or "custom" ? timing.Easing : "cubic";
     }

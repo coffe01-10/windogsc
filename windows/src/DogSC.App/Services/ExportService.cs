@@ -166,15 +166,22 @@ public sealed class ExportService
                 throw new InvalidOperationException(L.Text("这个项目没有可导出的声音。"));
             }
 
+            // Trim the composed output, so cursor and motion retain the full
+            // project's clock and an animation crossing the range starts in phase.
+            if (options.RangeStart is { } rangeStart)
+                args.AddRange(["-ss", rangeStart.ToString("R", System.Globalization.CultureInfo.InvariantCulture)]);
+            if (options.RangeDuration is { } rangeDuration)
+                args.AddRange(["-t", rangeDuration.ToString("R", System.Globalization.CultureInfo.InvariantCulture)]);
             args.AddRange(["-movflags", "+faststart", partial]);
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
             Stage?.Invoke(L.Text("正在渲染成片…"));
             _process = FfmpegProcess.Start(_ffmpeg, args);
             _process.Progress += seconds =>
             {
-                if (plan.Duration > 0)
+                var exportDuration = options.RangeDuration ?? plan.Duration;
+                if (exportDuration > 0)
                 {
-                    Progress?.Invoke(Math.Clamp(seconds / plan.Duration, 0, 0.99));
+                    Progress?.Invoke(Math.Clamp(seconds / exportDuration, 0, 0.99));
                 }
             };
             var code = await _process.WaitAsync(cancellation);

@@ -59,17 +59,19 @@
             </StackPanel>
             </ScrollViewer>
             <Border Grid.Column="1" Background="{DynamicResource LineBrush}"/>
-            <StackPanel Grid.Column="2" Margin="28,0,0,0">
+            <Grid Grid.Column="2" Margin="28,0,0,0">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <TextBlock x:Name="PreviewHeading" Text="{local:Localize '当前画面'}" FontSize="12" Foreground="{DynamicResource InkSecondaryBrush}"/>
-                <Border x:Name="VideoPreview" Height="194" CornerRadius="16" ClipToBounds="True" Background="{DynamicResource SegmentWellBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75" Margin="0,16,0,16">
+                <Border x:Name="VideoPreview" Grid.Row="1" MaxHeight="194" CornerRadius="16" ClipToBounds="True" Background="{DynamicResource SegmentWellBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75" Margin="0,16,0,16">
                     <Image x:Name="PreviewImage" Stretch="Uniform"/>
                 </Border>
-                <Border x:Name="AudioPreview" Visibility="Collapsed" Height="194" CornerRadius="16" Background="{DynamicResource SegmentWellBrush}" Margin="0,16,0,16">
+                <Border x:Name="AudioPreview" Grid.Row="1" Visibility="Collapsed" MaxHeight="194" CornerRadius="16" Background="{DynamicResource SegmentWellBrush}" Margin="0,16,0,16">
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                         <local:Icon Kind="Waveform" Width="38" Height="38" HorizontalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}"/>
                         <TextBlock Text="M4A" FontSize="12" HorizontalAlignment="Center" Margin="0,10,0,0" Foreground="{DynamicResource InkSecondaryBrush}"/>
                     </StackPanel>
                 </Border>
+                <StackPanel Grid.Row="2">
                 <DockPanel Height="28"><TextBlock x:Name="FormatValue" DockPanel.Dock="Right" FontSize="12" VerticalAlignment="Center"/><TextBlock Text="{local:Localize '格式'}" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}"/></DockPanel>
                 <StackPanel x:Name="VideoMetadata">
                     <DockPanel Height="28"><TextBlock x:Name="ResolutionValue" DockPanel.Dock="Right" FontSize="12" VerticalAlignment="Center"/><TextBlock Text="{local:Localize '分辨率'}" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}"/></DockPanel>
@@ -77,9 +79,12 @@
                 </StackPanel>
                 <DockPanel Height="28"><TextBlock x:Name="DurationValue" DockPanel.Dock="Right" FontSize="12" VerticalAlignment="Center"/><TextBlock Text="{local:Localize '时长'}" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource InkSecondaryBrush}"/></DockPanel>
                 <TextBlock x:Name="Summary" Visibility="Collapsed"/>
+                </StackPanel>
+                <StackPanel Grid.Row="3">
                 <ProgressBar x:Name="Bar" Visibility="Collapsed" Height="6" Margin="0,20,0,6" Minimum="0" Maximum="1"/>
                 <TextBlock x:Name="Status" Visibility="Collapsed" Margin="0,8,0,0" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource InkSecondaryBrush}"/>
-            </StackPanel>
+                </StackPanel>
+            </Grid>
         </Grid>
         <Grid x:Name="ExportTransitionLayer" IsHitTestVisible="False" ClipToBounds="True" Margin="28,26,28,28"/>
         </Grid>

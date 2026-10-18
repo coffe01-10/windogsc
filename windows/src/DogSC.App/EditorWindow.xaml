@@ -127,8 +127,8 @@
                     <Grid x:Name="PreviewTransitionLayer" IsHitTestVisible="False" ClipToBounds="True"/>
                 </Grid>
             </Grid>
-            <GridSplitter Grid.Column="2" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="Transparent" ToolTip="{local:Localize '拖动调整属性面板宽度'}" AutomationProperties.Name="{local:Localize '属性面板宽度'}"/>
-            <Grid Grid.Column="3" Margin="8,0,16,0">
+            <GridSplitter x:Name="InspectorDivider" Grid.Column="2" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="Transparent" ToolTip="{local:Localize '拖动调整属性面板宽度'}" AutomationProperties.Name="{local:Localize '属性面板宽度'}"/>
+            <Grid x:Name="InspectorPane" Grid.Column="3" Margin="8,0,16,0">
                 <Grid.RowDefinitions><RowDefinition x:Name="InspectorToolbarRow" Height="52"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Border x:Name="InspectorSurface" Grid.Row="1" VerticalAlignment="Center" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0.75" CornerRadius="20">
                 <Grid>
@@ -182,6 +182,8 @@
                         <Button Style="{StaticResource IconButton}" ToolTip="{local:Localize '更多编辑操作'}" Click="EditMenu_Click">
                             <local:Icon Kind="Menu"/>
                             <Button.ContextMenu><ContextMenu>
+                                <MenuItem Header="{local:Localize '快捷键速查'}" InputGestureText="F1" Click="ShortcutReference_Click"/>
+                                <Separator/>
                                 <MenuItem Header="{local:Localize '添加标记（M）'}" Click="Marker_Click"/>
                                 <MenuItem Header="{local:Localize '复制效果（Ctrl+C）'}" Click="CopyEffect_Click"/>
                                 <MenuItem Header="{local:Localize '粘贴效果（Ctrl+V）'}" Click="PasteEffect_Click"/>

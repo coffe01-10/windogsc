@@ -18,11 +18,13 @@ public partial class ExportWindow : Window
     bool _running;
     string? _completedOutput;
     string? _nameBeforeEditing;
+    readonly double? _rangeStart, _rangeDuration;
     FluidSegments _outputChoices = null!, _fpsChoices = null!, _resolutionChoices = null!;
 
-    public ExportWindow(ProjectDocument project, string directory, ImageSource? preview = null)
+    public ExportWindow(ProjectDocument project, string directory, ImageSource? preview = null, double? rangeStart = null, double? rangeDuration = null)
     {
         _project = project;
+        _rangeStart = rangeStart; _rangeDuration = rangeDuration;
         _directory = directory;
         _resolution = project.ExportResolution;
         _fps = project.ExportFps is 60 ? 60 : 30;
@@ -30,6 +32,11 @@ public partial class ExportWindow : Window
         PreviewImage.Source = preview;
         ProjectName.Text = project.Name;
         FileName.Text = project.Name + "-" + _fps + "fps";
+        if (_rangeDuration is not null)
+        {
+            ProjectName.Text += " · " + L.Text("选中片段");
+            FileName.Text = project.Name + "-" + L.Text("选中片段") + "-" + _fps + "fps";
+        }
         FileNameDisplay.Text = FileName.Text;
         FolderPath.Text = SettingsStore.Current.ExportDirectory;
         foreach (var option in new[] { (L.Text("原始素材"), "source"), ("1080p", "1080"), ("1440p", "1440"), ("4K", "2160") })
@@ -148,6 +155,8 @@ public partial class ExportWindow : Window
                 AudioOnly = _audioOnly,
                 Resolution = _resolution,
                 Fps = _fps,
+                RangeStart = _rangeStart,
+                RangeDuration = _rangeDuration,
             }, output, _cancel.Token);
             _completedOutput = output;
             if (SettingsStore.Current.ExportCompletionSoundEnabled) System.Media.SystemSounds.Asterisk.Play();
@@ -244,7 +253,7 @@ public partial class ExportWindow : Window
         _resolutionChoices.Select(Array.FindIndex(resolutionButtons, b => (string)b.Tag == _resolution));
 
         var (width, height) = CanvasLayout.OutputSize(_project.Width, _project.Height, _project.Canvas.Aspect, _audioOnly ? "source" : _resolution);
-        var duration = TimelineMath.Duration(_project);
+        var duration = _rangeDuration ?? TimelineMath.Duration(_project);
         FormatValue.Text = _audioOnly ? "M4A" : "MP4";
         ResolutionValue.Text = width + " × " + height; FpsValue.Text = _fps + " fps";
         DurationValue.Text = TimeSpan.FromSeconds(duration).ToString(@"m\:ss\.ff");

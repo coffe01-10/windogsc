@@ -97,7 +97,7 @@ public abstract class MotionClipTrack<TClip> where TClip : class
         var timingsValid = Clips.All(c =>
         {
             var t = timingOf(c);
-            return double.IsFinite(t.StartTime) && double.IsFinite(t.Duration) && t.Duration > 0;
+            return double.IsFinite(t.StartTime) && double.IsFinite(t.Duration) && t.Duration >= 0;
         });
         var nonOverlapping = Clips.Zip(Clips.Skip(1)).All(pair =>
         {
@@ -143,7 +143,7 @@ public abstract class MotionClipTrack<TClip> where TClip : class
         var leadIn = Math.Min(timing.LeadInDuration, timing.Duration);
         if (leadIn <= 0.0001) return 1;
         var local = Math.Min((time - timing.StartTime) / leadIn, 1);
-        var linear = timing.LeadInProgressOffset + (1 - timing.LeadInProgressOffset) * local;
+        var linear = timing.LeadInProgressOffset + (timing.LeadInProgressEnd - timing.LeadInProgressOffset) * local;
         return MotionEasing.EasedProgress(linear, timing.Easing, timing.CustomCurve,
             springMass, springStiffness, springDamping);
     }
@@ -153,7 +153,7 @@ public abstract class MotionClipTrack<TClip> where TClip : class
         double springMass, double springStiffness, double springDamping)
     {
         var local = Math.Clamp((time - timing.EndTime) / timing.ReturnDuration, 0, 1);
-        var linear = timing.ReturnProgressOffset + (1 - timing.ReturnProgressOffset) * local;
+        var linear = timing.ReturnProgressOffset + (timing.ReturnProgressEnd - timing.ReturnProgressOffset) * local;
         return MotionEasing.EasedProgress(linear, timing.Easing, timing.CustomCurve,
             springMass, springStiffness, springDamping);
     }
@@ -212,6 +212,11 @@ public sealed class ScreenMotionTrack : MotionClipTrack<ScreenMotionClip>
                 inherited = base_;
                 inheritedFraming = Framing.Placement;
             }
+            if (timing.PreserveEntry)
+            {
+                inherited = clip.EntryFrom ?? base_;
+                inheritedFraming = clip.EntryFrom is null ? Framing.Placement : Framing.Focus;
+            }
             var leadIn = Math.Min(timing.LeadInDuration, timing.Duration);
             if (leadIn <= 0.0001)
                 return LayoutSample(clip.Target, viewport, Framing.Focus);
@@ -253,7 +258,7 @@ public sealed class ScreenMotionTrack : MotionClipTrack<ScreenMotionClip>
         {
             var clip = ClipList[index];
             var timing = clip.Timing;
-            if (!double.IsFinite(timing.StartTime) || !double.IsFinite(timing.Duration) || timing.Duration <= 0)
+            if (!double.IsFinite(timing.StartTime) || !double.IsFinite(timing.Duration) || timing.Duration < 0)
                 continue;
             if (time < timing.StartTime)
             {
@@ -267,6 +272,11 @@ public sealed class ScreenMotionTrack : MotionClipTrack<ScreenMotionClip>
             }
             if (time < timing.EndTime)
             {
+                if (timing.PreserveEntry)
+                {
+                    inherited = clip.EntryFrom ?? base_;
+                    inheritedFraming = clip.EntryFrom is null ? Framing.Placement : Framing.Focus;
+                }
                 var leadIn = Math.Min(timing.LeadInDuration, timing.Duration);
                 if (leadIn <= 0.0001)
                     return LayoutSample(clip.Target, viewport, Framing.Focus);
@@ -323,7 +333,7 @@ public sealed class ScreenMotionTrack : MotionClipTrack<ScreenMotionClip>
         double time, double springMass, double springStiffness, double springDamping)
     {
         var local = Math.Clamp((time - timing.EndTime) / returnDuration, 0, 1);
-        var linear = timing.ReturnProgressOffset + (1 - timing.ReturnProgressOffset) * local;
+        var linear = timing.ReturnProgressOffset + (timing.ReturnProgressEnd - timing.ReturnProgressOffset) * local;
         return MotionEasing.EasedProgress(linear, timing.Easing, timing.CustomCurve,
             springMass, springStiffness, springDamping);
     }
@@ -493,6 +503,9 @@ public sealed class CameraMotionTrack : MotionClipTrack<CameraMotionClip>
             {
                 inherited = resolvedBase;
             }
+            if (timing.PreserveEntry)
+                inherited = clip.EntryFrom is null ? resolvedBase
+                    : Resolve(clip.EntryFrom, cameraAspectRatio, canvasAspectRatio, base_.Docked);
             var leadIn = Math.Min(timing.LeadInDuration, timing.Duration);
             if (leadIn <= 0.0001) return target;
             var progress = EnterProgress(timing, time, springMass, springStiffness, springDamping);
@@ -516,7 +529,7 @@ public sealed class CameraMotionTrack : MotionClipTrack<CameraMotionClip>
         {
             var clip = ClipList[index];
             var timing = clip.Timing;
-            if (!double.IsFinite(timing.StartTime) || !double.IsFinite(timing.Duration) || timing.Duration <= 0)
+            if (!double.IsFinite(timing.StartTime) || !double.IsFinite(timing.Duration) || timing.Duration < 0)
                 continue;
             if (time < timing.StartTime)
             {
@@ -531,6 +544,9 @@ public sealed class CameraMotionTrack : MotionClipTrack<CameraMotionClip>
             var target = Resolve(clip.Target, cameraAspectRatio, canvasAspectRatio, DockedOf(resolvedBase));
             if (time < timing.EndTime)
             {
+                if (timing.PreserveEntry)
+                    inherited = clip.EntryFrom is null ? resolvedBase
+                        : Resolve(clip.EntryFrom, cameraAspectRatio, canvasAspectRatio, DockedOf(resolvedBase));
                 var leadIn = Math.Min(timing.LeadInDuration, timing.Duration);
                 if (leadIn <= 0.0001) return target;
                 var progress = EnterProgress(timing, time, springMass, springStiffness, springDamping);
@@ -559,7 +575,7 @@ public sealed class CameraMotionTrack : MotionClipTrack<CameraMotionClip>
         if (ReturnOf(timing) <= 0.0001 || TouchesNextClip(index)) return null;
         if (time > timing.EndTime + ReturnOf(timing)) return null;
         var local = Math.Clamp((time - timing.EndTime) / ReturnOf(timing), 0, 1);
-        var linear = timing.ReturnProgressOffset + (1 - timing.ReturnProgressOffset) * local;
+        var linear = timing.ReturnProgressOffset + (timing.ReturnProgressEnd - timing.ReturnProgressOffset) * local;
         var progress = MotionEasing.EasedProgress(linear, timing.Easing, timing.CustomCurve,
             springMass, springStiffness, springDamping);
         var target = Resolve(clip.Target, cameraAspectRatio, canvasAspectRatio, DockedOf(resolvedBase));

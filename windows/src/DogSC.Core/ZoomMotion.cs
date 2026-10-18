@@ -12,6 +12,12 @@ public sealed class ZoomMotion
 {
     readonly List<(ZoomSpan Span, Track Scale, Track X, Track Y, AutomaticFocusTrack? Follow, double Enter, double HoldEnd)> _spans = [];
 
+    public ZoomPose InitialPose(ZoomSpan span)
+    {
+        var motion = _spans.First(m => m.Span.Id == span.Id);
+        return new(motion.Scale.At(0), motion.X.At(0), motion.Y.At(0));
+    }
+
     public ZoomMotion(ProjectDocument project)
     {
         var clicks = Events(project).Where(p => p.Click).ToArray();
@@ -19,14 +25,21 @@ public sealed class ZoomMotion
         var previousTarget = ZoomPose.Rest;
         for (var i = 0; i < ordered.Length; i++)
         {
-            var span = ordered[i];
-            var joinedBefore = i > 0 && Math.Abs(ordered[i - 1].Start + ordered[i - 1].Duration - span.Start) < .001;
-            var joinedAfter = i + 1 < ordered.Length && Math.Abs(span.Start + span.Duration - ordered[i + 1].Start) < .001;
-            var start = joinedBefore ? previousTarget : ZoomPose.Rest;
+            var visible = ordered[i];
+            var span = visible;
+            if (visible.AnimationDuration is { } originalDuration)
+            {
+                span = ScenePreset.Clone(visible);
+                span.Start -= visible.AnimationOffset;
+                span.Duration = originalDuration;
+            }
+            var joinedBefore = i > 0 && Math.Abs(ordered[i - 1].Start + ordered[i - 1].Duration - visible.Start) < .001;
+            var joinedAfter = i + 1 < ordered.Length && Math.Abs(visible.Start + visible.Duration - ordered[i + 1].Start) < .001;
+            var start = visible.AnimationInitialPose ?? (joinedBefore ? previousTarget : ZoomPose.Rest);
             var scale = new Track(start.Scale, span);
             var x = new Track(start.X, span);
             var y = new Track(start.Y, span);
-            var (enter, exit) = Windows(span, joinedAfter);
+            var (enter, exit) = Windows(span, visible.AnimationDuration is null && joinedAfter);
             var endHold = span.Duration - exit;
             var follow = span.Origin == "automatic" && project.Motion.AutomaticFollow == "pointer"
                 ? new AutomaticFocusTrack(project, span, enter, endHold) : null;
@@ -58,7 +71,7 @@ public sealed class ZoomMotion
                 x.To(endHold, exit, .5, span.Easing);
                 y.To(endHold, exit, .5, span.Easing);
             }
-            _spans.Add((span, scale, x, y, follow, enter, endHold));
+            _spans.Add((visible, scale, x, y, follow, enter, endHold));
         }
     }
 
@@ -67,7 +80,7 @@ public sealed class ZoomMotion
         foreach (var motion in _spans)
             if (time >= motion.Span.Start && time < motion.Span.Start + motion.Span.Duration)
             {
-                var local = time - motion.Span.Start;
+                var local = time - motion.Span.Start + motion.Span.AnimationOffset;
                 var focus = local >= motion.Enter && local <= motion.HoldEnd && motion.Follow is not null
                     ? motion.Follow.At(local) : (motion.X.At(local), motion.Y.At(local));
                 return new(Math.Clamp(motion.Scale.At(local), 1, 6), Math.Clamp(focus.Item1, 0, 1), Math.Clamp(focus.Item2, 0, 1));
@@ -79,9 +92,9 @@ public sealed class ZoomMotion
     {
         if (time <= span.Start) return new(span.Scale, span.FocusX, span.FocusY);
         var motion = _spans.First(m => m.Span.Id == span.Id);
-        var joined = _spans.Any(m => m.Span.Id != span.Id && Math.Abs(m.Span.Start - span.Start - span.Duration) < .001);
-        var (enter, exit) = Windows(span, joined);
-        var local = Math.Clamp(time - span.Start, enter, span.Duration - exit);
+        // Fitted entry/exit windows can consume the entire span. Subtracting
+        // the exit may round the hold end one ULP below the entry boundary.
+        var local = Math.Clamp(time - span.Start + span.AnimationOffset, motion.Enter, Math.Max(motion.Enter, motion.HoldEnd));
         var focus = motion.Follow?.At(local) ?? (motion.X.At(local), motion.Y.At(local));
         return new(span.Scale, Math.Clamp(focus.Item1, 0, 1), Math.Clamp(focus.Item2, 0, 1));
     }
@@ -95,7 +108,7 @@ public sealed class ZoomMotion
         foreach (var motion in _spans.Where(m => m.Span.Start < start + duration && m.Span.Start + m.Span.Duration > start))
         {
             var span = motion.Span;
-            var local = "(" + time + "-" + F(span.Start) + ")";
+            var local = "(" + time + "-" + F(span.Start - span.AnimationOffset) + ")";
             var active = "gte(" + time + "," + F(span.Start) + ")*lt(" + time + "," + F(span.Start + span.Duration) + ")";
             scale = "if(" + active + "," + motion.Scale.Expression(local) + "," + scale + ")";
             var fx = motion.X.Expression(local); var fy = motion.Y.Expression(local);
@@ -174,9 +187,10 @@ public sealed class ZoomMotion
 
     public static (double Enter, double Exit) Windows(ZoomSpan span, bool joinedAfter = false)
     {
-        var enter = span.EnterDuration ?? Math.Min(.4, span.Duration / 3);
-        var exit = joinedAfter ? 0 : span.ExitDuration ?? Math.Min(.4, span.Duration / 3);
-        var factor = enter + exit > span.Duration ? span.Duration / (enter + exit) : 1;
+        var duration = span.AnimationDuration ?? span.Duration;
+        var enter = span.EnterDuration ?? Math.Min(.4, duration / 3);
+        var exit = joinedAfter ? 0 : span.ExitDuration ?? Math.Min(.4, duration / 3);
+        var factor = enter + exit > duration ? duration / (enter + exit) : 1;
         return (enter * factor, exit * factor);
     }
 

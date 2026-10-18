@@ -39,6 +39,7 @@ public partial class EditorWindow : Window
     public EditorWindow()
     {
         InitializeComponent();
+        PreviewMouseDown += EditorShortcutFocus_MouseDown;
         TimelineViewChoices.Children.Clear();
         _timelineViewChoices = new FluidSegments([VideoViewButton, WaveformViewButton], 0);
         TimelineViewChoices.Children.Add(_timelineViewChoices);
@@ -1611,6 +1612,9 @@ public partial class EditorWindow : Window
     }
 
     void Export_Click(object sender, RoutedEventArgs e)
+        => ShowExport();
+
+    void ShowExport(double? rangeStart = null, double? rangeDuration = null)
     {
         if (_cropEditing) EndCrop();
         FlushPendingSave();
@@ -1628,7 +1632,7 @@ public partial class EditorWindow : Window
         }
         preview.Render(visual); preview.Freeze();
         ModalShade.Visibility = Visibility.Visible;
-        try { new ExportWindow(_project, _directory, preview) { Owner = this }.ShowDialog(); }
+        try { new ExportWindow(_project, _directory, preview, rangeStart, rangeDuration) { Owner = this }.ShowDialog(); }
         finally { ModalShade.Visibility = Visibility.Collapsed; }
     }
 
@@ -1645,13 +1649,17 @@ public partial class EditorWindow : Window
 
     void Split_Click(object sender, RoutedEventArgs e)
     {
-        Push();
-        if (!TimelineEdits.TrySplit(_project, _player.Time))
+        _player.Pause();
+        var before = JsonSerializer.Serialize(_project, ProjectSchema.Json);
+        var effect = _selectedDecoration ?? _selectedZoom;
+        if (effect is not null)
         {
-            _undo.Pop();
-            return;
+            var right = TimelineShortcutEdits.SplitEffect(_project, effect, _player.Time);
+            if (right is null) return;
+            if (_selectedZoom is not null) _selectedZoom = right; else _selectedDecoration = right;
         }
-
+        else if (!TimelineEdits.TrySplit(_project, _player.Time)) return;
+        Push(before);
         Commit();
     }
 
@@ -2058,58 +2066,11 @@ public partial class EditorWindow : Window
 
         if (_cropEditing) return;
         var modifiers = Keyboard.Modifiers;
-        if (OverlayKey(e.Key, modifiers)) { e.Handled = true; return; }
-        if (RegionKey(e.Key, modifiers)) { e.Handled = true; return; }
-        if (modifiers == ModifierKeys.Control && e.Key == Key.C)
-        {
-            CopyEffect_Click(sender, e);
-        }
-        else if (modifiers == ModifierKeys.Control && e.Key == Key.V)
-        {
-            PasteEffect_Click(sender, e);
-        }
-        else if (modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.V)
-        {
-            PasteAttributes_Click(sender, e);
-        }
-        else if (modifiers == ModifierKeys.Control && e.Key == Key.Z)
-        {
-            Undo_Click(sender, e);
-        }
-        else if ((modifiers == ModifierKeys.Control && e.Key == Key.Y)
-            || (modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.Z))
-        {
-            Redo_Click(sender, e);
-        }
-        else if (modifiers != ModifierKeys.None)
-        {
-            return;
-        }
-        else if (e.Key == Key.Space)
-        {
-            Play_Click(sender, e);
-            e.Handled = true;
-        }
-        else if (e.Key == Key.S)
-        {
-            Split_Click(sender, e);
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Delete)
-        {
-            Delete_Click(sender, e);
-            e.Handled = true;
-        }
-        else if (e.Key == Key.M)
-        {
-            Marker_Click(sender, e);
-            e.Handled = true;
-        }
-        else
-        {
-            return;
-        }
-        e.Handled = true;
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (Keyboard.FocusedElement is Slider && key is Key.Left or Key.Right or Key.Up or Key.Down) return;
+        if (OverlayKey(key, modifiers)) { e.Handled = true; return; }
+        if (RegionKey(key, modifiers)) { e.Handled = true; return; }
+        e.Handled = HandleEditorShortcut(key, modifiers, e.IsRepeat);
     }
 
     async Task LoadFramesAsync()

@@ -210,8 +210,10 @@ public static class CanvasLayout
         }
 
         var (enter, exit) = ZoomMotion.Windows(zoom);
-        var into = enter <= .000001 ? (time >= zoom.Start ? 1 : 0) : Math.Clamp((time - zoom.Start) / enter, 0, 1);
-        var outOf = exit <= .000001 ? (time <= zoom.Start + zoom.Duration ? 1 : 0) : Math.Clamp((zoom.Start + zoom.Duration - time) / exit, 0, 1);
+        var local = time - zoom.Start + zoom.AnimationOffset;
+        var duration = zoom.AnimationDuration ?? zoom.Duration;
+        var into = enter <= .000001 ? (local >= 0 ? 1 : 0) : Math.Clamp(local / enter, 0, 1);
+        var outOf = exit <= .000001 ? (local <= duration ? 1 : 0) : Math.Clamp((duration - local) / exit, 0, 1);
         into = ZoomMotion.Progress(zoom, into);
         outOf = 1 - ZoomMotion.Progress(zoom, 1 - outOf);
         return into * outOf;

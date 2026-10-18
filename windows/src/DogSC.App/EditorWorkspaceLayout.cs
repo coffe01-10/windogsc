@@ -21,7 +21,7 @@ public partial class EditorWindow
             ToolRailSurface.LayoutTransform = new ScaleTransform(scale, scale);
             InspectorSurface.LayoutTransform = new ScaleTransform(scale, scale);
             MonitorToolbarSurface.LayoutTransform = new ScaleTransform(scale, scale);
-            InspectorColumn.Width = new GridLength(384 * scale);
+            if (!_inspectorHidden) InspectorColumn.Width = new GridLength(384 * scale);
             HeaderRow.Height = new GridLength(72 - 16 * compression);
         }
         if (!_workspaceInitialized)

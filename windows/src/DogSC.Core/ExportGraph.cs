@@ -8,6 +8,8 @@ public sealed class ExportOptions
     public bool AudioOnly { get; init; }
     public string Resolution { get; init; } = "source";
     public int Fps { get; init; } = 30;
+    public double? RangeStart { get; init; }
+    public double? RangeDuration { get; init; }
 }
 
 /// <param name="Margin">烘焙图四边留边占内容宽的比例（对称留边，中心对齐）。</param>
@@ -585,7 +587,11 @@ public static class ExportGraph
                 script.Append("format=rgb24,lutrgb=r='val*").Append(F(1 - effect.Dimming))
                     .Append("':g='val*").Append(F(1 - effect.Dimming)).Append("':b='val*").Append(F(1 - effect.Dimming))
                     .Append("'[focusbranch").Append(n).AppendLine("]");
-                script.Append('[').Append(index).Append(":v]scale=").Append(canvasWidth).Append(':').Append(canvasHeight)
+                // FFV1/Matroska uses millisecond timestamps. Repeated focus
+                // overlays otherwise round 30/60fps frames forward and add a
+                // trailing frame for each split effect's mask.
+                script.Append('[').Append(index).Append(":v]fps=").Append(fps)
+                    .Append(",settb=expr=1/").Append(fps).Append(",setpts=N,scale=").Append(canvasWidth).Append(':').Append(canvasHeight)
                     .Append(":flags=bilinear,format=gray[focusmask").Append(n).AppendLine("]");
                 script.Append("[focusbranch").Append(n).Append("][focusmask").Append(n).Append("]alphamerge[focusalpha").Append(n).AppendLine("]");
                 script.Append("[focusclear").Append(n).Append("][focusalpha").Append(n).Append("]overlay=0:0:format=auto:shortest=1[spatialfocus").Append(n).AppendLine("]");

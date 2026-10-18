@@ -66,9 +66,10 @@ public sealed class FocusTrack
             anchor = new(crop.X + crop.Width * (.5 / pose.Scale + pose.X * (1 - 1 / pose.Scale)),
                 crop.Y + crop.Height * (.5 / pose.Scale + pose.Y * (1 - 1 / pose.Scale)));
             var (enter, exit) = ZoomMotion.Windows(zoom);
-            var local = time - zoom.Start;
+            var local = time - zoom.Start + zoom.AnimationOffset;
+            var duration = zoom.AnimationDuration ?? zoom.Duration;
             progress = editingZoom is not null ? 1 : enter > 0 && local < enter ? ZoomMotion.Progress(zoom, local / enter)
-                : exit > 0 && local > zoom.Duration - exit ? 1 - ZoomMotion.Progress(zoom, (local - zoom.Duration + exit) / exit) : 1;
+                : exit > 0 && local > duration - exit ? 1 - ZoomMotion.Progress(zoom, (local - duration + exit) / exit) : 1;
         }
         else return null;
         if (progress <= .001 || (effect.Blur <= 0 && effect.Dimming <= 0)) return null;

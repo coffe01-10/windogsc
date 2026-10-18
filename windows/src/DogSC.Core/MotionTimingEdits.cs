@@ -11,6 +11,8 @@ public static class MotionTimingEdits
         var source = members.FirstOrDefault(c => c.Id == id);
         if (source.Timing is null) return false;
         var oldStart = source.Timing.StartTime; var oldEnd = source.Timing.EndTime;
+        if (start >= oldStart && start + duration <= oldEnd && duration < source.Timing.Duration)
+            return TimelineShortcutEdits.TrimMotionRange(project, id, start, start + duration);
         source.Timing.StartTime = Math.Max(0, start);
         source.Timing.Duration = Math.Max(.05, duration);
         source.Timing.LeadInDuration = Math.Min(source.Timing.LeadInDuration, source.Timing.Duration);
@@ -48,15 +50,68 @@ public static class MotionTimingEdits
     public static void RemoveRange(ProjectDocument project, double start, double end)
     {
         if (end <= start) return;
-        foreach (var timing in project.ScreenMotions.Select(c => c.Timing).Concat(project.CameraMotions.Select(c => c.Timing)))
+        foreach (var id in project.ScreenMotions.Select(c => c.Id).Concat(project.CameraMotions.Select(c => c.Id)))
+            TimelineShortcutEdits.PreserveMotionEntry(project, id);
+        var rightGroups = new Dictionary<string, string>();
+        Cut(project.ScreenMotions, c => c.Timing, (c, t) => c.Timing = t,
+            (c, id) => c.Id = id, c => c.GroupId, (c, group) => c.GroupId = group);
+        Cut(project.CameraMotions, c => c.Timing, (c, t) => c.Timing = t,
+            (c, id) => c.Id = id, c => c.GroupId, (c, group) => c.GroupId = group);
+
+        void Cut<T>(List<T> clips, Func<T, TransitionTiming> timingOf, Action<T, TransitionTiming> setTiming,
+            Action<T, string> setId, Func<T, string?> groupOf, Action<T, string> setGroup) where T : class
         {
-            var lead = Math.Min(timing.LeadInDuration, timing.Duration);
-            if (start <= timing.StartTime && end > timing.StartTime && lead > 0)
-                timing.LeadInProgressOffset += (1 - timing.LeadInProgressOffset) * Math.Clamp((end - timing.StartTime) / lead, 0, 1);
-            if (start <= timing.EndTime && end > timing.EndTime && timing.ReturnDuration > 0)
-                timing.ReturnProgressOffset += (1 - timing.ReturnProgressOffset) * Math.Clamp((end - timing.EndTime) / timing.ReturnDuration, 0, 1);
+            var kept = new List<T>();
+            foreach (var clip in clips)
+            {
+                var timing = timingOf(clip);
+                var effectEnd = timing.EndTime + (timing.PreferredReturnDuration ?? timing.ReturnDuration);
+                if (effectEnd <= start) { kept.Add(clip); continue; }
+                if (timing.StartTime >= end) { timing.StartTime -= end - start; kept.Add(clip); continue; }
+                var hasLeft = timing.StartTime < start;
+                if (hasLeft)
+                {
+                    var left = ScenePreset.Clone(clip);
+                    setTiming(left, Slice(timing, timing.StartTime, start)); kept.Add(left);
+                }
+                if (effectEnd > end)
+                {
+                    var right = ScenePreset.Clone(clip);
+                    var slice = Slice(timing, end, effectEnd); slice.StartTime -= end - start;
+                    if (hasLeft)
+                    {
+                        setId(right, Guid.NewGuid().ToString("N")); slice.Id = Guid.NewGuid().ToString("N");
+                        if (groupOf(clip) is { } group)
+                        {
+                            if (!rightGroups.TryGetValue(group, out var newGroup)) rightGroups[group] = newGroup = Guid.NewGuid().ToString("N");
+                            setGroup(right, newGroup);
+                        }
+                    }
+                    setTiming(right, slice); kept.Add(right);
+                }
+            }
+            clips.Clear(); clips.AddRange(kept);
         }
-        Apply(project, t => t <= start ? t : t < end ? start : t - (end - start));
+    }
+
+    static TransitionTiming Slice(TransitionTiming original, double start, double end)
+    {
+        var timing = ScenePreset.Clone(original);
+        var lead = Math.Min(original.LeadInDuration, original.Duration);
+        double Entry(double t) => lead <= .0001 ? original.LeadInProgressEnd
+            : original.LeadInProgressOffset + (original.LeadInProgressEnd - original.LeadInProgressOffset)
+                * Math.Clamp((t - original.StartTime) / lead, 0, 1);
+        var returning = original.PreferredReturnDuration ?? original.ReturnDuration;
+        double Return(double t) => returning <= .0001 ? original.ReturnProgressEnd
+            : original.ReturnProgressOffset + (original.ReturnProgressEnd - original.ReturnProgressOffset)
+                * Math.Clamp((t - original.EndTime) / returning, 0, 1);
+        timing.StartTime = start; timing.Duration = Math.Max(0, Math.Min(end, original.EndTime) - start);
+        timing.LeadInDuration = Math.Max(0, Math.Min(end, original.StartTime + lead) - start);
+        timing.LeadInProgressOffset = Entry(start); timing.LeadInProgressEnd = Entry(end);
+        timing.ReturnDuration = Math.Max(0, end - Math.Max(start, original.EndTime));
+        timing.ReturnProgressOffset = Return(Math.Max(start, original.EndTime)); timing.ReturnProgressEnd = Return(end);
+        timing.PreferredLeadInDuration = timing.LeadInDuration; timing.PreferredReturnDuration = timing.ReturnDuration;
+        return timing;
     }
 
     public static void InsertGap(ProjectDocument project, double time, double duration)

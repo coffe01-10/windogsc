@@ -7,11 +7,11 @@ public static class LinearFocus
         var t = clip.Timing;
         if (time < t.StartTime) return 0;
         if (t.LeadInDuration > .0001 && time < t.StartTime + Math.Min(t.LeadInDuration, t.Duration))
-            return MotionEasing.EasedProgress(t.LeadInProgressOffset + (1 - t.LeadInProgressOffset) *
+            return MotionEasing.EasedProgress(t.LeadInProgressOffset + (t.LeadInProgressEnd - t.LeadInProgressOffset) *
                 (time - t.StartTime) / Math.Min(t.LeadInDuration, t.Duration), t.Easing, t.CustomCurve);
         if (time < t.EndTime) return 1;
         if (t.ReturnDuration <= .0001) return 1;
-        return 1 - MotionEasing.EasedProgress(t.ReturnProgressOffset + (1 - t.ReturnProgressOffset) *
+        return 1 - MotionEasing.EasedProgress(t.ReturnProgressOffset + (t.ReturnProgressEnd - t.ReturnProgressOffset) *
             Math.Clamp((time - t.EndTime) / t.ReturnDuration, 0, 1), t.Easing, t.CustomCurve);
     }
 

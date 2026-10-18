@@ -29,6 +29,14 @@ internal static class Program
         var pointerFollow = args.Length == 1 && args[0] == "--pointer-follow";
         var liveTouch = args.Length == 1 && args[0] == "--live-touch";
         var captureTargets = args.Length == 1 && args[0] == "--capture-targets";
+        if (args.Length >= 1 && args[0] == "--shortcuts")
+        {
+            var shortcutTask = ShortcutChecks.RunAsync(host, args.Length > 1 ? args[1] : null);
+            shortcutTask.ContinueWith(_ => app.Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background));
+            Dispatcher.Run();
+            try { shortcutTask.GetAwaiter().GetResult(); return 0; }
+            catch (Exception error) { Console.Error.WriteLine("UI_FAIL " + error); return 1; }
+        }
         if (args.Length == 1 && (args[0] is "--motion-frames" or "--camera-morph" or "--camera-backdrop" or "--camera-decoration" or "--layout-links" or "--layout-presets"))
         {
             var motionTask = args[0] == "--layout-presets" ? LayoutPresetChecks.RunAsync(host)

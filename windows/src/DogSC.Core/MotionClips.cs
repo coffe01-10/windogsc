@@ -13,6 +13,9 @@ public sealed class TransitionTiming
     public double LeadInDuration { get; set; }
     /// <summary>保留进入相位；0 = 从头开始，1 = 进入已完成。</summary>
     public double LeadInProgressOffset { get; set; }
+    public double LeadInProgressEnd { get; set; } = 1;
+    /// <summary>裁剪后的进入仍从原来的来源构图插值；null 来源表示项目基础构图。</summary>
+    public bool PreserveEntry { get; set; }
     /// <summary>linear/quadratic/cubic/quintic/spring/custom。</summary>
     public string Easing { get; set; } = "cubic";
     /// <summary>自定义贝塞尔控制点（Easing=custom 时使用）。</summary>
@@ -21,6 +24,7 @@ public sealed class TransitionTiming
     public double ReturnDuration { get; set; }
     /// <summary>剪切跨过回落起点时保留的回落相位。</summary>
     public double ReturnProgressOffset { get; set; }
+    public double ReturnProgressEnd { get; set; } = 1;
     public double? PreferredLeadInDuration { get; set; }
     public double? PreferredReturnDuration { get; set; }
 
@@ -63,6 +67,7 @@ public sealed class ScreenMotionClip
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public TransitionTiming Timing { get; set; } = new();
     public ScreenMotionState Target { get; set; } = new();
+    public ScreenMotionState? EntryFrom { get; set; }
     /// <summary>线性柔化：清晰带外逐渐混合模糊层，随运动的进入与退出过渡。</summary>
     public bool LinearBlur { get; set; }
     public double LinearBlurSize { get; set; } = .32;
@@ -93,6 +98,7 @@ public sealed class CameraMotionClip
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public TransitionTiming Timing { get; set; } = new();
     public CameraMotionState Target { get; set; } = new();
+    public CameraMotionState? EntryFrom { get; set; }
     public string? GroupId { get; set; }
 }
 

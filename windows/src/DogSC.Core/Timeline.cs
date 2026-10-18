@@ -239,6 +239,9 @@ public static class TimelineEdits
                 FocusY = zoom.FocusY,
                 Origin = zoom.Origin, Easing = zoom.Easing, EnterDuration = zoom.EnterDuration, ExitDuration = zoom.ExitDuration,
                 SpringMass = zoom.SpringMass, SpringStiffness = zoom.SpringStiffness, SpringDamping = zoom.SpringDamping,
+                CurveX1 = zoom.CurveX1, CurveY1 = zoom.CurveY1, CurveX2 = zoom.CurveX2, CurveY2 = zoom.CurveY2,
+                AnimationOffset = zoom.AnimationDuration is null ? 0 : zoom.AnimationOffset + Math.Max(0, placed.Start - zoom.Start),
+                AnimationDuration = zoom.AnimationDuration, AnimationInitialPose = zoom.AnimationInitialPose,
             })
             .ToList();
         return new EffectBundle
@@ -330,6 +333,9 @@ public static class TimelineEdits
                 FocusY = zoom.FocusY,
                 Origin = zoom.Origin, Easing = zoom.Easing, EnterDuration = zoom.EnterDuration, ExitDuration = zoom.ExitDuration,
                 SpringMass = zoom.SpringMass, SpringStiffness = zoom.SpringStiffness, SpringDamping = zoom.SpringDamping,
+                CurveX1 = zoom.CurveX1, CurveY1 = zoom.CurveY1, CurveX2 = zoom.CurveX2, CurveY2 = zoom.CurveY2,
+                AnimationOffset = zoom.AnimationDuration is null ? 0 : zoom.AnimationOffset + Math.Max(0, -zoom.Start),
+                AnimationDuration = zoom.AnimationDuration, AnimationInitialPose = zoom.AnimationInitialPose,
             });
         }
 
@@ -353,6 +359,8 @@ public static class TimelineEdits
         Origin = source.Origin, Easing = source.Easing, EnterDuration = source.EnterDuration, ExitDuration = source.ExitDuration,
         SpringMass = source.SpringMass, SpringStiffness = source.SpringStiffness, SpringDamping = source.SpringDamping,
         CurveX1 = source.CurveX1, CurveY1 = source.CurveY1, CurveX2 = source.CurveX2, CurveY2 = source.CurveY2,
+        AnimationOffset = source.AnimationOffset, AnimationDuration = source.AnimationDuration,
+        AnimationInitialPose = source.AnimationInitialPose,
     };
 
     /// <summary>完整复制缩放段；只吸附同轨边缘，不覆盖已有段或截短副本。</summary>
@@ -492,7 +500,7 @@ public static class TimelineEdits
         EffectTiming.Edit(project, spans => TimelineMath.RemoveRange(spans, placed.Start, placed.End));
         MotionTimingEdits.RemoveRange(project, placed.Start, placed.End);
 
-        TimelineMath.RemoveRange(project.Zooms, placed.Start, placed.End);
+        TimelineShortcutEdits.RemoveZoomRange(project, placed.Start, placed.End);
         project.Clips.RemoveAll(item => item.Id == clipId);
         return true;
     }
@@ -519,7 +527,7 @@ public static class TimelineEdits
         {
             EffectTiming.Edit(project, spans => TimelineMath.RemoveRange(spans, slot.Start, slot.Start + head / clip.Speed));
             MotionTimingEdits.RemoveRange(project, slot.Start, slot.Start + head / clip.Speed);
-            TimelineMath.RemoveRange(project.Zooms, slot.Start, slot.Start + head / clip.Speed);
+            TimelineShortcutEdits.RemoveZoomRange(project, slot.Start, slot.Start + head / clip.Speed);
         }
         else if (head < -0.0001)
         {
@@ -536,7 +544,7 @@ public static class TimelineEdits
             var removed = tail / clip.Speed;
             EffectTiming.Edit(project, spans => TimelineMath.RemoveRange(spans, refreshed.End - removed, refreshed.End));
             MotionTimingEdits.RemoveRange(project, refreshed.End - removed, refreshed.End);
-            TimelineMath.RemoveRange(project.Zooms, refreshed.End - removed, refreshed.End);
+            TimelineShortcutEdits.RemoveZoomRange(project, refreshed.End - removed, refreshed.End);
         }
         else if (tail < -0.0001)
         {
@@ -727,8 +735,9 @@ public static class TimelineEdits
             }
         }
 
-        zoom.Start = start;
-        zoom.Duration = length;
+        if (start >= zoom.Start && end <= zoom.Start + zoom.Duration && length < zoom.Duration)
+            TimelineShortcutEdits.TrimZoomRange(project, zoom, start, end);
+        else { zoom.Start = start; zoom.Duration = length; }
         return true;
     }
 
